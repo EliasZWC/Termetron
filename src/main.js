@@ -1,4 +1,9 @@
-import { BarcodeScanner } from '@capacitor/barcode-scanner';
+import {
+  CapacitorBarcodeScanner,
+  CapacitorBarcodeScannerCameraDirection,
+  CapacitorBarcodeScannerScanOrientation,
+  CapacitorBarcodeScannerTypeHint,
+} from '@capacitor/barcode-scanner';
 
 const urlInput = document.getElementById('url');
 
@@ -20,9 +25,15 @@ urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(url
 
 document.getElementById('scan').addEventListener('click', async () => {
   try {
-    await BarcodeScanner.checkPermission({ force: true });
-    const result = await BarcodeScanner.startScan();
-    if (result.hasContent) connect(result.content);
+    const result = await CapacitorBarcodeScanner.scanBarcode({
+      hint: CapacitorBarcodeScannerTypeHint.QR_CODE,
+      scanInstructions: '把二维码对准取景框',
+      scanButton: true,
+      scanText: '完成',
+      cameraDirection: CapacitorBarcodeScannerCameraDirection.BACK,
+      scanOrientation: CapacitorBarcodeScannerScanOrientation.ADAPTIVE,
+    });
+    if (result && result.ScanResult) connect(result.ScanResult);
   } catch (e) {
     alert('scan failed: ' + (e.message || e));
   }
