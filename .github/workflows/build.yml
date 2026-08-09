@@ -41,6 +41,9 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Add OutSystems maven repo (barcode dep)
+        run: python3 scripts/add-azure-repo.py
+
       - name: Build APK (gradle)
         run: cd android && ./gradlew assembleDebug
 
