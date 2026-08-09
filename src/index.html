@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>QT</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #0b0f14; color: #e6edf3; font-family: system-ui, sans-serif;
+      padding: 24px;
+    }
+    .card { width: 100%; max-width: 360px; text-align: center; }
+    .logo { font: 700 34px/1 monospace; color: #00e0a0; letter-spacing: 2px; margin: 0 0 4px; }
+    .sub { color: #5b6572; font-size: 12px; margin: 0 0 28px; }
+    input {
+      width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #232a33;
+      background: #10161f; color: #e6edf3; font-size: 14px; outline: none; margin-bottom: 10px;
+    }
+    input:focus { border-color: #00e0a0; }
+    .btn {
+      width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 15px;
+      font-weight: 600; cursor: pointer; margin-bottom: 10px;
+    }
+    .primary { background: #00e0a0; color: #0b0f14; }
+    .ghost { background: #10161f; color: #e6edf3; border: 1px solid #232a33; }
+    .hint { color: #5b6572; font-size: 11px; margin-top: 16px; line-height: 1.6; }
+    .hint b { color: #00e0a0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p class="logo">QT$</p>
+    <p class="sub">Quant Terminal client</p>
+    <input id="url" placeholder="paste tunnel URL from computer" autocomplete="off">
+    <button class="btn primary" id="connect">connect</button>
+    <button class="btn ghost" id="scan">scan QR code</button>
+    <p class="hint">
+      On the computer run <b>qt remote on</b>, then either paste the URL or scan the QR.
+      You'll enter the one-time password and approve the pairing with <b>qt allow &lt;key&gt;</b>.
+    </p>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
