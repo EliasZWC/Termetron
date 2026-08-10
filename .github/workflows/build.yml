@@ -59,11 +59,28 @@ jobs:
           name: qt-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Publish GitHub Release (App update source)
+      - name: Get app version
+        id: ver
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Check release tag exists
+        id: checkrel
         run: |
-          VER=$(node -p "require('./package.json').version")
-          cp android/app/build/outputs/apk/debug/app-debug.apk "termetron-v${VER}.apk"
-          gh release create "v${VER}" "termetron-v${VER}.apk" \
-            --repo "$GITHUB_REPOSITORY" --title "Termetron v${VER}" \
-            --generate-notes \
-            || echo "::notice title=release::v${VER} already exists, skip"
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release (App update source)
+        if: steps.checkrel.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Termetron v${{ steps.ver.outputs.version }}
+          body: Auto-built APK for Termetron v${{ steps.ver.outputs.version }} (App in-app update source).
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
