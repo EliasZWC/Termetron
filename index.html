@@ -14,7 +14,7 @@
       background: var(--bg); color: var(--txt); font-family: system-ui, sans-serif;
       padding: 24px;
     }
-    .card { width: 100%; max-width: 360px; text-align: center; }
+    .card { width: 100%; max-width: 360px; text-align: center; display: flex; flex-direction: column; min-height: min(540px, 78vh); }
     .logo { display: inline-flex; align-items: center; gap: 14px; color: var(--acc); margin: 0 0 4px; }
     .logo svg { width: 38px; height: 38px; flex: none; }
     .logo svg * { stroke-width: 2.6; }
@@ -35,7 +35,7 @@
     button:focus { outline: none; box-shadow: 0 0 0 2px rgba(167,139,250,.3); }
     .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
     .hint b { color: var(--acc); }
-    .ver { color: var(--dim); font-size: 11px; margin-top: 22px; line-height: 1.6; }
+    .ver { color: var(--dim); font-size: 11px; margin-top: auto; padding: 52px 0 8px; line-height: 1.6; }
     .ver b { color: var(--acc); }
   </style>
 </head>

@@ -237,6 +237,60 @@ def patch_apk_install() -> None:
         print("  MainActivity: registerPlugin(ApkInstallerPlugin.class)")
 
 
+SPLASH_BG = "#0b0f14"
+
+
+def patch_splash() -> None:
+    """品牌启动页（Android 12+ 系统 SplashScreen API）。
+    Capacitor 模板 AppTheme.NoActionBarLaunch parent=Theme.SplashScreen 只配了
+    android:background=@drawable/splash，没配 windowSplashScreenBackground/图标 →
+    Android 12+ 显示默认白屏。显式注入深色背景 + launcher 图标（品牌 >_ logo）。
+    Android <12 仍用 @drawable/splash（完整 splash.png，capacitor-assets 生成）。
+    """
+    p = Path("android/app/src/main/res/values/styles.xml")
+    if not p.exists():
+        print("  styles.xml not found, skip splash", file=sys.stderr)
+        return
+    s = p.read_text(encoding="utf-8")
+    if "windowSplashScreenBackground" in s:
+        print("  styles.xml: Android 12 splash already configured, skip")
+        return
+    marker = '<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">'
+    if marker not in s:
+        print("  styles.xml: AppTheme.NoActionBarLaunch(Theme.SplashScreen) not found", file=sys.stderr)
+        return
+    idx = s.index(marker) + len(marker)
+    end = s.index("</style>", idx)
+    inject = (
+        '\n        <item name="android:windowSplashScreenBackground">' + SPLASH_BG + '</item>'
+        '\n        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>'
+        '\n        <item name="android:windowSplashScreenIconBackgroundColor">' + SPLASH_BG + '</item>'
+    )
+    s = s[:end] + inject + s[end:]
+    p.write_text(s, encoding="utf-8")
+    print("  styles.xml: Android 12 splash injected (dark bg + launcher icon)")
+
+
+def patch_splash_dep() -> None:
+    """确保 androidx.core:core-splashscreen 依赖（Theme.SplashScreen parent 需要；
+    @capacitor/splash-screen 通常会带，这里兜底）。"""
+    p = Path("android/app/build.gradle")
+    if not p.exists():
+        print("  app/build.gradle not found, skip splash dep", file=sys.stderr)
+        return
+    s = p.read_text(encoding="utf-8")
+    if "core-splashscreen" in s:
+        print("  build.gradle: core-splashscreen already present, skip")
+        return
+    if "dependencies {" not in s:
+        print("  build.gradle: dependencies block not found", file=sys.stderr)
+        return
+    idx = s.index("dependencies {") + len("dependencies {")
+    s = s[:idx] + '\n    implementation "androidx.core:core-splashscreen:1.2.0"' + s[idx:]
+    p.write_text(s, encoding="utf-8")
+    print("  build.gradle: core-splashscreen:1.2.0 added")
+
+
 if __name__ == "__main__":
     print("patching android/ ...")
     patch_build_gradle()
@@ -244,4 +298,6 @@ if __name__ == "__main__":
     patch_styles()
     patch_version_name()
     patch_apk_install()
+    patch_splash()
+    patch_splash_dep()
     print("done")
