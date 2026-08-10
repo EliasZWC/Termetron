@@ -6,3 +6,5 @@ android/
 # 本地杂项
 *.log
 .DS_Store
+__pycache__/
+*.pyc
