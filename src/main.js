@@ -6,6 +6,7 @@ import {
 } from '@capacitor/barcode-scanner';
 
 const urlInput = document.getElementById('url');
+const connBtn = document.getElementById('connect');
 
 // 版本号由 vite define 注入（__APP_VERSION__ 来自 package.json，与 README **Version:** 同步）
 // eslint-disable-next-line no-undef
@@ -16,13 +17,37 @@ document.getElementById('ver').textContent =
 // 记住上次连接地址
 urlInput.value = localStorage.getItem('qt_url') || '';
 
-function connect(raw) {
+// 隧道 URL 可达性探测：qt remote off 后 trycloudflare URL 失效，直接导航会进入
+// WebView 错误页且无法返回；用 no-cors fetch 先探测（服务器可达即 resolve，
+// 与 CORS 无关），不可达则提示并留在连接页。
+function probe(url) {
+  return new Promise((resolve) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctl.signal })
+      .then(() => { clearTimeout(t); resolve(true); })
+      .catch(() => { clearTimeout(t); resolve(false); });
+  });
+}
+function setBusy(b) {
+  connBtn.disabled = b;
+  connBtn.textContent = b ? 'connecting ...' : 'connect';
+}
+
+async function connect(raw) {
   let url = (raw || '').trim();
   if (!url) return;
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
   // 从二维码来的可能是 qt://<url>?t=<token>，转为 https
   url = url.replace(/^qt:\/\//i, 'https://');
   localStorage.setItem('qt_url', url);
+  setBusy(true);
+  const ok = await probe(url);
+  if (!ok) {
+    setBusy(false);
+    alert('Tunnel unreachable.\nRun "qt remote on" on the computer again, then re-scan or paste the new URL.');
+    return;
+  }
   window.location.href = url;   // WebView 导航到隧道 URL，QT 前端接管密码/配对认证
 }
 
