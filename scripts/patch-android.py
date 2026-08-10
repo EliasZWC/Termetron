@@ -199,6 +199,7 @@ public class ApkInstallerPlugin extends Plugin {
 MAIN_ACTIVITY_JAVA = '''package dev.qt.terminal;
 
 import android.os.Bundle;
+import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -207,6 +208,18 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ApkInstallerPlugin.class);
         super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void onBackPressed() {
+        // 设备返回键：隧道（远程）页面时回到本地连接登录页（隧道页无 Capacitor bridge，JS 无法捕获返回键）
+        WebView wv = getBridge() != null ? getBridge().getWebView() : null;
+        String url = wv != null ? wv.getUrl() : null;
+        if (url != null && !url.startsWith("https://localhost") && !url.startsWith("capacitor://localhost")) {
+            wv.loadUrl("https://localhost/?t=back");
+        } else {
+            super.onBackPressed();
+        }
     }
 }
 '''
