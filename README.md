@@ -1,49 +1,69 @@
-# QT 手机端 App（Capacitor）
+# Termetron Mobile App (Capacitor)
 
-QT 的手机客户端——用 **Capacitor**（WebView 套壳）包装的独立 App：
-- 打开后显示连接页（输入隧道 URL 或**扫二维码**）
-- 连接后进入 QT 终端（认证/配对在 QT 前端完成）
-- 有独立图标、独立窗口，像原生 App（但零原生代码）
+The Android client for **Termetron** — a standalone app wrapping the web
+terminal in a **Capacitor** WebView:
 
-## 前置要求
+- Connection page (paste the tunnel URL or **scan the QR code**)
+- After connecting, enters the Termetron terminal (auth / pairing is handled
+  by the Termetron front end)
+- Own icon and window — feels like a native app (but zero native code)
 
-- **Node.js**（>=18）+ npm
-- **Android Studio**（本地构建 apk 用；iOS 需 Mac + Xcode + Apple 开发者账号）
+## Prerequisites
 
-## 构建方式 A：云构建（推荐，零本地安装）
+- **Node.js** (>=18) + npm
+- **Android Studio** for local builds; iOS requires a Mac + Xcode + Apple
+  developer account
 
-仓库已带 GitHub Actions workflow（`.github/workflows/build.yml`）：
+## Build option A: cloud build (recommended, zero local setup)
 
-1. 把本目录推到一个 GitHub 仓库（私有即可）
-2. Actions 里手动触发 `build-apk`（或推送自动触发）
-3. 构建完成后在 Actions 的 **Artifacts** 里下载 `qt-apk`
+The repo ships a GitHub Actions workflow (`.github/workflows/build.yml`):
 
-云端自动完成 Node/JDK/Android SDK 安装 + gradle 构建，无需本地任何工具链。
+1. Push this directory to a GitHub repository. Make it **public** so the
+   in-app auto-update can fetch releases without authentication.
+2. Trigger `build-apk` manually in Actions (or it runs on every push).
+3. Download the built APK from the Actions **Artifacts**.
 
-## 构建方式 B：本地构建
+The cloud handles Node/JDK/Android SDK install + gradle build automatically —
+no local toolchain needed.
+
+## Build option B: local build
 
 ```bash
 cd lib/termetron/app
-npm install                     # 安装依赖（含 @capacitor/* 与扫码插件）
-npm run build                   # vite 构建 -> www/
-npx cap add android             # 首次生成 android/ 工程（之后不需要）
-npx cap sync android            # 同步 web 产物 + 原生插件
-npx cap open android            # 在 Android Studio 打开
-# 在 Android Studio 里 Build -> Build APK(s)，产物在 android/app/build/outputs/apk/
+npm install                     # install deps (@capacitor/*, scanner, splash)
+npm run build                   # vite build -> www/
+npx cap add android             # first time only (generates android/)
+npx cap sync android            # sync web output + native plugins
+npx cap open android            # open in Android Studio
+# Android Studio: Build -> Build APK(s); output in android/app/build/outputs/apk/
 ```
 
-构建出的 apk 可直接安装到 Android 手机（无需商店）。分发给同学：直接发 apk 文件。
+The APK installs directly on an Android phone (no store needed).
 
-## 使用
+## Usage
 
-1. 电脑上 QT：`qt remote on` → 屏幕显示二维码（含 URL + 一次性密码）
-2. 手机打开 QT App → 扫电脑二维码（或手动粘贴 URL）
-3. 输入一次性密码 → 显示设备密钥
-4. 电脑上 `qt allow <密钥>` 放行
-5. 手机进入 QT 终端（息屏/重开保持连接，`qt remote off` 才断开）
+1. On the computer: `termetron remote on` → shows a QR code (URL) plus the
+   one-time password (shown separately).
+2. On the phone: open Termetron → scan the QR (or paste the URL).
+3. Type the one-time password → a device key appears.
+4. On the computer: `termetron allow <key>` (or approve the popup).
+5. The phone enters the Termetron terminal. It stays connected across
+   screen-off / re-open until `termetron remote off`.
 
-## 说明
+## In-app auto-update
 
-- **连接地址**：每次 `qt remote on` 的隧道 URL 会变（trycloudflare 随机子域），App 会记住上次地址，也支持扫码免输入
-- **iOS**：构建需 Mac + Xcode + Apple 开发者账号；`npx cap add ios` 后按需处理（当前 Windows 环境不构建 iOS）
-- **安全**：认证模型在 QT 侧（一次性密码 + 设备密钥 + 电脑放行），App 本身不存凭据，仅导航到隧道 URL
+The app checks the public GitHub releases of `EliasZWC/Termetron` every time it
+is entered (cold start / return to foreground) and offers to download + install
+a new APK in-app. Bump the version in `package.json` and `../README.md`
+(`**Version:**`) on every release.
+
+## Notes
+
+- **Connection address**: the tunnel URL changes on every `termetron remote
+  on` (trycloudflare random subdomain). The app remembers the last address and
+  supports QR scanning.
+- **iOS**: requires a Mac + Xcode + Apple developer account; `npx cap add ios`
+  then handle as needed (not built on this Windows setup).
+- **Security**: the auth model lives on the Termetron side (one-time password +
+  device key + computer approval). The app itself stores no credentials — it
+  only navigates to the tunnel URL.
