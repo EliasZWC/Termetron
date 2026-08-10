@@ -32,26 +32,9 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 固定 debug keystore：GitHub Actions 每次构建在全新环境，默认 debug keystore 每次不同
-      # → 每个 APK 签名不同 → 覆盖安装报签名冲突。缓存同一个 keystore 保证所有 APK 签名一致。
-      - name: Cache Android debug keystore (fixed signing)
-        id: cache-keystore
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: termetron-android-debug-keystore-v1
-
-      - name: Ensure debug keystore exists
-        if: steps.cache-keystore.outputs.cache-hit != 'true'
-        run: |
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            mkdir -p "$HOME/.android"
-            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
-              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass android -keypass android \
-              -dname "CN=Android Debug,O=Termetron,C=US"
-          fi
-
+      # 固定 debug keystore：android-debug.p12 已入库（PKCS12），由 patch-android.py 的
+      # patch_signing() 显式配置 signingConfigs.debug 指向它 → 每次构建签名 100% 一致，
+      # 不再依赖 actions/cache（cache 曾失效导致各版本签名不同，覆盖安装报签名冲突）。
       - name: Install deps
         run: npm install
 

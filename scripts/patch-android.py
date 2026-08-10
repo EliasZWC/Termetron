@@ -318,6 +318,68 @@ def patch_splash_dep() -> None:
     print("  build.gradle: core-splashscreen:1.2.0 added")
 
 
+SIGNING_BLOCK = """
+    signingConfigs {
+        debug {
+            storeFile file('android-debug.p12')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+            storeType 'PKCS12'
+        }
+    }"""
+
+
+def patch_signing() -> None:
+    """固定 APK 签名：使用仓库内的 android-debug.p12（PKCS12，入库，确定性签名）。
+
+    背景：GitHub Actions 每次在全新环境构建，若依赖默认 debug keystore，每次随机生成
+    → 各版本 APK 签名不同 → 覆盖安装报「签名冲突」。把固定 keystore 提交进仓库并显式
+    配置 signingConfigs.debug，所有构建用同一密钥 → 签名 100% 一致（AGP 默认 debug
+    buildType 即使用 signingConfigs.debug）。
+    """
+    src = Path("android-debug.p12")
+    if not src.exists():
+        print("  android-debug.p12 not found in repo root, skip signing", file=sys.stderr)
+        return
+    import shutil
+    dst = Path("android/app/android-debug.p12")
+    shutil.copyfile(src, dst)
+    print("  android/app/android-debug.p12: copied from repo root")
+
+    p = Path("android/app/build.gradle")
+    s = p.read_text(encoding="utf-8")
+    if "android-debug.p12" in s:
+        print("  build.gradle: fixed signing already present, skip")
+        return
+    marker = "android {"
+    if marker not in s:
+        print("  build.gradle: 'android {' not found", file=sys.stderr)
+        sys.exit(1)
+    s = s.replace(marker, marker + SIGNING_BLOCK, 1)
+    # 兜底：若 buildTypes.debug 已存在但未引用 signingConfig，补一行
+    s = _ensure_debug_signing(s)
+    p.write_text(s, encoding="utf-8")
+    print("  build.gradle: fixed debug signingConfig (android-debug.p12)")
+
+
+def _ensure_debug_signing(s: str) -> str:
+    """若 buildTypes 里存在 debug 块且未写 signingConfig，则在块内补一行引用。"""
+    import re
+
+    def repl(m):
+        block = m.group(0)
+        if "signingConfig" in block:
+            return block
+        r = block.rstrip()
+        if r.endswith("}"):
+            idx = r.rfind("}")
+            return r[:idx] + "            signingConfig signingConfigs.debug\n" + r[idx:]
+        return block
+
+    return re.sub(r"debug\s*\{[^}]*\}", repl, s, count=1)
+
+
 if __name__ == "__main__":
     print("patching android/ ...")
     patch_build_gradle()
@@ -327,4 +389,5 @@ if __name__ == "__main__":
     patch_apk_install()
     patch_splash()
     patch_splash_dep()
+    patch_signing()
     print("done")
