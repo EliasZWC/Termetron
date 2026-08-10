@@ -78,7 +78,7 @@ function probe(url) {
 }
 function setBusy(b) {
   connBtn.disabled = b;
-  connBtn.textContent = b ? 'connecting ...' : 'connect';
+  connBtn.textContent = b ? 'Connecting ...' : 'Connect';
 }
 
 async function connect(raw) {

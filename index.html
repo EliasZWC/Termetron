@@ -37,7 +37,9 @@
     .btn {
       width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 15px;
       font-weight: 600; cursor: pointer; margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
     }
+    .btn svg { width: 16px; height: 16px; flex: none; }
     .primary { background: var(--acc); color: var(--bg); }
     .ghost { background: var(--panel); color: var(--txt); border: 1px solid var(--border); }
     .primary:disabled { opacity: .6; cursor: default; }
@@ -66,11 +68,11 @@
     </p>
     <p class="sub">mobile client</p>
     <input id="url" placeholder="paste tunnel URL from computer" autocomplete="off">
-    <button class="btn primary" id="connect">connect</button>
-    <button class="btn ghost" id="scan">scan QR code</button>
+    <button class="btn primary" id="connect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Connect</button>
+    <button class="btn ghost" id="scan">Scan QR Code</button>
     <p class="hint">
       On the computer run <b>termetron remote on</b>, then either paste the URL or scan the QR.
-      You'll enter the one-time password and approve the pairing with <b>termetron allow &lt;key&gt;</b>.
+      Enter the one-time password, then enter the 4-digit code on the computer to pair.
     </p>
     <p class="ver" id="ver"></p>
   </div>
