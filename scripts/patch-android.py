@@ -8,7 +8,7 @@
 2) minSdkVersion 22 -> 26：osbarcode-android:1.1.x 要求 minSdk >= 26。
 3) 深色状态栏/导航栏：Capacitor 默认浅色主题导致手机状态栏灰色（非全屏观感），
    注入 --bg #0a0e14 同色，配合 WebView 背景实现全屏。
-4) versionName 从 package.json 读取（与 lib/qt/README.md **Version:** 同步，随迭代递增）。
+4) versionName 从 package.json 读取（与 lib/termetron/README.md **Version:** 同步，随迭代递增）。
 """
 import json
 import re

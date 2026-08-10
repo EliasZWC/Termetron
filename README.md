@@ -23,7 +23,7 @@ QT 的手机客户端——用 **Capacitor**（WebView 套壳）包装的独立 
 ## 构建方式 B：本地构建
 
 ```bash
-cd lib/qt/app
+cd lib/termetron/app
 npm install                     # 安装依赖（含 @capacitor/* 与扫码插件）
 npm run build                   # vite 构建 -> www/
 npx cap add android             # 首次生成 android/ 工程（之后不需要）
