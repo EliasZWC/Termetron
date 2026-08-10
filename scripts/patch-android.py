@@ -356,9 +356,10 @@ def patch_signing() -> None:
     if marker not in s:
         print("  build.gradle: 'android {' not found", file=sys.stderr)
         sys.exit(1)
-    s = s.replace(marker, marker + SIGNING_BLOCK, 1)
-    # 兜底：若 buildTypes.debug 已存在但未引用 signingConfig，补一行
+    # 兜底：若 buildTypes.debug 已存在但未引用 signingConfig，先补一行
+    # （必须在注入 signingConfigs 之前调用，否则正则会误匹配 signingConfigs.debug 块）
     s = _ensure_debug_signing(s)
+    s = s.replace(marker, marker + SIGNING_BLOCK, 1)
     p.write_text(s, encoding="utf-8")
     print("  build.gradle: fixed debug signingConfig (android-debug.p12)")
 
