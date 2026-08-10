@@ -92,7 +92,7 @@ async function connect(raw) {
   const ok = await probe(url);
   if (!ok) {
     setBusy(false);
-    await tmtAlert('Tunnel unreachable.\nRun "termetron remote on" on the computer again, then re-scan or paste the new URL.');
+    await tmtAlert('Tunnel is closed or unreachable.\nRun "termetron remote on" on the computer again, then re-scan or paste the new URL.');
     return;
   }
   window.location.href = url;   // WebView 导航到隧道 URL，Termetron 前端接管密码/配对认证
