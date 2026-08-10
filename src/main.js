@@ -17,15 +17,16 @@ document.getElementById('ver').textContent =
 // 记住上次连接地址
 urlInput.value = localStorage.getItem('qt_url') || '';
 
-// 隧道 URL 可达性探测：qt remote off 后 trycloudflare URL 失效，直接导航会进入
-// WebView 错误页且无法返回；用 no-cors fetch 先探测（服务器可达即 resolve，
-// 与 CORS 无关），不可达则提示并留在连接页。
+// 隧道 URL 可达性探测：qt remote off 后 trycloudflare URL 失效（Cloudflare 返回 530），
+// 直接导航会进入错误页且无法返回。探测 QT 的 /api/remote/status：
+//  - 隧道开着：QT 返回 200 且带 CORS 头（Access-Control-Allow-Origin:*）-> fetch 成功
+//  - 隧道关闭：Cloudflare 530 页无 CORS 头 -> 跨域被拦 -> fetch reject -> 判定不可达
 function probe(url) {
   return new Promise((resolve) => {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 8000);
-    fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctl.signal })
-      .then(() => { clearTimeout(t); resolve(true); })
+    fetch(url.replace(/\/$/, '') + '/api/remote/status', { cache: 'no-store', signal: ctl.signal })
+      .then((r) => { clearTimeout(t); resolve(r.status === 200); })
       .catch(() => { clearTimeout(t); resolve(false); });
   });
 }
