@@ -10,7 +10,6 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 const REPO = 'EliasZWC/Termetron';
 const DEBOUNCE_MS = 30000;   // 30s in-memory debounce
 const CHECK_TIMEOUT = 15000; // release check timeout (ms)
-const DL_RETRY = 2;          // download retries after failure
 
 let _lastCheck = 0;
 
@@ -36,6 +35,9 @@ const MODAL_CSS = `
 .ut-btn.cancel{background:#171e2b;color:#c9d1d9;border:1px solid #1b2733}
 .ut-btn.ok{background:#a78bfa;color:#0a0e14}
 .ut-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(167,139,250,.3)}
+.ut-pbar{height:6px;background:#171e2b;border-radius:3px;overflow:hidden;margin:2px 0 10px}
+.ut-pfill{height:100%;width:0;background:#a78bfa;transition:width .2s ease}
+.ut-ppct{color:#5a6a7a;font-size:12px;text-align:center;margin:0}
 `;
 
 function ensureModalCss() {
@@ -74,6 +76,27 @@ function showModal({ title, message, okText = 'OK', cancelText = null }) {
     if (cancel) cancel.onclick = () => done(false);
     ok.focus();
   });
+}
+
+function showProgressModal(title) {
+  ensureModalCss();
+  const overlay = document.createElement('div');
+  overlay.className = 'ut-overlay';
+  overlay.innerHTML =
+    '<div class="ut-modal"><h3></h3><div class="ut-pbar"><div class="ut-pfill"></div></div>' +
+    '<p class="ut-ppct"></p></div>';
+  overlay.querySelector('h3').textContent = title;
+  document.body.appendChild(overlay);
+  const pfill = overlay.querySelector('.ut-pfill');
+  const ppct = overlay.querySelector('.ut-ppct');
+  return {
+    set(percent) {
+      const p = Math.max(0, Math.min(100, Math.round(percent)));
+      pfill.style.width = p + '%';
+      ppct.textContent = p + '%';
+    },
+    close() { overlay.remove(); },
+  };
 }
 
 function fetchWithTimeout(url, timeout) {
@@ -116,36 +139,53 @@ export async function checkForUpdate() {
 }
 
 async function downloadAndInstall(url, name) {
-  let lastErr = null;
-  for (let attempt = 0; attempt <= DL_RETRY; attempt++) {
-    try {
-      // 原生下载（@capacitor/filesystem downloadFile）——绕过 WebView fetch 的 CORS 限制：
-      // GitHub release 资产（release-assets.githubusercontent.com）不带 Access-Control-Allow-Origin，
-      // WebView fetch 跨域会被拦（TypeError: Failed to fetch），原生 HTTP 不受 CORS 约束。
-      const saved = await Filesystem.downloadFile({
-        url,
-        path: name,
-        directory: Directory.Cache,
-      });
-      const plugin = Capacitor.Plugins.ApkInstaller;
-      if (!plugin) {
-        await showModal({
-          title: 'Downloaded',
-          message: 'The APK was downloaded, but the installer is unavailable.\nPlease install it manually from the GitHub release.',
-          okText: 'OK',
-        });
-        return;
-      }
-      await plugin.install({ path: saved.uri.replace(/^file:\/\//, '') });
-      return;
-    } catch (e) {
-      lastErr = e;
-      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); // backoff
-    }
+  // 循环：失败弹 Try again / Cancel，直到成功或用户取消
+  for (;;) {
+    const outcome = await tryDownload(url, name);
+    if (outcome === 'installed' || outcome === 'no-installer') return;
+    const retry = await showModal({
+      title: 'Update failed',
+      message: `Could not download the update (${outcome && outcome.error ? outcome.error.message : 'network error'}).\nCheck your connection and try again.`,
+      okText: 'Try again',
+      cancelText: 'Cancel',
+    });
+    if (!retry) return;
   }
-  await showModal({
-    title: 'Update failed',
-    message: `Could not download the update (${lastErr && lastErr.message ? lastErr.message : 'network error'}).\nCheck your connection and try again later.`,
-    okText: 'OK',
-  });
+}
+
+async function tryDownload(url, name) {
+  // 原生下载（@capacitor/filesystem downloadFile）——绕过 WebView fetch 的 CORS 限制：
+  // GitHub release 资产（release-assets.githubusercontent.com）不带 Access-Control-Allow-Origin，
+  // WebView fetch 跨域会被拦（TypeError: Failed to fetch），原生 HTTP 不受 CORS 约束。
+  const prog = showProgressModal('Downloading update...');
+  let listener = null;
+  try {
+    listener = await Filesystem.addListener('progress', (info) => {
+      if (info && typeof info.percent === 'number') prog.set(info.percent);
+    });
+    const saved = await Filesystem.downloadFile({
+      url,
+      path: name,
+      directory: Directory.Cache,
+    });
+    if (listener) listener.remove();
+    prog.close();
+    const plugin = Capacitor.Plugins.ApkInstaller;
+    if (!plugin) {
+      await showModal({
+        title: 'Downloaded',
+        message: 'The APK was downloaded, but the installer is unavailable.\nPlease install it manually from the GitHub release.',
+        okText: 'OK',
+      });
+      return 'no-installer';
+    }
+    // DownloadFileResult 字段是 path（不是 uri）
+    const filePath = String(saved && saved.path ? saved.path : '').replace(/^file:\/\//, '');
+    await plugin.install({ path: filePath });
+    return 'installed';
+  } catch (e) {
+    if (listener) listener.remove();
+    prog.close();
+    return { error: e };
+  }
 }
