@@ -9,6 +9,37 @@ import { checkForUpdate } from './updater';
 
 const urlInput = document.getElementById('url');
 
+// Termetron 风格提示框（替代系统默认 alert）：深色 #0d131b + 紫色 #a78bfa，与 updater 弹窗一致
+const TMT_CSS = `
+.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+.tmt-modal{background:#0d131b;border:1px solid #1b2733;border-radius:12px;padding:22px 20px;width:min(320px,88vw);color:#c9d1d9;box-shadow:0 10px 32px rgba(0,0,0,.55);text-align:left}
+.tmt-modal p{margin:0 0 18px;font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}
+.tmt-actions{display:flex;gap:10px;justify-content:flex-end}
+.tmt-btn{padding:9px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:#a78bfa;color:#0a0e14;-webkit-tap-highlight-color:transparent}
+.tmt-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(167,139,250,.3)}
+`;
+function tmtAlert(message) {
+  if (!document.getElementById('tmt-css')) {
+    const s = document.createElement('style');
+    s.id = 'tmt-css';
+    s.textContent = TMT_CSS;
+    document.head.appendChild(s);
+  }
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'tmt-overlay';
+    overlay.innerHTML =
+      '<div class="tmt-modal"><p></p><div class="tmt-actions"><button class="tmt-btn"></button></div></div>';
+    overlay.querySelector('p').textContent = message;
+    const ok = overlay.querySelector('button');
+    ok.textContent = 'OK';
+    document.body.appendChild(overlay);
+    const done = () => { overlay.remove(); resolve(); };
+    ok.onclick = done;
+    ok.focus();
+  });
+}
+
 // 设备返回键：连接页（App 首页）按返回直接退出；进入隧道后由 Termetron 前端接管
 // （会话视窗→目录页，目录页连按两次退出）
 App.addListener('backButton', () => { App.exitApp(); });
@@ -61,7 +92,7 @@ async function connect(raw) {
   const ok = await probe(url);
   if (!ok) {
     setBusy(false);
-    alert('Tunnel unreachable.\nRun "termetron remote on" on the computer again, then re-scan or paste the new URL.');
+    await tmtAlert('Tunnel unreachable.\nRun "termetron remote on" on the computer again, then re-scan or paste the new URL.');
     return;
   }
   window.location.href = url;   // WebView 导航到隧道 URL，Termetron 前端接管密码/配对认证
@@ -82,7 +113,7 @@ document.getElementById('scan').addEventListener('click', async () => {
     });
     if (result && result.ScanResult) connect(result.ScanResult);
   } catch (e) {
-    alert('scan failed: ' + (e.message || e));
+    await tmtAlert('Scan failed: ' + (e.message || e));
   }
 });
 

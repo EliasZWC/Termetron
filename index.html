@@ -8,7 +8,7 @@
   <style>
     /* 与电脑端 quant_terminal.py 一致的主题：--bg #0a0e14 / --panel #0d131b / --bar #171e2b / --border #1b2733 / --txt #c9d1d9 / --dim #5a6a7a / --acc #a78bfa */
     :root { color-scheme: dark; --bg:#0a0e14; --panel:#0d131b; --bar:#171e2b; --border:#1b2733; --txt:#c9d1d9; --dim:#5a6a7a; --acc:#a78bfa; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
       background: var(--bg); color: var(--txt); font-family: system-ui, sans-serif;
@@ -37,20 +37,23 @@
     .hint b { color: var(--acc); }
     .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; line-height: 1.6; margin: 0; }
     .ver b { color: var(--acc); }
-    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; z-index: 99999; animation: ut-splash 2.6s ease forwards; pointer-events: none; }
+    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-bottom: 6vh; z-index: 99999; animation: ut-splash 2.6s ease forwards; pointer-events: none; }
     @keyframes ut-splash { 0%, 77% { opacity: 1; } 100% { opacity: 0; } }
     .splash svg { width: 108px; height: 108px; color: var(--acc); }
     .splash-brand { color: var(--acc); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 7px; }
+    /* logo 的 >_ 必须等宽：Android 无 Consolas/Menlo，SVG font 属性列表 fallback 不可靠会落到非等宽字体 →
+       统一用单值 monospace + CSS 栈（Roboto Mono/Droid Sans Mono）保证 Android 命中等宽字体 */
+    .logo svg text, .splash svg text { font-family: 'Roboto Mono', 'Droid Sans Mono', monospace; }
   </style>
 </head>
 <body>
   <div id="splash" class="splash">
-    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="Consolas,Menlo,monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
     <div class="splash-brand">TERMETRON</div>
   </div>
   <div class="card">
     <p class="logo">
-      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="Consolas,Menlo,monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
       <span class="ttl">TERMETRON</span>
     </p>
     <p class="sub">mobile client</p>
