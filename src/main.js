@@ -5,7 +5,6 @@ import {
   CapacitorBarcodeScannerTypeHint,
 } from '@capacitor/barcode-scanner';
 import { App } from '@capacitor/app';
-import { SplashScreen } from '@capacitor/splash-screen';
 import { checkForUpdate } from './updater';
 
 const urlInput = document.getElementById('url');
@@ -20,16 +19,14 @@ const connBtn = document.getElementById('connect');
 document.getElementById('ver').textContent =
   'Termetron v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1');
 
-// 品牌启动页补足：系统 splash 之后，programmatic 显示完整品牌 splash（深色 + logo + TERMETRON）1.2s
-// （Android 12+ 系统 splash 只显示背景+图标，用 show() 补足完整品牌画面；不受系统 API 限制）
-SplashScreen.show({ showDuration: 1200, autoHide: true, fadeInDuration: 200, fadeOutDuration: 200 })
-  .catch(() => {});
-
-// Web 层品牌启动页（100% 生效，不依赖原生 splash）：连接页加载即覆盖，1.2s 淡出
+// Web 层品牌启动页（100% 生效，不依赖原生 splash）：由 CSS animation（ut-splash 2.6s）驱动显示+淡出
+// —— animation 从元素首次渲染时刻开始计时（不受 JS/module 执行延迟影响），比 JS 定时器更可靠；
+// animationend 后移除 DOM，setTimeout 兜底（极端情况下 animation 未触发）。
+// 不再调用原生 SplashScreen.show()：原生 splash 与 Web splash 时序竞争会让 Web splash 看起来“没生效”。
 const splashEl = document.getElementById('splash');
 if (splashEl) {
-  setTimeout(() => splashEl.classList.add('hide'), 1200);
-  setTimeout(() => splashEl.remove(), 1800);
+  splashEl.addEventListener('animationend', () => splashEl.remove(), { once: true });
+  setTimeout(() => splashEl.remove(), 3500);
 }
 
 // 记住上次连接地址

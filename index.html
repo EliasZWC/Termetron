@@ -10,11 +10,11 @@
     :root { color-scheme: dark; --bg:#0a0e14; --panel:#0d131b; --bar:#171e2b; --border:#1b2733; --txt:#c9d1d9; --dim:#5a6a7a; --acc:#a78bfa; }
     * { box-sizing: border-box; }
     body {
-      margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
       background: var(--bg); color: var(--txt); font-family: system-ui, sans-serif;
-      padding: 8vh 24px 0;
+      padding: 0 24px;
     }
-    .card { width: 100%; max-width: 360px; text-align: center; }
+    .card { width: 100%; max-width: 360px; text-align: center; margin-top: -5vh; }
     .logo { display: inline-flex; align-items: center; gap: 14px; color: var(--acc); margin: 0 0 4px; }
     .logo svg { width: 38px; height: 38px; flex: none; }
     .logo svg * { stroke-width: 2.6; }
@@ -35,12 +35,12 @@
     button:focus { outline: none; box-shadow: 0 0 0 2px rgba(167,139,250,.3); }
     .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
     .hint b { color: var(--acc); }
-    .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 20px; left: 0; right: 0; text-align: center; line-height: 1.6; }
+    .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 8px; left: 0; right: 0; text-align: center; line-height: 1.6; margin: 0; }
     .ver b { color: var(--acc); }
-    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; z-index: 99999; transition: opacity .4s ease; }
+    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; z-index: 99999; animation: ut-splash 2.6s ease forwards; pointer-events: none; }
+    @keyframes ut-splash { 0%, 77% { opacity: 1; } 100% { opacity: 0; } }
     .splash svg { width: 108px; height: 108px; color: var(--acc); }
     .splash-brand { color: var(--acc); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 7px; }
-    .splash.hide { opacity: 0; pointer-events: none; }
   </style>
 </head>
 <body>
