@@ -5,6 +5,7 @@ import {
   CapacitorBarcodeScannerTypeHint,
 } from '@capacitor/barcode-scanner';
 import { App } from '@capacitor/app';
+import { SplashScreen } from '@capacitor/splash-screen';
 import { checkForUpdate } from './updater';
 
 const urlInput = document.getElementById('url');
@@ -18,6 +19,11 @@ const connBtn = document.getElementById('connect');
 // eslint-disable-next-line no-undef
 document.getElementById('ver').textContent =
   'Termetron v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1');
+
+// 品牌启动页补足：系统 splash 之后，programmatic 显示完整品牌 splash（深色 + logo + TERMETRON）1.2s
+// （Android 12+ 系统 splash 只显示背景+图标，用 show() 补足完整品牌画面；不受系统 API 限制）
+SplashScreen.show({ showDuration: 1200, autoHide: true, fadeInDuration: 200, fadeOutDuration: 200 })
+  .catch(() => {});
 
 // 记住上次连接地址
 urlInput.value = localStorage.getItem('qt_url') || '';

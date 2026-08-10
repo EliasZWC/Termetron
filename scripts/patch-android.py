@@ -239,36 +239,63 @@ def patch_apk_install() -> None:
 
 SPLASH_BG = "#0b0f14"
 
+# Android 12+ 系统 SplashScreen：深色背景 + 品牌 launcher 图标（values-v31 优先于 values）
+SPLASH_V31 = """<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:windowSplashScreenBackground">#0b0f14</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#0b0f14</item>
+    </style>
+</resources>
+"""
+
 
 def patch_splash() -> None:
-    """品牌启动页（Android 12+ 系统 SplashScreen API）。
-    Capacitor 模板 AppTheme.NoActionBarLaunch parent=Theme.SplashScreen 只配了
-    android:background=@drawable/splash，没配 windowSplashScreenBackground/图标 →
-    Android 12+ 显示默认白屏。显式注入深色背景 + launcher 图标（品牌 >_ logo）。
-    Android <12 仍用 @drawable/splash（完整 splash.png，capacitor-assets 生成）。
+    """品牌启动页（双保险，不依赖 capacitor-assets）：
+    1) 把 assets/splash.png 复制为 android drawable-nodpi/splash.png（保证 @drawable/splash 存在）；
+    2) values-v31/styles.xml 强制 Android 12+ 系统 splash = Theme.SplashScreen + 深色背景 + launcher 图标；
+    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> @drawable/splash（Android <12 完整 splash.png）。
     """
-    p = Path("android/app/src/main/res/values/styles.xml")
-    if not p.exists():
-        print("  styles.xml not found, skip splash", file=sys.stderr)
-        return
-    s = p.read_text(encoding="utf-8")
-    if "windowSplashScreenBackground" in s:
-        print("  styles.xml: Android 12 splash already configured, skip")
-        return
-    marker = '<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">'
-    if marker not in s:
-        print("  styles.xml: AppTheme.NoActionBarLaunch(Theme.SplashScreen) not found", file=sys.stderr)
-        return
-    idx = s.index(marker) + len(marker)
-    end = s.index("</style>", idx)
-    inject = (
-        '\n        <item name="android:windowSplashScreenBackground">' + SPLASH_BG + '</item>'
-        '\n        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>'
-        '\n        <item name="android:windowSplashScreenIconBackgroundColor">' + SPLASH_BG + '</item>'
-    )
-    s = s[:end] + inject + s[end:]
-    p.write_text(s, encoding="utf-8")
-    print("  styles.xml: Android 12 splash injected (dark bg + launcher icon)")
+    # 1) splash 图片资源
+    src = Path("assets/splash.png")
+    dst = Path("android/app/src/main/res/drawable-nodpi/splash.png")
+    if src.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if not dst.exists() or dst.stat().st_size != src.stat().st_size:
+            import shutil
+            shutil.copyfile(src, dst)
+            print("  drawable-nodpi/splash.png: copied from assets")
+        else:
+            print("  drawable-nodpi/splash.png: already present, skip")
+    else:
+        print("  assets/splash.png not found, skip splash image", file=sys.stderr)
+    # 2) Android 12+ 系统 splash（values-v31 覆盖，强制品牌）
+    v31 = Path("android/app/src/main/res/values-v31/styles.xml")
+    v31.parent.mkdir(parents=True, exist_ok=True)
+    v31.write_text(SPLASH_V31, encoding="utf-8")
+    print("  values-v31/styles.xml: Android 12+ splash (dark bg + launcher icon)")
+    # 3) Android <12 完整 splash.png（@drawable/splash）
+    vals = Path("android/app/src/main/res/values/styles.xml")
+    if vals.exists():
+        s = vals.read_text(encoding="utf-8")
+        mark = '<style name="AppTheme.NoActionBarLaunch"'
+        if mark in s:
+            i0 = s.index(mark)
+            i1 = s.index("</style>", i0)
+            block = s[i0:i1]
+            if "android:background" not in block:
+                inject = '\n        <item name="android:background">@drawable/splash</item>'
+                s = s[:i1] + inject + s[i1:]
+                vals.write_text(s, encoding="utf-8")
+                print("  values/styles.xml: launch background -> @drawable/splash")
+            else:
+                print("  values/styles.xml: launch background already set, skip")
+        else:
+            print("  values/styles.xml: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
+    else:
+        print("  values/styles.xml not found, skip", file=sys.stderr)
+
 
 
 def patch_splash_dep() -> None:
