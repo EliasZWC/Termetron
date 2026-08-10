@@ -73,16 +73,16 @@ def main():
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
     os.makedirs(out, exist_ok=True)
 
-    # 1. 完整图标（legacy launcher）：圆角深色底 + 符号
-    make_icon(bg=True, rounded=True, target_w=600, w=112, radius=220).convert('RGB').save(
+    # 1. 完整图标（legacy launcher）：圆角深色底 + 符号（缩小留白，避免贴边）
+    make_icon(bg=True, rounded=True, target_w=480, w=96, radius=220).convert('RGB').save(
         os.path.join(out, 'icon.png'))
 
-    # 2. icon-only：透明底 + 全出血符号（大一点，无安全区限制）
-    make_icon(bg=False, target_w=760, w=118).convert('RGB').save(
+    # 2. icon-only：透明底 + 符号（缩小留白）
+    make_icon(bg=False, target_w=600, w=100).convert('RGB').save(
         os.path.join(out, 'icon-only.png'))
 
-    # 3. adaptive foreground：透明底 + 居中安全区符号
-    make_icon(bg=False, target_w=600, w=112).convert('RGB').save(
+    # 3. adaptive foreground：透明底 + 居中安全区符号（缩小留白）
+    make_icon(bg=False, target_w=480, w=96).convert('RGB').save(
         os.path.join(out, 'icon-foreground.png'))
 
     # 4. adaptive background：纯深色
