@@ -1,47 +1,58 @@
 """生成 QT App 图标：深色底 + 浅紫色终端标志（与桌面 favicon 一致）"""
 import os
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 SIZE = 1024
 BG = (11, 15, 20, 255)        # 深色底 #0b0f14
 SYMBOL = (167, 139, 250, 255) # 浅紫色符号 #a78bfa（与 QT --acc 一致）
 
-# 终端符号在 24 viewBox 里的坐标（「游标尺子」：几何化 `>_` + 尺子刻度）
-POLY = [(6, 3), (19, 11), (6, 18)]                  # 实心三角形 >（顶点朝右 = 游标）
-BASE = (6, 19.5, 22, 21.5)                          # 基准线 _（实心横条）
-TICKS = [((9, 19.5), (9, 23)), ((12, 19.5), (12, 21.8)),
-         ((15, 19.5), (15, 23)), ((18, 19.5), (18, 21.8)),
-         ((21, 19.5), (21, 23))]                    # 尺子刻度（等距竖线，长短交替）
+# 终端符号在 24 viewBox 里的坐标（「终端窗口 + >_ 字形」：圆角窗口 + 等宽粗体字符 >_，Windows Terminal 式）
+WIN = (1.5, 2, 22.5, 22)      # 终端窗口（圆角描边）
+TEXT = (3.5, 13)              # >_ 文本基线位置（24 空间，左上角 = 真实终端提示符位置）
+FONT_SIZE = 11.5              # >_ 字号（24 空间，粗体等宽）
+
+_font_cache = {}
+
+
+def load_font(size):
+    """加载等宽粗体字体（Consolas 优先，回退常规 Consolas/默认）"""
+    if size in _font_cache:
+        return _font_cache[size]
+    for path in (r'C:\Windows\Fonts\consolab.ttf', r'C:\Windows\Fonts\consola.ttf'):
+        if os.path.exists(path):
+            f = ImageFont.truetype(path, size)
+            _font_cache[size] = f
+            return f
+    f = ImageFont.load_default()
+    _font_cache[size] = f
+    return f
 
 
 def draw_symbol(draw, scale, w):
-    """画「游标尺子」：实心三角形(> 游标) + 基准线(_) + 从基准线伸出的等距竖刻度(尺子)。"""
-    # 实心三角形（> 顶点朝右 = 游标/读数指针）
-    draw.polygon([(x * scale, y * scale) for x, y in POLY], fill=SYMBOL)
-    # 基准线 _（实心横条）
-    r = max(2, int(scale * 1.4))
+    """画「终端窗口 + >_」：圆角窗口(屏幕容器) + 等宽粗体字符 >_（字形质感 → 一眼读出命令行提示符）。"""
+    # 终端窗口（圆角描边）
+    r = max(2, int(scale * 4))
     draw.rounded_rectangle(
-        [BASE[0] * scale, BASE[1] * scale, BASE[2] * scale, BASE[3] * scale],
-        radius=r, fill=SYMBOL)
-    # 尺子刻度（等距竖线，从基准线向下伸出，长短交替 = 刻度一眼可辨）
-    tw = max(2, int(scale * 1.5))
-    for (x1, y1), (x2, y2) in TICKS:
-        draw.line([(x1 * scale, y1 * scale), (x2 * scale, y2 * scale)],
-                  fill=SYMBOL, width=tw)
+        [WIN[0] * scale, WIN[1] * scale, WIN[2] * scale, WIN[3] * scale],
+        radius=r, outline=SYMBOL, width=max(2, int(scale * 1.6)))
+    # >_ 等宽字符（Windows Terminal 式）
+    font = load_font(max(10, int(FONT_SIZE * scale)))
+    draw.text((TEXT[0] * scale, TEXT[1] * scale), '>_', font=font,
+              fill=SYMBOL, anchor='ls')
 
 
 def symbol_scale(target_w):
-    """符号在 24 空间宽 16 格，缩放到 target_w 像素"""
-    return target_w / 16.0
+    """符号在 24 空间宽 21 格，缩放到 target_w 像素"""
+    return target_w / 21.0
 
 
 def centered(img, target_w):
     """返回绘制上下文，符号居中"""
     draw = ImageDraw.Draw(img, 'RGBA')
     scale = symbol_scale(target_w)
-    # 符号包围盒（24 空间）：x 6..22, y 3..23
-    ox = (SIZE - (22 - 6) * scale) / 2 - (6 * scale)
-    oy = (SIZE - (23 - 3) * scale) / 2 - (3 * scale)
+    # 符号包围盒（24 空间）：x 1.5..22.5, y 2..22
+    ox = (SIZE - (22.5 - 1.5) * scale) / 2 - (1.5 * scale)
+    oy = (SIZE - (22 - 2) * scale) / 2 - (2 * scale)
     # 平移：先画在原始坐标，再整体平移
     return draw, scale, ox, oy
 
