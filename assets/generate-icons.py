@@ -6,25 +6,24 @@ SIZE = 1024
 BG = (11, 15, 20, 255)        # 深色底 #0b0f14
 SYMBOL = (167, 139, 250, 255) # 浅紫色符号 #a78bfa（与 QT --acc 一致）
 
-# 终端符号在 24 viewBox 里的坐标（几何化 `>_` + 度量刻度 metron）
-POLY = [(6, 4), (18, 11.5), (6, 18)]                # 三角形 >（顶点朝右）
-TICKS = [((7, 8), (11.5, 8)), ((7, 15), (11, 15))]  # 内部度量刻度（标尺感）
-RECT = (8, 19.5, 22, 22.5)                          # 矩形 _（实心基线）
+# 终端符号在 24 viewBox 里的坐标（「分度三角」：几何化 `>_` + 度量分度）
+POLY = [(6, 3), (19, 12), (6, 20)]                  # 实心三角形 >（顶点朝右，等腰）
+TICKS = [((7, 8), (12.5, 8)), ((7, 15), (13.5, 15))]  # 挖空分度横线（度量分层）
+RECT = (8, 21.5, 22, 24.3)                          # 实心矩形 _（标尺底座）
+HOLE = (0, 0, 0, 0)                                 # 透明挖空（合成到背景时显示背景色）
 
 
 def draw_symbol(draw, scale, w):
-    """画几何化 `>_`：三角形(>) 游标 + 内部度量刻度(metron) + 实心矩形(_) 基线。"""
-    # 三角形描边（> 的三角化，顶点朝右）
-    for a, b in [(POLY[0], POLY[1]), (POLY[1], POLY[2])]:
-        draw.line([(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)],
-                  fill=SYMBOL, width=w, joint='curve')
-    # 内部度量刻度（短线，标尺感）
-    tw = max(1, w // 2)
+    """画「分度三角」：实心三角形(>) + 挖空分度横线(度量分层) + 实心矩形(_) 标尺底座。"""
+    # 实心三角形（> 顶点朝右，等腰对称 = 几何主形）
+    draw.polygon([(x * scale, y * scale) for x, y in POLY], fill=SYMBOL)
+    # 挖空分度横线（透明挖空，合成到背景时显示背景色 = 度量分层/标尺刻度）
+    tw = max(2, int(scale * 1.4))
     for (x1, y1), (x2, y2) in TICKS:
         draw.line([(x1 * scale, y1 * scale), (x2 * scale, y2 * scale)],
-                  fill=SYMBOL, width=tw)
-    # 实心矩形（_ 基线，圆角）
-    r = max(2, int(w * 0.75))
+                  fill=HOLE, width=tw)
+    # 实心矩形（_ 标尺底座）
+    r = max(2, int(scale * 1.4))
     draw.rounded_rectangle(
         [RECT[0] * scale, RECT[1] * scale, RECT[2] * scale, RECT[3] * scale],
         radius=r, fill=SYMBOL)
@@ -39,9 +38,9 @@ def centered(img, target_w):
     """返回绘制上下文，符号居中"""
     draw = ImageDraw.Draw(img, 'RGBA')
     scale = symbol_scale(target_w)
-    # 符号包围盒（24 空间）：x 6..22, y 4..22.5
+    # 符号包围盒（24 空间）：x 6..22, y 3..24.3
     ox = (SIZE - (22 - 6) * scale) / 2 - (6 * scale)
-    oy = (SIZE - (22.5 - 4) * scale) / 2 - (4 * scale)
+    oy = (SIZE - (24.3 - 3) * scale) / 2 - (3 * scale)
     # 平移：先画在原始坐标，再整体平移
     return draw, scale, ox, oy
 
