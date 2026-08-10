@@ -7,6 +7,17 @@ import {
 import { App } from '@capacitor/app';
 import { checkForUpdate } from './updater';
 
+// 轻量提示（底部 toast，短暂显示，不阻塞）
+const TMT_TOAST_CSS = '.tmt-toast{position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(13,19,27,.95);border:1px solid #1b2733;color:#c9d1d9;padding:10px 18px;border-radius:8px;font-size:13px;z-index:10000;pointer-events:none;font-family:system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5)}';
+function tmtToast(msg) {
+  if (!document.getElementById('tmt-toast-css')) {
+    const s = document.createElement('style'); s.id = 'tmt-toast-css'; s.textContent = TMT_TOAST_CSS; document.head.appendChild(s);
+  }
+  const el = document.createElement('div'); el.className = 'tmt-toast'; el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+
 const urlInput = document.getElementById('url');
 
 // Termetron 风格提示框（替代系统默认 alert）：深色 #0d131b + 紫色 #a78bfa，与 updater 弹窗一致
@@ -40,9 +51,13 @@ function tmtAlert(message) {
   });
 }
 
-// 设备返回键：连接页（App 首页）按返回直接退出；进入隧道后由 Termetron 前端接管
-// （会话视窗→目录页，目录页连按两次退出）
-App.addListener('backButton', () => { App.exitApp(); });
+// 连接页（App 首页）返回键：连按两次退出（与隧道页返回层级一致，防误退）
+let lastBack = 0;
+App.addListener('backButton', () => {
+  const now = Date.now();
+  if (now - lastBack < 2000) { App.exitApp(); }
+  else { lastBack = now; tmtToast('Press back again to exit'); }
+});
 const connBtn = document.getElementById('connect');
 
 // 版本号由 vite define 注入（__APP_VERSION__ 来自 package.json，与 README **Version:** 同步）
