@@ -56,8 +56,14 @@ document.getElementById('ver').textContent =
 // 不再调用原生 SplashScreen.show()：原生 splash 与 Web splash 时序竞争会让 Web splash 看起来“没生效”。
 const splashEl = document.getElementById('splash');
 if (splashEl) {
-  splashEl.addEventListener('animationend', () => splashEl.remove(), { once: true });
-  setTimeout(() => splashEl.remove(), 3500);
+  // 从隧道返回连接页（?t=back）时跳过 splash，避免“重启应用”的观感（仅冷启动才显示品牌 splash）
+  const isBack = new URLSearchParams(location.search).get('t') === 'back';
+  if (isBack) {
+    splashEl.remove();
+  } else {
+    splashEl.addEventListener('animationend', () => splashEl.remove(), { once: true });
+    setTimeout(() => splashEl.remove(), 3500);
+  }
 }
 
 // 记住上次连接地址
