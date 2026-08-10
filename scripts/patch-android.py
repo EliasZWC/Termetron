@@ -212,11 +212,12 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onBackPressed() {
-        // 设备返回键：隧道（远程）页面时回到本地连接登录页（隧道页无 Capacitor bridge，JS 无法捕获返回键）
+        // 设备返回键：隧道（远程）页面交给页面 JS 按层级返回（设置页→目录页→连接页），
+        // 隧道页无 Capacitor bridge 无法用 JS backButton 捕获，故由原生注入调用 window.__handleBack。
         WebView wv = getBridge() != null ? getBridge().getWebView() : null;
         String url = wv != null ? wv.getUrl() : null;
         if (url != null && !url.startsWith("https://localhost") && !url.startsWith("capacitor://localhost")) {
-            wv.loadUrl("https://localhost/?t=back");
+            wv.evaluateJavascript("window.__handleBack && window.__handleBack();", null);
         } else {
             super.onBackPressed();
         }
