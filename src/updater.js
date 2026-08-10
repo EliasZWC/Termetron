@@ -35,8 +35,10 @@ const MODAL_CSS = `
 .ut-btn.cancel{background:#171e2b;color:#c9d1d9;border:1px solid #1b2733}
 .ut-btn.ok{background:#a78bfa;color:#0a0e14}
 .ut-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(167,139,250,.3)}
-.ut-pbar{height:6px;background:#171e2b;border-radius:3px;overflow:hidden;margin:2px 0 10px}
+.ut-pbar{height:6px;background:#171e2b;border-radius:3px;overflow:hidden;margin:2px 0 10px;position:relative}
 .ut-pfill{height:100%;width:0;background:#a78bfa;transition:width .2s ease}
+.ut-pbar.indet .ut-pfill{width:36%;animation:ut-indet 1.4s ease-in-out infinite}
+@keyframes ut-indet{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .ut-ppct{color:#5a6a7a;font-size:12px;text-align:center;margin:0}
 `;
 
@@ -83,15 +85,20 @@ function showProgressModal(title) {
   const overlay = document.createElement('div');
   overlay.className = 'ut-overlay';
   overlay.innerHTML =
-    '<div class="ut-modal"><h3></h3><div class="ut-pbar"><div class="ut-pfill"></div></div>' +
-    '<p class="ut-ppct"></p></div>';
+    '<div class="ut-modal"><h3></h3><div class="ut-pbar indet"><div class="ut-pfill"></div></div>' +
+    '<p class="ut-ppct">downloading…</p></div>';
   overlay.querySelector('h3').textContent = title;
   document.body.appendChild(overlay);
+  const pbar = overlay.querySelector('.ut-pbar');
   const pfill = overlay.querySelector('.ut-pfill');
   const ppct = overlay.querySelector('.ut-ppct');
   return {
     set(percent) {
+      // 只有收到真实进度事件才切换为确定百分比；Android Filesystem 的 progress 事件常不触发，
+      // 此时保持不确定进度动画（滚动条），避免“0% 卡住”的观感。
+      if (typeof percent !== 'number' || !isFinite(percent)) return;
       const p = Math.max(0, Math.min(100, Math.round(percent)));
+      pbar.classList.remove('indet');
       pfill.style.width = p + '%';
       ppct.textContent = p + '%';
     },

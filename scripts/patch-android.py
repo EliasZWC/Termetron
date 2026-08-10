@@ -145,9 +145,14 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
 
-/** App 内更新：把已下载的 APK 通过 FileProvider 交给系统安装器安装。 */
+/** App 内更新：把已下载的 APK 通过 FileProvider 交给系统安装器安装。
+ *  用 startActivityForResult 等待安装流程结束，结束后把用户带回本 App
+ *  （避免安装完成直接停在桌面）。若进程在替换安装时被系统终止，系统安装器
+ *  的“打开”按钮同样可回到新版 App。 */
 @CapacitorPlugin(name = "ApkInstaller")
 public class ApkInstallerPlugin extends Plugin {
+
+    private static final int REQ_INSTALL = 7001;
 
     @PluginMethod
     public void install(PluginCall call) {
@@ -163,11 +168,29 @@ public class ApkInstallerPlugin extends Plugin {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getActivity().startActivity(intent);
+            // 不用 FLAG_ACTIVITY_NEW_TASK：用 startActivityForResult 等安装流程结束再拉回 App
+            getActivity().startActivityForResult(intent, REQ_INSTALL);
             call.resolve();
         } catch (Exception e) {
             call.reject(e.getMessage());
+        }
+    }
+
+    @Override
+    public void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
+        super.handleOnActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_INSTALL) {
+            // 安装流程结束（用户点了“完成”/取消，或安装失败返回），把用户带回 App
+            returnToApp();
+        }
+    }
+
+    private void returnToApp() {
+        try {
+            Intent i = new Intent(getContext(), MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            getContext().startActivity(i);
+        } catch (Exception ignored) {
         }
     }
 }
@@ -239,43 +262,43 @@ def patch_apk_install() -> None:
 
 SPLASH_BG = "#0b0f14"
 
-# Android 12+ 系统 SplashScreen：深色背景 + 品牌 launcher 图标（values-v31 优先于 values）
+# Android 12+ 系统 SplashScreen：深色背景 + 透明图标（原生 splash 视觉上“取消”，
+# 由 Web 层 splash 无缝接管；Android 12+ 系统 splash 无法禁用，只能极简化）
 SPLASH_V31 = """<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:windowSplashScreenBackground">#0b0f14</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">#0b0f14</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
 </resources>
 """
 
+SPLASH_TRANSPARENT_XML = """<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#00000000" />
+</shape>
+"""
+
 
 def patch_splash() -> None:
-    """品牌启动页（双保险，不依赖 capacitor-assets）：
-    1) 把 assets/splash.png 复制为 android drawable-nodpi/splash.png（保证 @drawable/splash 存在）；
-    2) values-v31/styles.xml 强制 Android 12+ 系统 splash = Theme.SplashScreen + 深色背景 + launcher 图标；
-    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> @drawable/splash（Android <12 完整 splash.png）。
+    """原生 splash 极简化（视觉上“取消原生 splash”，品牌画面全部交给 Web 层 CSS animation）：
+    1) 写透明图标 drawable（Android 12+ 系统 splash 需要 drawable，透明=不显示图标）；
+    2) values-v31/styles.xml 强制 Android 12+ 系统 splash = Theme.SplashScreen + 深色背景 + 透明图标；
+    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> #0b0f14 纯深色（Android <12）。
+    不再使用 splash.png / @drawable/splash（避免原生品牌画面与 Web splash 叠加重复）。
     """
-    # 1) splash 图片资源
-    src = Path("assets/splash.png")
-    dst = Path("android/app/src/main/res/drawable-nodpi/splash.png")
-    if src.exists():
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if not dst.exists() or dst.stat().st_size != src.stat().st_size:
-            import shutil
-            shutil.copyfile(src, dst)
-            print("  drawable-nodpi/splash.png: copied from assets")
-        else:
-            print("  drawable-nodpi/splash.png: already present, skip")
-    else:
-        print("  assets/splash.png not found, skip splash image", file=sys.stderr)
-    # 2) Android 12+ 系统 splash（values-v31 覆盖，强制品牌）
+    # 1) 透明图标 drawable
+    td = Path("android/app/src/main/res/drawable/splash_transparent.xml")
+    td.parent.mkdir(parents=True, exist_ok=True)
+    td.write_text(SPLASH_TRANSPARENT_XML, encoding="utf-8")
+    print("  drawable/splash_transparent.xml: transparent splash icon")
+    # 2) Android 12+ 系统 splash（深色背景 + 透明图标）
     v31 = Path("android/app/src/main/res/values-v31/styles.xml")
     v31.parent.mkdir(parents=True, exist_ok=True)
     v31.write_text(SPLASH_V31, encoding="utf-8")
-    print("  values-v31/styles.xml: Android 12+ splash (dark bg + launcher icon)")
-    # 3) Android <12 完整 splash.png（@drawable/splash）
+    print("  values-v31/styles.xml: Android 12+ splash (dark bg + transparent icon)")
+    # 3) Android <12：launch 背景纯深色（若已有 @drawable/splash 则替换为纯色）
     vals = Path("android/app/src/main/res/values/styles.xml")
     if vals.exists():
         s = vals.read_text(encoding="utf-8")
@@ -284,13 +307,17 @@ def patch_splash() -> None:
             i0 = s.index(mark)
             i1 = s.index("</style>", i0)
             block = s[i0:i1]
-            if "android:background" not in block:
-                inject = '\n        <item name="android:background">@drawable/splash</item>'
-                s = s[:i1] + inject + s[i1:]
-                vals.write_text(s, encoding="utf-8")
-                print("  values/styles.xml: launch background -> @drawable/splash")
+            import re
+            if "android:background" in block:
+                # Capacitor styles.xml 用子元素形式：<item name="android:background">value</item>
+                s = s[:i0] + re.sub(
+                    r'(<item name="android:background">)[^<]*(</item>)',
+                    r'\g<1>#0b0f14\g<2>', block, count=1) + s[i1:]
             else:
-                print("  values/styles.xml: launch background already set, skip")
+                inject = '\n        <item name="android:background">#0b0f14</item>'
+                s = s[:i1] + inject + s[i1:]
+            vals.write_text(s, encoding="utf-8")
+            print("  values/styles.xml: launch background -> #0b0f14 (solid)")
         else:
             print("  values/styles.xml: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
     else:

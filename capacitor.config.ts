@@ -9,9 +9,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 1200,   // 原生启动页显示时长 ms（JS 就绪后自动隐藏）
+      launchShowDuration: 0,      // 原生 splash 极短——品牌 splash 由 Web 层 CSS animation 接管（Android 12+ 系统 splash 不受此项控制）
       launchAutoHide: true,
-      backgroundColor: '#0b0f14', // 与 splash.png 深色底一致
+      backgroundColor: '#0b0f14', // 与 Web splash 深色底一致
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
       splashFullScreen: true,
