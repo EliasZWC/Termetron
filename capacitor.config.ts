@@ -20,9 +20,9 @@ const config: CapacitorConfig = {
   },
   server: {
     androidScheme: 'https',
-    // 允许在 WebView 内导航到隧道域（否则 Capacitor 默认把未白名单 http(s)
-    // 外链交给外部浏览器，扫码后不会回到 App 内）
-    allowNavigation: ['*.trycloudflare.com']
+    // 允许在 WebView 内导航：隧道域（trycloudflare）+ 本地服务器（localhost，供认证失败后返回连接登录页）。
+    // 缺 localhost 时，从隧道域导航回 https://localhost/ 会被当外部链接交给系统浏览器 → Back 无效。
+    allowNavigation: ['*.trycloudflare.com', 'localhost']
   }
 };
 
