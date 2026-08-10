@@ -25,6 +25,13 @@ document.getElementById('ver').textContent =
 SplashScreen.show({ showDuration: 1200, autoHide: true, fadeInDuration: 200, fadeOutDuration: 200 })
   .catch(() => {});
 
+// Web 层品牌启动页（100% 生效，不依赖原生 splash）：连接页加载即覆盖，1.2s 淡出
+const splashEl = document.getElementById('splash');
+if (splashEl) {
+  setTimeout(() => splashEl.classList.add('hide'), 1200);
+  setTimeout(() => splashEl.remove(), 1800);
+}
+
 // 记住上次连接地址
 urlInput.value = localStorage.getItem('qt_url') || '';
 

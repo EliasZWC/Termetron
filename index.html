@@ -10,9 +10,9 @@
     :root { color-scheme: dark; --bg:#0a0e14; --panel:#0d131b; --bar:#171e2b; --border:#1b2733; --txt:#c9d1d9; --dim:#5a6a7a; --acc:#a78bfa; }
     * { box-sizing: border-box; }
     body {
-      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
       background: var(--bg); color: var(--txt); font-family: system-ui, sans-serif;
-      padding: 24px;
+      padding: 8vh 24px 0;
     }
     .card { width: 100%; max-width: 360px; text-align: center; }
     .logo { display: inline-flex; align-items: center; gap: 14px; color: var(--acc); margin: 0 0 4px; }
@@ -35,11 +35,19 @@
     button:focus { outline: none; box-shadow: 0 0 0 2px rgba(167,139,250,.3); }
     .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
     .hint b { color: var(--acc); }
-    .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 40px; left: 0; right: 0; text-align: center; line-height: 1.6; }
+    .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 20px; left: 0; right: 0; text-align: center; line-height: 1.6; }
     .ver b { color: var(--acc); }
+    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; z-index: 99999; transition: opacity .4s ease; }
+    .splash svg { width: 108px; height: 108px; color: var(--acc); }
+    .splash-brand { color: var(--acc); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 7px; }
+    .splash.hide { opacity: 0; pointer-events: none; }
   </style>
 </head>
 <body>
+  <div id="splash" class="splash">
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="Consolas,Menlo,monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
+    <div class="splash-brand">TERMETRON</div>
+  </div>
   <div class="card">
     <p class="logo">
       <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="Consolas,Menlo,monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
