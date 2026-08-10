@@ -1,10 +1,10 @@
-"""生成 QT App 图标：深色底 + 紫色终端标志（feather terminal icon `>_`）"""
+"""生成 QT App 图标：深色底 + 浅紫色终端标志（与桌面 favicon 一致）"""
 import os
 from PIL import Image, ImageDraw
 
 SIZE = 1024
-BG = (13, 19, 27, 255)        # #0d131b 面板色
-PURPLE = (167, 139, 250, 255) # #a78bfa 与 QT --acc 一致
+BG = (11, 15, 20, 255)        # 深色底 #0b0f14
+SYMBOL = (167, 139, 250, 255) # 浅紫色符号 #a78bfa（与 QT --acc 一致）
 
 # 终端符号在 24 viewBox 里的坐标
 POLY = [(4, 17), (10, 11), (4, 5)]
@@ -16,14 +16,14 @@ def draw_symbol(draw, scale, w):
     """画 `>_` 终端符号（圆头连接）"""
     for a, b in [(POLY[0], POLY[1]), (POLY[1], POLY[2])]:
         draw.line([(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)],
-                  fill=PURPLE, width=w, joint='curve')
+                  fill=SYMBOL, width=w, joint='curve')
     draw.line([(LINE[0][0] * scale, LINE[0][1] * scale),
                (LINE[1][0] * scale, LINE[1][1] * scale)],
-              fill=PURPLE, width=w)
+              fill=SYMBOL, width=w)
     r = w // 2
     for x, y in ALL_PTS:
         draw.ellipse([x * scale - r, y * scale - r, x * scale + r, y * scale + r],
-                     fill=PURPLE)
+                     fill=SYMBOL)
 
 
 def symbol_scale(target_w):
@@ -44,13 +44,14 @@ def centered(img, target_w):
     return draw, scale, ox, oy
 
 
-def draw_centered(draw, scale, ox, oy, w):
+def draw_centered(img, scale, ox, oy, w):
+    """把符号画在透明图层后 alpha 合成到主图（保留符号颜色，勿用 bitmap 掩码）"""
     orig = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     d2 = ImageDraw.Draw(orig, 'RGBA')
     draw_symbol(d2, scale, w)
     shifted = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     shifted.paste(orig, (int(ox), int(oy)), orig)
-    draw.bitmap((0, 0), shifted)
+    img.alpha_composite(shifted)
 
 
 def make_icon(bg=True, rounded=False, target_w=600, w=110, radius=220):
@@ -65,7 +66,7 @@ def make_icon(bg=True, rounded=False, target_w=600, w=110, radius=220):
         else:
             img.paste(Image.new('RGBA', (SIZE, SIZE), BG), (0, 0))
     draw, scale, ox, oy = centered(img, target_w)
-    draw_centered(draw, scale, ox, oy, w)
+    draw_centered(img, scale, ox, oy, w)
     return img
 
 
