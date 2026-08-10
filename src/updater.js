@@ -10,7 +10,6 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 const REPO = 'EliasZWC/Termetron';
 const DEBOUNCE_MS = 30000;   // 30s in-memory debounce
 const CHECK_TIMEOUT = 15000; // release check timeout (ms)
-const DL_TIMEOUT = 120000;   // APK download timeout (ms)
 const DL_RETRY = 2;          // download retries after failure
 
 let _lastCheck = 0;
@@ -24,16 +23,6 @@ function semverLte(a, b) {
     if (x !== y) return x < y;
   }
   return true; // 相等也算“无需更新”
-}
-
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
 }
 
 // ---- Termetron-styled modal (replaces browser-default confirm/alert) ----
@@ -130,14 +119,13 @@ async function downloadAndInstall(url, name) {
   let lastErr = null;
   for (let attempt = 0; attempt <= DL_RETRY; attempt++) {
     try {
-      const resp = await fetchWithTimeout(url, DL_TIMEOUT);
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const buf = await resp.arrayBuffer();
-      const saved = await Filesystem.writeFile({
+      // 原生下载（@capacitor/filesystem downloadFile）——绕过 WebView fetch 的 CORS 限制：
+      // GitHub release 资产（release-assets.githubusercontent.com）不带 Access-Control-Allow-Origin，
+      // WebView fetch 跨域会被拦（TypeError: Failed to fetch），原生 HTTP 不受 CORS 约束。
+      const saved = await Filesystem.downloadFile({
+        url,
         path: name,
-        data: arrayBufferToBase64(buf),
         directory: Directory.Cache,
-        recursive: true,
       });
       const plugin = Capacitor.Plugins.ApkInstaller;
       if (!plugin) {
