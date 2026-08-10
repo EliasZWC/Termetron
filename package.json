@@ -1,6 +1,6 @@
 {
   "name": "termetron-app",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Termetron mobile client — Capacitor (WebView) wrapper with QR scan + in-app update",
   "private": true,
   "scripts": {
