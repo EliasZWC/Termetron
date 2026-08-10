@@ -1,11 +1,11 @@
 // App 内自动更新：检测 GitHub Release -> 提示 -> 下载 APK -> 系统安装器。
-// 前置条件：QuantTerminal 仓库为 public；CI 每次构建把 APK 发成 GitHub Release
-// （tag=v<version>，附件 termetron-v<version>.apk）。App 连接页启动时检查。
+// 前置条件：App 托管在公开仓库 EliasZWC/Termetron；CI 每次构建把 APK 发成 GitHub
+// Release（tag=v<version>，附件 termetron-v<version>.apk）。App 连接页启动时检查。
 import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 
 // GitHub 公开 API：无 token 限 60 次/小时/IP，故 1 小时内只检查一次。
-const REPO = 'EliasZWC/QuantTerminal';
+const REPO = 'EliasZWC/Termetron';
 const UPDATE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const CHECK_KEY = 'qt_update_checked_at';
 const CHECK_INTERVAL = 3600 * 1000; // 1h
