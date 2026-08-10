@@ -83,6 +83,43 @@ def make_icon(bg=True, rounded=False, target_w=600, w=110, radius=220):
     return img
 
 
+SPLASH_SIZE = 2732  # Android 启动页推荐尺寸
+
+
+def load_text_font(size):
+    """加载品牌文字字体（Segoe UI Semibold，回退 Arial/默认）"""
+    for path in (r'C:\Windows\Fonts\seguisb.ttf',
+                 r'C:\Windows\Fonts\arialbd.ttf',
+                 r'C:\Windows\Fonts\arial.ttf'):
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
+
+def make_splash():
+    """生成 Android 启动页 splash.png（2732²）：深色底 + 居中终端 logo + TERMETRON 品牌字。"""
+    img = Image.new('RGB', (SPLASH_SIZE, SPLASH_SIZE), BG)
+    # logo：宽 ~460px（24 空间宽 21 格）
+    scale = 460 / 21.0
+    lw = lh = int(24 * scale)
+    logo = Image.new('RGBA', (lw, lh), (0, 0, 0, 0))
+    draw_symbol(ImageDraw.Draw(logo, 'RGBA'), scale, 0)
+    # logo 居中略偏上（下方留空间给品牌字）
+    cx = (SPLASH_SIZE - lw) // 2
+    cy = (SPLASH_SIZE - lh) // 2 - 140
+    img.paste(logo, (cx, cy), logo)
+    # TERMETRON 品牌文字（紫色，与 logo 一致）
+    font = load_text_font(160)
+    d = ImageDraw.Draw(img)
+    text = 'TERMETRON'
+    bbox = d.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    tx = (SPLASH_SIZE - tw) / 2 - bbox[0]
+    ty = cy + lh + 60 - bbox[1]
+    d.text((tx, ty), text, font=font, fill=SYMBOL)
+    return img
+
+
 def main():
     # 脚本本身就在 assets/ 目录，直接输出到本目录（勿再加 'assets' 子目录）
     out = os.path.dirname(os.path.abspath(__file__))
@@ -103,7 +140,10 @@ def main():
     # 4. adaptive background：纯深色
     Image.new('RGB', (SIZE, SIZE), BG).save(os.path.join(out, 'icon-background.png'))
 
-    for f in ['icon.png', 'icon-only.png', 'icon-foreground.png', 'icon-background.png']:
+    # 5. 启动页 splash.png（Android：deep bg + 居中 logo + 品牌字）
+    make_splash().save(os.path.join(out, 'splash.png'))
+
+    for f in ['icon.png', 'icon-only.png', 'icon-foreground.png', 'icon-background.png', 'splash.png']:
         p = os.path.join(out, f)
         print(f, Image.open(p).size, os.path.getsize(p))
 
