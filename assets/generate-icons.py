@@ -6,27 +6,28 @@ SIZE = 1024
 BG = (11, 15, 20, 255)        # 深色底 #0b0f14
 SYMBOL = (167, 139, 250, 255) # 浅紫色符号 #a78bfa（与 QT --acc 一致）
 
-# 终端符号在 24 viewBox 里的坐标（「分度三角」：几何化 `>_` + 度量分度）
-POLY = [(6, 3), (19, 12), (6, 20)]                  # 实心三角形 >（顶点朝右，等腰）
-TICKS = [((7, 8), (12.5, 8)), ((7, 15), (13.5, 15))]  # 挖空分度横线（度量分层）
-RECT = (8, 21.5, 22, 24.3)                          # 实心矩形 _（标尺底座）
-HOLE = (0, 0, 0, 0)                                 # 透明挖空（合成到背景时显示背景色）
+# 终端符号在 24 viewBox 里的坐标（「游标尺子」：几何化 `>_` + 尺子刻度）
+POLY = [(6, 3), (19, 11), (6, 18)]                  # 实心三角形 >（顶点朝右 = 游标）
+BASE = (6, 19.5, 22, 21.5)                          # 基准线 _（实心横条）
+TICKS = [((9, 19.5), (9, 23)), ((12, 19.5), (12, 21.8)),
+         ((15, 19.5), (15, 23)), ((18, 19.5), (18, 21.8)),
+         ((21, 19.5), (21, 23))]                    # 尺子刻度（等距竖线，长短交替）
 
 
 def draw_symbol(draw, scale, w):
-    """画「分度三角」：实心三角形(>) + 挖空分度横线(度量分层) + 实心矩形(_) 标尺底座。"""
-    # 实心三角形（> 顶点朝右，等腰对称 = 几何主形）
+    """画「游标尺子」：实心三角形(> 游标) + 基准线(_) + 从基准线伸出的等距竖刻度(尺子)。"""
+    # 实心三角形（> 顶点朝右 = 游标/读数指针）
     draw.polygon([(x * scale, y * scale) for x, y in POLY], fill=SYMBOL)
-    # 挖空分度横线（透明挖空，合成到背景时显示背景色 = 度量分层/标尺刻度）
-    tw = max(2, int(scale * 1.4))
-    for (x1, y1), (x2, y2) in TICKS:
-        draw.line([(x1 * scale, y1 * scale), (x2 * scale, y2 * scale)],
-                  fill=HOLE, width=tw)
-    # 实心矩形（_ 标尺底座）
+    # 基准线 _（实心横条）
     r = max(2, int(scale * 1.4))
     draw.rounded_rectangle(
-        [RECT[0] * scale, RECT[1] * scale, RECT[2] * scale, RECT[3] * scale],
+        [BASE[0] * scale, BASE[1] * scale, BASE[2] * scale, BASE[3] * scale],
         radius=r, fill=SYMBOL)
+    # 尺子刻度（等距竖线，从基准线向下伸出，长短交替 = 刻度一眼可辨）
+    tw = max(2, int(scale * 1.5))
+    for (x1, y1), (x2, y2) in TICKS:
+        draw.line([(x1 * scale, y1 * scale), (x2 * scale, y2 * scale)],
+                  fill=SYMBOL, width=tw)
 
 
 def symbol_scale(target_w):
@@ -38,9 +39,9 @@ def centered(img, target_w):
     """返回绘制上下文，符号居中"""
     draw = ImageDraw.Draw(img, 'RGBA')
     scale = symbol_scale(target_w)
-    # 符号包围盒（24 空间）：x 6..22, y 3..24.3
+    # 符号包围盒（24 空间）：x 6..22, y 3..23
     ox = (SIZE - (22 - 6) * scale) / 2 - (6 * scale)
-    oy = (SIZE - (24.3 - 3) * scale) / 2 - (3 * scale)
+    oy = (SIZE - (23 - 3) * scale) / 2 - (3 * scale)
     # 平移：先画在原始坐标，再整体平移
     return draw, scale, ox, oy
 
