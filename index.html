@@ -33,6 +33,8 @@
     .ghost { background: var(--panel); color: var(--txt); border: 1px solid var(--border); }
     .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
     .hint b { color: var(--acc); }
+    .ver { color: var(--dim); font-size: 11px; margin-top: 22px; line-height: 1.6; }
+    .ver b { color: var(--acc); }
   </style>
 </head>
 <body>
@@ -49,6 +51,7 @@
       On the computer run <b>qt remote on</b>, then either paste the URL or scan the QR.
       You'll enter the one-time password and approve the pairing with <b>qt allow &lt;key&gt;</b>.
     </p>
+    <p class="ver" id="ver"></p>
   </div>
   <script type="module" src="./src/main.js"></script>
 </body>

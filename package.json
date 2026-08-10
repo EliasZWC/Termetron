@@ -1,6 +1,6 @@
 {
   "name": "qt-app",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "QT mobile client — Capacitor (WebView) wrapper with QR scan",
   "private": true,
   "scripts": {

@@ -7,6 +7,12 @@ import {
 
 const urlInput = document.getElementById('url');
 
+// 版本号由 vite define 注入（__APP_VERSION__ 来自 package.json，与 README **Version:** 同步）
+// eslint-disable-next-line no-undef
+document.getElementById('ver').textContent =
+  'QT v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1') +
+  ' · docs: lib/qt/README.md';
+
 // 记住上次连接地址
 urlInput.value = localStorage.getItem('qt_url') || '';
 
