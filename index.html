@@ -6,6 +6,15 @@
   <meta name="theme-color" content="#0a0e14">
   <title>Termetron</title>
   <style>
+    /* 内置等宽字体：Cascadia Mono Bold（微软开源，OFL 可自由分发）——Consolas 是微软专有字体不能随公开 repo 分发，
+       用它替代（Windows Terminal 默认等宽字体，视觉最接近 Consolas）。logo 的 >_ 用真实等宽字体渲染，
+       Android 上严格等宽 + Windows Terminal 质感。字体在 public/fonts/，vite 构建后位于 www/fonts/。 */
+    @font-face {
+      font-family: 'TmtMono';
+      src: url('/fonts/cascadia-mono-bold.woff2') format('woff2');
+      font-weight: 700;
+      font-display: swap;
+    }
     /* 与电脑端 quant_terminal.py 一致的主题：--bg #0a0e14 / --panel #0d131b / --bar #171e2b / --border #1b2733 / --txt #c9d1d9 / --dim #5a6a7a / --acc #a78bfa */
     :root { color-scheme: dark; --bg:#0a0e14; --panel:#0d131b; --bar:#171e2b; --border:#1b2733; --txt:#c9d1d9; --dim:#5a6a7a; --acc:#a78bfa; }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -41,9 +50,8 @@
     @keyframes ut-splash { 0%, 77% { opacity: 1; } 100% { opacity: 0; } }
     .splash svg { width: 108px; height: 108px; color: var(--acc); }
     .splash-brand { color: var(--acc); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 7px; }
-    /* logo 的 >_ 必须等宽：Android 无 Consolas/Menlo，SVG font 属性列表 fallback 不可靠会落到非等宽字体 →
-       统一用单值 monospace + CSS 栈（Roboto Mono/Droid Sans Mono）保证 Android 命中等宽字体 */
-    .logo svg text, .splash svg text { font-family: 'Roboto Mono', 'Droid Sans Mono', monospace; }
+    /* logo 的 >_ 用内置等宽字体 TmtMono（Cascadia Mono）渲染，回退到系统等宽字体 */
+    .logo svg text, .splash svg text { font-family: 'TmtMono', 'Roboto Mono', 'Droid Sans Mono', monospace; }
   </style>
 </head>
 <body>
