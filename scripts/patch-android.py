@@ -110,10 +110,138 @@ def patch_version_name() -> None:
     print(f"  build.gradle: versionName -> {ver}")
 
 
+APK_INSTALL_PERMISSION = (
+    '\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />'
+)
+
+APK_PROVIDER_BLOCK = """        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+"""
+
+FILE_PATHS_XML = """<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="apk" path="." />
+</paths>
+"""
+
+APK_INSTALLER_JAVA = '''package dev.qt.terminal;
+
+import android.content.Intent;
+import android.net.Uri;
+
+import androidx.core.content.FileProvider;
+
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import java.io.File;
+
+/** App 内更新：把已下载的 APK 通过 FileProvider 交给系统安装器安装。 */
+@CapacitorPlugin(name = "ApkInstaller")
+public class ApkInstallerPlugin extends Plugin {
+
+    @PluginMethod
+    public void install(PluginCall call) {
+        String path = call.getString("path");
+        if (path == null || path.isEmpty()) {
+            call.reject("path required");
+            return;
+        }
+        try {
+            File file = new File(path);
+            String auth = getContext().getPackageName() + ".fileprovider";
+            Uri apkUri = FileProvider.getUriForFile(getContext(), auth, file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage());
+        }
+    }
+}
+'''
+
+MAIN_ACTIVITY_JAVA = '''package dev.qt.terminal;
+
+import android.os.Bundle;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(ApkInstallerPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
+}
+'''
+
+
+def patch_apk_install() -> None:
+    """App 内更新：APK 安装能力。
+    - REQUEST_INSTALL_PACKAGES 权限 + FileProvider（Android 8+ 安装 APK 必需）
+    - ApkInstallerPlugin.java（Capacitor 插件：FileProvider URI -> 系统安装器）
+    - MainActivity 注册插件；下载由 @capacitor/filesystem 写 cache，file_paths 共享。
+    """
+    manifest = Path("android/app/src/main/AndroidManifest.xml")
+    s = manifest.read_text(encoding="utf-8")
+
+    if "REQUEST_INSTALL_PACKAGES" not in s:
+        if "</manifest>" not in s:
+            print("  manifest: </manifest> not found", file=sys.stderr)
+            sys.exit(1)
+        s = s.replace("</manifest>", APK_INSTALL_PERMISSION + "\n</manifest>", 1)
+
+    if "fileprovider" not in s:
+        if "</application>" not in s:
+            print("  manifest: </application> not found", file=sys.stderr)
+            sys.exit(1)
+        s = s.replace("</application>", APK_PROVIDER_BLOCK + "\n    </application>", 1)
+    manifest.write_text(s, encoding="utf-8")
+    print("  AndroidManifest: REQUEST_INSTALL_PACKAGES + FileProvider")
+
+    xml = Path("android/app/src/main/res/xml/file_paths.xml")
+    if not xml.exists():
+        xml.parent.mkdir(parents=True, exist_ok=True)
+        xml.write_text(FILE_PATHS_XML, encoding="utf-8")
+        print("  file_paths.xml: created (cache-path)")
+    else:
+        print("  file_paths.xml: already present, skip")
+
+    plugin = Path("android/app/src/main/java/dev/qt/terminal/ApkInstallerPlugin.java")
+    if not plugin.exists():
+        plugin.parent.mkdir(parents=True, exist_ok=True)
+        plugin.write_text(APK_INSTALLER_JAVA, encoding="utf-8")
+        print("  ApkInstallerPlugin.java: created")
+    else:
+        print("  ApkInstallerPlugin.java: already present, skip")
+
+    act = Path("android/app/src/main/java/dev/qt/terminal/MainActivity.java")
+    a = act.read_text(encoding="utf-8")
+    if "registerPlugin" in a:
+        print("  MainActivity: plugin already registered, skip")
+    else:
+        act.write_text(MAIN_ACTIVITY_JAVA, encoding="utf-8")
+        print("  MainActivity: registerPlugin(ApkInstallerPlugin.class)")
+
+
 if __name__ == "__main__":
     print("patching android/ ...")
     patch_build_gradle()
     patch_variables_gradle()
     patch_styles()
     patch_version_name()
+    patch_apk_install()
     print("done")

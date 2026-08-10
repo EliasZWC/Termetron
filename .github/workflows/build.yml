@@ -1,10 +1,16 @@
 name: build-apk
 
 # 云端构建 Android APK（无需本地 Node/JDK/Android SDK）
+# 仓库需 public：构建后发布 GitHub Release（tag=v<version>，附件=APK），
+# 作为 App 内自动更新的更新源（App 查 /releases/latest）。
+# 版本号未变时 tag 已存在，gh release 失败被容忍（跳过发布）。
 on:
   workflow_dispatch:          # 手动触发
   push:
     branches: [main]
+
+permissions:
+  contents: write              # 发布 GitHub Release 需要
 
 jobs:
   build:
@@ -41,7 +47,7 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Patch Android project (OutSystems repo + minSdk 26)
+      - name: Patch Android project (OutSystems repo + minSdk 26 + apk install)
         run: python3 scripts/patch-android.py
 
       - name: Build APK (gradle)
@@ -52,3 +58,12 @@ jobs:
         with:
           name: qt-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish GitHub Release (App update source)
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          cp android/app/build/outputs/apk/debug/app-debug.apk "termetron-v${VER}.apk"
+          gh release create "v${VER}" "termetron-v${VER}.apk" \
+            --repo "$GITHUB_REPOSITORY" --title "Termetron v${VER}" \
+            --generate-notes \
+            || echo "::notice title=release::v${VER} already exists, skip"

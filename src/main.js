@@ -5,6 +5,7 @@ import {
   CapacitorBarcodeScannerTypeHint,
 } from '@capacitor/barcode-scanner';
 import { App } from '@capacitor/app';
+import { checkForUpdate } from './updater';
 
 const urlInput = document.getElementById('url');
 
@@ -75,3 +76,6 @@ document.getElementById('scan').addEventListener('click', async () => {
     alert('scan failed: ' + (e.message || e));
   }
 });
+
+// 启动后检查新版本（App 内自动更新）
+setTimeout(() => { checkForUpdate().catch(() => {}); }, 1500);
