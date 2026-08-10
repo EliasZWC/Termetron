@@ -4,8 +4,13 @@ import {
   CapacitorBarcodeScannerScanOrientation,
   CapacitorBarcodeScannerTypeHint,
 } from '@capacitor/barcode-scanner';
+import { App } from '@capacitor/app';
 
 const urlInput = document.getElementById('url');
+
+// 设备返回键：连接页（App 首页）按返回直接退出；进入隧道后由 QT 前端接管
+// （会话视窗→目录页，目录页连按两次退出）
+App.addListener('backButton', () => { App.exitApp(); });
 const connBtn = document.getElementById('connect');
 
 // 版本号由 vite define 注入（__APP_VERSION__ 来自 package.json，与 README **Version:** 同步）

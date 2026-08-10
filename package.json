@@ -1,13 +1,14 @@
 {
-  "name": "qt-app",
+  "name": "termetron-app",
   "version": "0.0.1",
-  "description": "QT mobile client — Capacitor (WebView) wrapper with QR scan",
+  "description": "Termetron mobile client — Capacitor (WebView) wrapper with QR scan",
   "private": true,
   "scripts": {
     "dev": "vite",
     "build": "vite build"
   },
   "dependencies": {
+    "@capacitor/app": "^6.1.0",
     "@capacitor/barcode-scanner": "^1.0.0",
     "@capacitor/core": "^6.1.0"
   },
