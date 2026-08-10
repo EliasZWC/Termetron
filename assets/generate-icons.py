@@ -70,7 +70,8 @@ def make_icon(bg=True, rounded=False, target_w=600, w=110, radius=220):
 
 
 def main():
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
+    # 脚本本身就在 assets/ 目录，直接输出到本目录（勿再加 'assets' 子目录）
+    out = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(out, exist_ok=True)
 
     # 1. 完整图标（legacy launcher）：圆角深色底 + 符号（缩小留白，避免贴边）
