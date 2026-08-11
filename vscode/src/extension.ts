@@ -5,10 +5,6 @@ import * as net from 'net';
 
 const SERVER_PY = 'quant_terminal.py';
 const PREFERRED_PORT = 8900;
-// Port the webview uses internally (a dedicated port, NOT 8900 which may be a
-// manually-started Termetron); mapped to the real server port via portMapping.
-// portMapping only intercepts "localhost" — the iframe MUST use localhost, not 127.0.0.1.
-const WEBVIEW_PORT = 9898;
 
 let serverProc: ChildProcess | null = null;
 let serverPort = PREFERRED_PORT;
@@ -105,28 +101,29 @@ async function openPanel(): Promise<void> {
   if (!panel) {
     return;
   }
-  // Port mapping: the webview loads http://localhost:<WEBVIEW_PORT>, which VS Code
-  // transparently forwards to the actual extension-host server port. This is the
-  // officially recommended way to embed a local web server in a webview.
-  // NOTE: portMapping only intercepts the "localhost" host — use localhost, not
-  // 127.0.0.1, in the iframe src.
-  panel.webview.options = {
-    enableScripts: true,
-    portMapping: [{ webviewPort: WEBVIEW_PORT, extensionHostPort: port }],
-  };
+  // asExternalUri turns the local server into a URI the webview can load
+  // (official pattern for embedding a local web server) — VS Code proxies it,
+  // which also works around the 'local-network-access' iframe restriction.
+  const extUri = await vscode.env.asExternalUri(
+    vscode.Uri.parse(`http://localhost:${port}`),
+  );
+  if (!panel) {
+    return;
+  }
+  panel.webview.options = { enableScripts: true };
   const csp = panel.webview.cspSource;
   panel.webview.html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; frame-src ${csp} http://localhost:${WEBVIEW_PORT} http://127.0.0.1:${WEBVIEW_PORT}; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
+  content="default-src 'none'; frame-src ${csp} https://127.0.0.1 http://localhost vscode-webview:; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
 <style>
   html,body{margin:0;padding:0;height:100%;background:#0a0e14}
   iframe{width:100%;height:100%;border:0;display:block}
 </style>
 </head>
-<body><iframe src="http://localhost:${WEBVIEW_PORT}"></iframe></body>
+<body><iframe src="${extUri}"></iframe></body>
 </html>`;
 }
 
