@@ -164,14 +164,35 @@ async function openPanel(): Promise<void> {
     panel = undefined;
   });
   // Shell page: an iframe pointing at localhost:port. CSP only allows that
-  // frame source (and inline styles); the shell itself has no scripts.
+  // frame source (and inline styles); the shell has a tiny bridge script that
+  // forwards "open in browser" requests from the embedded page to the host.
   panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://localhost:${port}; style-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; frame-src http://localhost:${port}; style-src 'unsafe-inline';">
 <title>Termetron</title>
 <style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0a0e14}
 iframe{display:block;width:100%;height:100%;border:none}</style>
-</head><body><iframe src="http://localhost:${port}" allow="clipboard-read; clipboard-write"></iframe></body></html>`;
+</head><body><iframe src="http://localhost:${port}" allow="clipboard-read; clipboard-write"></iframe>
+<script>
+// Bridge: the embedded iframe can't open external windows, so it posts a
+// message up to this shell page; forward it to the extension host, which calls
+// vscode.env.openExternal to open the system default browser.
+window.addEventListener('message', function (e) {
+  var d = e.data;
+  if (d && d.kind === 'termetron:openExternal' && d.url) {
+    try { acquireVsCodeApi().postMessage({ command: 'openExternal', url: d.url }); } catch (err) { /* ignore */ }
+  }
+});
+</script>
+</body></html>`;
   dlog('panel iframe http://localhost:' + port);
+
+  // Open-in-browser requests from the embedded page → system default browser.
+  panel.webview.onDidReceiveMessage((msg: any) => {
+    if (msg && msg.command === 'openExternal' && msg.url) {
+      dlog('openExternal ' + msg.url);
+      void vscode.env.openExternal(vscode.Uri.parse(msg.url));
+    }
+  });
 }
 
 export function activate(context: vscode.ExtensionContext): void {
