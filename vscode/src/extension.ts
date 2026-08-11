@@ -115,6 +115,29 @@ async function openPanel(): Promise<void> {
   dlog('port=' + port);
   panel.webview.options = { enableScripts: true };
 
+  // spawn() returns before the Python server starts listening; wait for it to
+  // be ready (retry GET /api/sessions) before fetching the HTML — otherwise the
+  // immediate fetch hits ECONNREFUSED and the panel stays blank.
+  let ready = false;
+  for (let i = 0; i < 60 && !ready; i++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/sessions`);
+      if (r.ok) {
+        ready = true;
+      }
+    } catch {
+      // not up yet
+    }
+    if (!ready) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  dlog('server ready=' + ready);
+  if (!ready) {
+    dlog('server not ready after retries');
+    return;
+  }
+
   // ---- postMessage-proxy approach (no iframe, no localhost loading) ----
   // This VS Code build blocks webview iframes from loading http://localhost
   // ('local-network-access'). Instead: fetch the server HTML in the extension
