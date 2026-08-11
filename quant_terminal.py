@@ -1330,6 +1330,7 @@ class RemoteMgr:
         self.pending: dict = {}     # device_key -> created_at
         self.allowed: set = set()   # 已放行 device_key
         self.lock = threading.Lock()
+        self._probe_fail = 0        # 连续探测失败次数（隧道活跃性 watchdog）
 
     @property
     def on(self) -> bool:
@@ -1400,7 +1401,9 @@ class RemoteMgr:
                 self.status = "error"
                 self.error = f"cloudflared start failed: {e}"
                 return {"ok": False, "error": self.error}
+            self._probe_fail = 0
             threading.Thread(target=self._read_url, daemon=True).start()
+            threading.Thread(target=self._watchdog_loop, daemon=True).start()
             return {"ok": True, "token": self.token, "status": "starting"}
 
     def _read_url(self) -> None:
@@ -1415,6 +1418,47 @@ class RemoteMgr:
                     return
         except Exception:  # noqa: BLE001
             pass
+
+    def _probe_alive(self) -> bool:
+        """探测隧道是否真的可达：GET https://<url>/api/remote/status 能通即活着。"""
+        if not self.url:
+            return False
+        try:
+            req = urllib.request.Request(
+                self.url + "/api/remote/status",
+                headers={"User-Agent": "termetron-watchdog"})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                r.read(256)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _watchdog_loop(self) -> None:
+        """隧道活跃性看门狗：每 30s 探测；连续 3 次失败判隧道失效。
+
+        cloudflared 进程活着不代表隧道可用（边缘断开/超时/DNS 失败时进程
+        仍在但 URL 失效，手机连不上）。探测失败 -> status=error，前端据此
+        提示用户重新 remote on。
+        """
+        while True:
+            time.sleep(30)
+            with self.lock:
+                if self.status != "on" or not self.url:
+                    self._probe_fail = 0
+                    continue
+                url = self.url
+            alive = self._probe_alive()
+            with self.lock:
+                if alive:
+                    self._probe_fail = 0
+                else:
+                    self._probe_fail += 1
+                    if self._probe_fail >= 3:
+                        dead = self.proc is not None and self.proc.poll() is not None
+                        self.status = "off" if dead else "error"
+                        self.error = (f"tunnel lost: probes failed via {url}"
+                                      if not dead else "tunnel process exited")
+                        self._probe_fail = 0
 
     def stop(self) -> None:
         with self.lock:
@@ -1434,6 +1478,7 @@ class RemoteMgr:
             self.error = None
             self.pending = {}
             self.allowed = set()
+            self._probe_fail = 0
 
     def status_json(self) -> dict:
         with self.lock:
