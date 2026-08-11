@@ -3,7 +3,7 @@
   "displayName": "Termetron",
   "description": "Geometric metron terminal — multi-session web terminal with live progress bars and mobile remote access, embedded in VS Code.",
   "version": "0.4.14",
-  "publisher": "eliaszwc",
+  "publisher": "EliasZhang",
   "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
