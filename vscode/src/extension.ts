@@ -129,164 +129,62 @@ async function openBrowser(): Promise<void> {
 }
 
 /**
- * EXPERIMENTAL: open the Termetron web UI inside a VS Code webview panel via a
- * postMessage proxy. Kept only as a fallback — prefer openBrowser().
+ * Open Termetron inside a VS Code panel as an embedded browser: a webview that
+ * renders the REAL Termetron page via an <iframe> + webview portMapping.
+ * portMapping transparently routes localhost:port inside the webview to the
+ * Python server through the extension host, so the page runs natively: hostname
+ * stays 'localhost' (desktop mode + pairing prompt + layout all work) and there
+ * is no postMessage bridge, no CSP injection, no device mocking — just the real
+ * page, like the built-in browser.
  */
 async function openPanel(): Promise<void> {
   if (panel) {
     panel.reveal();
     return;
   }
+  const port = await startServer();
+  if (!(await waitReady(port))) {
+    dlog('panel: server not ready');
+    vscode.window.showWarningMessage('Termetron server did not start in time.');
+    return;
+  }
   panel = vscode.window.createWebviewPanel(
     'termetron',
     'Termetron',
     vscode.ViewColumn.One,
-    { enableScripts: true },
+    {
+      enableScripts: true,
+      // localhost:port inside the webview (and its iframe) is resolved to the
+      // Python server via the extension host — the supported way for a webview
+      // to load a local service.
+      portMapping: [{ webviewPort: port, extensionHostPort: port }],
+    },
   );
   panel.onDidDispose(() => {
     panel = undefined;
   });
-
-  const port = await startServer();
-  if (!panel) {
-    return;
-  }
-  dlog('port=' + port);
-  panel.webview.options = { enableScripts: true };
-
-  if (!(await waitReady(port))) {
-    dlog('panel: server not ready');
-    return;
-  }
-
-  // ---- postMessage-proxy approach (no iframe, no localhost loading) ----
-  // This VS Code build blocks webview iframes from loading http://localhost
-  // ('local-network-access'). Instead: fetch the server HTML in the extension
-  // host (which CAN reach localhost), embed it as the webview content directly,
-  // and proxy every front-end api() call back to the Python server through
-  // webview postMessage. This fully sidesteps the localhost restriction.
-  const resp = await fetch(`http://127.0.0.1:${port}/`);
-  let html = await resp.text();
-  dlog('fetch status=' + resp.status + ' len=' + html.length);
-  if (!panel) {
-    return;
-  }
-  // termtron HTML has no CSP meta, so VS Code would inject a strict default
-  // CSP (default-src 'none' without script-src) that blocks ALL inline JS.
-  // Inject our own CSP: inline scripts allowed (everything is inline), and
-  // connect-src limited to the local server in case any fetch bypasses api().
-  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src http://127.0.0.1:${port} http://localhost:${port};">`;
-  html = html.replace('<head>', '<head>' + cspMeta);
-  const bridge = `
-<style>
-/* Termetron webview: tighter side margins so content fills the panel width.
-   These rules load after termtron's own <style> (head) and override the
-   20px side padding; scoped to the webview only, other clients unchanged. */
-header{padding-left:10px;padding-right:10px}
-.tabs{padding-left:8px;padding-right:8px}
-.wrap{padding-left:8px;padding-right:8px}
-</style>
-<script>
-(function(){
-  window.__termetronLocal = true;  // webview hostname != localhost → treat as local (no tunnel gate)
-  var vscode = acquireVsCodeApi();
-  // Force desktop mode: termtron reads location.search ?d=1 (its native override)
-  // AND matchMedia. The webview URL has no ?d, and its matchMedia is not always
-  // overridable — so rewrite the URL to add ?d=1 (belt) AND mock matchMedia (suspenders).
-  try {
-    var u = new URL(location.href);
-    if (!u.searchParams.get('d')) {
-      u.searchParams.set('d', '1');
-      history.replaceState(null, '', u.toString());
-    }
-  } catch (e) { /* ignore */ }
-  setTimeout(function(){ try {
-    vscode.postMessage({ command: 'diag',
-      search: location.search,
-      mobile: document.body.classList.contains('mobile'),
-      mmCoarse: window.matchMedia('(hover: none) and (pointer: coarse)').matches });
-  } catch (e) {} }, 600);
-  (function(){
-    var _orig = window.matchMedia ? window.matchMedia.bind(window) : null;
-    var _stub = function(media, matches){ return { matches: !!matches, media: media, onchange: null,
-      addListener: function(){}, removeListener: function(){},
-      addEventListener: function(){}, removeEventListener: function(){},
-      dispatchEvent: function(){ return false; } }; };
-    window.matchMedia = function(query){
-      if (/pointer\s*:\s*(coarse|none)|hover\s*:\s*none/.test(query)) return _stub(query, false);
-      if (/hover\s*:\s*hover|pointer\s*:\s*fine/.test(query)) return _stub(query, true);
-      return _orig ? _orig(query) : _stub(query, false);
-    };
-  })();
-  var seq = 0;
-  var pending = {};
-  window.addEventListener('message', function(e){
-    var m = e.data;
-    if (m && m.__apiResp && pending[m.id]) {
-      var p = pending[m.id]; delete pending[m.id];
-      if (m.error) p.reject(new Error(m.error)); else p.resolve(m.data);
-    }
-  });
-  window.__termetronBridge = function(path, opts){
-    return new Promise(function(resolve, reject){
-      var id = ++seq;
-      pending[id] = { resolve: resolve, reject: reject };
-      vscode.postMessage({ command:'api', id:id, path:path,
-        method:(opts && opts.method) || 'GET',
-        body: opts && opts.body });
-    });
-  };
-})();
-</script>`;
-  html = html.replace('</head>', bridge + '</head>');
-  html = html.replace(
-    'async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }',
-    'async function api(path, opts) { return window.__termetronBridge(path, opts); }',
-  );
-  dlog('injected bridge=' + (html.includes('__termetronBridge')) +
-       ' apiReplaced=' + (html.includes('window.__termetronBridge(path, opts)')) +
-       ' csp=' + (html.includes('Content-Security-Policy')));
-  panel.webview.html = html;
-
-  // Proxy /api requests from the embedded front-end to the Python server.
-  panel.webview.onDidReceiveMessage(async (msg: any) => {
-    dlog('webview msg: ' + (msg && msg.command) + ' ' + (msg && msg.path));
-    if (msg && msg.command === 'diag') {
-      dlog('webview diag: search=' + msg.search + ' mobile=' + msg.mobile +
-           ' mmCoarse=' + msg.mmCoarse);
-      return;
-    }
-    if (!msg || msg.command !== 'api') {
-      return;
-    }
-    const url = `http://127.0.0.1:${serverPort}${msg.path}`;
-    try {
-      const init: any = { method: msg.method || 'GET' };
-      if (msg.body) {
-        init.headers = { 'Content-Type': 'application/json' };
-        init.body = msg.body;
-      }
-      const r = await fetch(url, init);
-      const ct = (r.headers.get('content-type') || '').toLowerCase();
-      const data = ct.includes('json') ? await r.json() : await r.text();
-      panel?.webview.postMessage({ __apiResp: true, id: msg.id, data });
-    } catch (e: any) {
-      panel?.webview.postMessage({ __apiResp: true, id: msg.id, data: {}, error: String(e) });
-    }
-  });
+  // Shell page: an iframe pointing at localhost:port. CSP only allows that
+  // frame source (and inline styles); the shell itself has no scripts.
+  panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://localhost:${port}; style-src 'unsafe-inline';">
+<title>Termetron</title>
+<style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0a0e14}
+iframe{display:block;width:100%;height:100%;border:none}</style>
+</head><body><iframe src="http://localhost:${port}" allow="clipboard-read; clipboard-write"></iframe></body></html>`;
+  dlog('panel iframe http://localhost:' + port);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('termetron.open', () => {
-      void openBrowser();
-    }),
-    vscode.commands.registerCommand('termetron.openPanel', () => {
       void openPanel();
+    }),
+    vscode.commands.registerCommand('termetron.openBrowser', () => {
+      void openBrowser();
     }),
     vscode.commands.registerCommand('termetron.restart', () => {
       stopServer();
-      void openBrowser();
+      void openPanel();
     }),
     vscode.commands.registerCommand('termetron.stop', () => {
       stopServer();

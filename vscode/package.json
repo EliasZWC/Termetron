@@ -1,7 +1,7 @@
 {
   "name": "termetron",
   "displayName": "Termetron",
-  "description": "Geometric metron terminal — multi-session web terminal with live progress bars and mobile remote access. Opens the real web app in your browser; optional VS Code panel fallback.",
+  "description": "Geometric metron terminal — multi-session web terminal with live progress bars and mobile remote access. Embedded in a VS Code panel as a real browser view (iframe + portMapping); optional system-browser fallback.",
   "version": "0.4.14",
   "publisher": "EliasZhang",
   "license": "MIT",
@@ -23,12 +23,12 @@
     "commands": [
       {
         "command": "termetron.open",
-        "title": "Termetron: Open in Browser",
+        "title": "Termetron: Open Terminal",
         "category": "Termetron"
       },
       {
-        "command": "termetron.openPanel",
-        "title": "Termetron: Open in VS Code Panel (experimental)",
+        "command": "termetron.openBrowser",
+        "title": "Termetron: Open in System Browser",
         "category": "Termetron"
       },
       {
