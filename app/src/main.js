@@ -88,13 +88,23 @@ urlInput.value = localStorage.getItem('qt_url') || '';
 // 直接导航会进入错误页且无法返回。探测 Termetron 的 /api/remote/status：
 //  - 隧道开着：Termetron 返回 200 且带 CORS 头（Access-Control-Allow-Origin:*）-> fetch 成功
 //  - 隧道关闭：Cloudflare 530 页无 CORS 头 -> 跨域被拦 -> fetch reject -> 判定不可达
-function probe(url) {
+function probe(url, tries = 3) {
+  // 不要用 cache:'no-store'：它会被 WebView 变成 Cache-Control 请求头（非 CORS
+  // safelisted），触发 OPTIONS 预检——服务器现已支持预检，但简化请求更稳。
+  // 超时 15s + 失败重试 3 次，容忍手机网络/CF 链路的慢与抖动。
   return new Promise((resolve) => {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 8000);
-    fetch(url.replace(/\/$/, '') + '/api/remote/status', { cache: 'no-store', signal: ctl.signal })
-      .then((r) => { clearTimeout(t); resolve(r.status === 200); })
-      .catch(() => { clearTimeout(t); resolve(false); });
+    const attempt = (n) => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 15000);
+      fetch(url.replace(/\/$/, '') + '/api/remote/status', { signal: ctl.signal })
+        .then((r) => { clearTimeout(t); resolve(r.status === 200); })
+        .catch(() => {
+          clearTimeout(t);
+          if (n < tries) setTimeout(() => attempt(n + 1), 1200);
+          else resolve(false);
+        });
+    };
+    attempt(1);
   });
 }
 function setBusy(b) {

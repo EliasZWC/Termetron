@@ -1591,6 +1591,18 @@ class Handler(BaseHTTPRequestHandler):
                 return True
         return False
 
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        # CORS 预检：App（Capacitor WebView）跨域 fetch 带非 safelisted 请求头
+        # （如 cache:'no-store' → Cache-Control）时会先发 OPTIONS；不应答会返回
+        # 501 导致跨域请求被浏览器/WebView 拦截（App 探测隧道失败报 tunnel closed）
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
