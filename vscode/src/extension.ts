@@ -112,46 +112,71 @@ async function openPanel(): Promise<void> {
   if (!panel) {
     return;
   }
-  // asExternalUri turns the local server into a URI the webview can load
-  // (official pattern for embedding a local web server) — VS Code proxies it,
-  // which also works around the 'local-network-access' iframe restriction.
-  const extUri = await vscode.env.asExternalUri(
-    vscode.Uri.parse(`http://localhost:${port}`),
-  );
+  dlog('port=' + port);
+  panel.webview.options = { enableScripts: true };
+
+  // ---- postMessage-proxy approach (no iframe, no localhost loading) ----
+  // This VS Code build blocks webview iframes from loading http://localhost
+  // ('local-network-access'). Instead: fetch the server HTML in the extension
+  // host (which CAN reach localhost), embed it as the webview content directly,
+  // and proxy every front-end api() call back to the Python server through
+  // webview postMessage. This fully sidesteps the localhost restriction.
+  const resp = await fetch(`http://127.0.0.1:${port}/`);
+  let html = await resp.text();
   if (!panel) {
     return;
   }
-  dlog('port=' + port);
-  dlog('extUri=' + extUri.toString());
-  dlog('csp=' + panel.webview.cspSource);
-  panel.webview.options = { enableScripts: true };
-  panel.webview.onDidReceiveMessage((msg) => {
-    dlog('webview msg: ' + JSON.stringify(msg));
-  });
-  const csp = panel.webview.cspSource;
-  panel.webview.html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; frame-src ${csp} http://127.0.0.1 http://localhost https://127.0.0.1 https://localhost vscode-webview:; script-src ${csp} 'unsafe-inline'; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
-<style>
-  html,body{margin:0;padding:0;height:100%;background:#0a0e14}
-  iframe{width:100%;height:100%;border:0;display:block}
-</style>
-</head>
-<body>
-<iframe id="tmframe" src="${extUri}"></iframe>
+  const bridge = `
 <script>
 (function(){
   var vscode = acquireVsCodeApi();
-  var f = document.getElementById('tmframe');
-  f.addEventListener('load', function(){ vscode.postMessage({type:'loaded', url: f.src}); });
-  window.addEventListener('error', function(e){ vscode.postMessage({type:'error', msg: String(e.message||e)}); }, true);
+  var seq = 0;
+  var pending = {};
+  window.addEventListener('message', function(e){
+    var m = e.data;
+    if (m && m.__apiResp && pending[m.id]) {
+      var p = pending[m.id]; delete pending[m.id];
+      if (m.error) p.reject(new Error(m.error)); else p.resolve(m.data);
+    }
+  });
+  window.__termetronBridge = function(path, opts){
+    return new Promise(function(resolve, reject){
+      var id = ++seq;
+      pending[id] = { resolve: resolve, reject: reject };
+      vscode.postMessage({ command:'api', id:id, path:path,
+        method:(opts && opts.method) || 'GET',
+        body: opts && opts.body });
+    });
+  };
 })();
-</script>
-</body>
-</html>`;
+</script>`;
+  html = html.replace('</head>', bridge + '</head>');
+  html = html.replace(
+    'async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }',
+    'async function api(path, opts) { return window.__termetronBridge(path, opts); }',
+  );
+  panel.webview.html = html;
+
+  // Proxy /api requests from the embedded front-end to the Python server.
+  panel.webview.onDidReceiveMessage(async (msg: any) => {
+    if (!msg || msg.command !== 'api') {
+      return;
+    }
+    const url = `http://127.0.0.1:${serverPort}${msg.path}`;
+    try {
+      const init: any = { method: msg.method || 'GET' };
+      if (msg.body) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = msg.body;
+      }
+      const r = await fetch(url, init);
+      const ct = (r.headers.get('content-type') || '').toLowerCase();
+      const data = ct.includes('json') ? await r.json() : await r.text();
+      panel?.webview.postMessage({ __apiResp: true, id: msg.id, data });
+    } catch (e: any) {
+      panel?.webview.postMessage({ __apiResp: true, id: msg.id, data: {}, error: String(e) });
+    }
+  });
 }
 
 export function activate(context: vscode.ExtensionContext): void {
