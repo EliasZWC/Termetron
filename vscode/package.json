@@ -1,0 +1,57 @@
+{
+  "name": "termetron",
+  "displayName": "Termetron",
+  "description": "Geometric metron terminal — multi-session web terminal with live progress bars and mobile remote access, embedded in VS Code.",
+  "version": "0.4.14",
+  "publisher": "eliaszwc",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Terminals",
+    "Other"
+  ],
+  "keywords": [
+    "terminal",
+    "remote",
+    "session",
+    "tunnel",
+    "mobile"
+  ],
+  "activationEvents": [
+    "onCommand:termetron.open"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "termetron.open",
+        "title": "Termetron: Open Terminal",
+        "category": "Termetron"
+      },
+      {
+        "command": "termetron.restart",
+        "title": "Termetron: Restart Server",
+        "category": "Termetron"
+      },
+      {
+        "command": "termetron.stop",
+        "title": "Termetron: Stop Server",
+        "category": "Termetron"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0",
+    "@vscode/vsce": "^2.26.0",
+    "typescript": "^5.5.0"
+  }
+}

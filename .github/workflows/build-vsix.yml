@@ -1,0 +1,53 @@
+name: build-vsix
+
+# 云构建 VS Code 扩展（.vsix）：无需本地 Node。
+# push 到 vscode/** 或手动触发。产物上传 Artifact；
+# 发布 Marketplace 需 publisher 账号 + VSCE_PAT secret（见下方注释步骤）。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'vscode/**'
+      - '.github/workflows/build-vsix.yml'
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deps
+        working-directory: vscode
+        run: npm install
+
+      - name: Compile
+        working-directory: vscode
+        run: npm run compile
+
+      - name: Package vsix
+        working-directory: vscode
+        run: npx @vscode/vsce package --no-dependencies --allow-missing-repository
+
+      - name: Upload vsix
+        uses: actions/upload-artifact@v4
+        with:
+          name: termetron-vsix
+          path: vscode/*.vsix
+
+      # Marketplace 发布（可选）：
+      # 1) 注册 publisher：https://marketplace.visualstudio.com/manage（Azure DevOps）
+      # 2) 生成 Personal Access Token（marketplace manage 权限）→ 存为 secret VSCE_PAT
+      # 3) 取消注释下面步骤（仅在打 tag 时发布，避免每次 push 都发版）
+      # - name: Publish to Marketplace
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   working-directory: vscode
+      #   env:
+      #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      #   run: npx @vscode/vsce publish --packagePath termetron-*.vsix

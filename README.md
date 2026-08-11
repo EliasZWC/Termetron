@@ -54,7 +54,9 @@ Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
 | `release.py`       | One-click publish: bump version + push -> CI build -> auto Release |
 | `app/`             | Android APK client (Capacitor WebView wrapper), repo subdir   |
 | `app/assets/`      | App icon sources + `generate-icons.py` (Pillow)              |
+| `vscode/`          | VS Code extension (embeds the termetron web UI, see its README) |
 | `.github/workflows/build.yml` | CI: builds APK on push + auto-publishes Release (App update source) |
+| `.github/workflows/build-vsix.yml` | CI: builds the VS Code extension (.vsix) |
 
 ## Features
 
