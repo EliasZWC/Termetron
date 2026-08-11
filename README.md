@@ -51,6 +51,7 @@ Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
 | `quant_terminal.py`| Web terminal server (browser UI + per-session cmd shells)    |
 | `termetron_exec.py`| CLI to push a command into a terminal session from the shell |
 | `termetron.py`     | One-shot launcher (`python termetron.py`, opens default browser) |
+| `agent.py`         | Agent channel CLI (status/watch/wait — let an AI agent monitor sessions) |
 | `release.py`       | One-click publish: bump version + push -> CI build -> auto Release |
 | `app/`             | Android APK client (Capacitor WebView wrapper), repo subdir   |
 | `app/assets/`      | App icon sources + `generate-icons.py` (Pillow)              |
@@ -262,6 +263,20 @@ python termetron_exec.py --port 8900 demo "python run/run_demo.py"
 
 Sessions are created on demand; a long task can be started here and watched
 from the browser.
+
+## Agent channel (let an AI agent monitor)
+
+The server already exposes session state and output over HTTP (`/api/sessions`:
+lines[-600] / progress / busy / script / cmd / updated). `agent.py` is a small CLI
+an AI agent (e.g. GitHub Copilot) can call to see what's running — no screen
+sharing needed:
+
+```bash
+python agent.py status                    # all sessions: busy/script/cmd/progress/tail
+python agent.py status --auto             # auto-detect server ports (incl. the VS Code ext)
+python agent.py watch shell --lines 50    # tail a session's output
+python agent.py wait shell --timeout 900  # block until a session is idle
+```
 
 ## Notes
 

@@ -152,6 +152,7 @@ class Session:
     def send(self, text: str) -> bool:
         if self.proc.poll() is not None or self.proc.stdin is None:
             return False
+        self.cmd = text  # 最近提交的命令（agent 通道读取）
         # cmd.exe on zh-CN Windows reads stdin in the ANSI codepage (GBK);
         # encode commands accordingly so Chinese text typed in the box works.
         enc = "cp936" if os.name == "nt" else "utf-8"
@@ -253,6 +254,7 @@ class Session:
             "done": self.done,
             "busy": self.busy,
             "script": self.script,
+            "cmd": self.cmd,
             "updated": time.strftime("%H:%M:%S", time.localtime(self.updated)),
         }
 
