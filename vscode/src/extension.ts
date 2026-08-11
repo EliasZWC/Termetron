@@ -43,7 +43,9 @@ async function startServer(): Promise<number> {
   const wf = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const cwd = wf ?? root;
   serverPort = await findFreePort(PREFERRED_PORT);
-  const p = spawn('python', [py, '--port', String(serverPort), '--no-open'], {
+  // quant_terminal.py takes only --port/--host (it never opens a browser;
+  // --no-open is a termetron.py launcher arg). Don't pass it.
+  const p = spawn('python', [py, '--port', String(serverPort)], {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
