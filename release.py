@@ -46,7 +46,9 @@ _BRANCH = "main"
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+    # Windows 上 git 可能输出本地化（中文）文本，用 UTF-8 + errors=replace 避免 gbk 解码崩溃
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 def _opener():
@@ -132,7 +134,8 @@ def _build_vsix(new: str) -> str:
         sys.exit("[error] npm not found; install Node or set PATH (portable: %TEMP%\\node\\node-v*\\npm.cmd)")
     env = dict(os.environ, PATH=os.path.dirname(npm) + os.pathsep + os.environ.get("PATH", ""))
     # .cmd 需 cmd.exe 解释（CreateProcess 不能直接执行），故用完整路径 + shell=True
-    r = subprocess.run(f'"{npm}" run package', shell=True, cwd=VSC_DIR, env=env, capture_output=True, text=True)
+    r = subprocess.run(f'"{npm}" run package', shell=True, cwd=VSC_DIR, env=env,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         sys.exit(f"[error] vsix build failed:\n{r.stdout}\n{r.stderr}")
     vsix = os.path.join(VSC_DIR, f"termetron-{new}.vsix")
@@ -153,7 +156,8 @@ def _publish_vsix(vsix: str) -> None:
     vsce = os.path.join(VSC_DIR, "node_modules", ".bin", "vsce" + (".cmd" if os.name == "nt" else ""))
     if not os.path.isfile(vsce):
         sys.exit(f"[error] vsce not found at {vsce}; run `npm install` in {VSC_DIR}")
-    r = subprocess.run(f'"{vsce}" publish --packagePath "{vsix}"', shell=True, cwd=VSC_DIR, env=env, capture_output=True, text=True)
+    r = subprocess.run(f'"{vsce}" publish --packagePath "{vsix}"', shell=True, cwd=VSC_DIR, env=env,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         sys.exit(f"[error] vsce publish failed:\n{r.stdout}\n{r.stderr}")
     print(f"       published {os.path.basename(vsix)} to VS Code Marketplace")
