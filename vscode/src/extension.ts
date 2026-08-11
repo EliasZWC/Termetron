@@ -5,6 +5,8 @@ import * as net from 'net';
 
 const SERVER_PY = 'quant_terminal.py';
 const PREFERRED_PORT = 8900;
+// Port the webview uses internally; mapped to the real server port via portMapping.
+const WEBVIEW_PORT = 8900;
 
 let serverProc: ChildProcess | null = null;
 let serverPort = PREFERRED_PORT;
@@ -98,27 +100,29 @@ async function openPanel(): Promise<void> {
   });
 
   const port = await startServer();
-  // asExternalUri turns the local server into a URI the webview can load
-  // (handles port mapping + CSP for us).
-  const extUri = await vscode.env.asExternalUri(
-    vscode.Uri.parse(`http://localhost:${port}`),
-  );
   if (!panel) {
     return;
   }
+  // Port mapping: the webview loads http://127.0.0.1:<WEBVIEW_PORT>, which VS Code
+  // transparently forwards to the actual extension-host server port. This is the
+  // officially recommended way to embed a local web server in a webview.
+  panel.webview.options = {
+    enableScripts: true,
+    portMapping: [{ webviewPort: WEBVIEW_PORT, extensionHostPort: port }],
+  };
   const csp = panel.webview.cspSource;
   panel.webview.html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; frame-src ${csp} https: vscode-webview:; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
+  content="default-src 'none'; frame-src ${csp} http://127.0.0.1:${WEBVIEW_PORT} http://localhost:${WEBVIEW_PORT}; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
 <style>
   html,body{margin:0;padding:0;height:100%;background:#0a0e14}
   iframe{width:100%;height:100%;border:0;display:block}
 </style>
 </head>
-<body><iframe src="${extUri}"></iframe></body>
+<body><iframe src="http://127.0.0.1:${WEBVIEW_PORT}"></iframe></body>
 </html>`;
 }
 
