@@ -1,0 +1,9 @@
+# Termetron 顶层仓库（服务端）
+#
+# app/ 是独立项目：它有自己的 git remote（EliasZWC/Termetron，公开仓库，
+# 含 GitHub Actions 云构建 APK + App 自动更新依赖其 releases）。
+# 由 app/ 自己的仓库管理，不纳入本仓库。
+
+app/
+__pycache__/
+*.pyc
