@@ -1,20 +1,26 @@
 name: build-vsix
 
 # 云构建 VS Code 扩展（.vsix）：无需本地 Node。
-# push 到 vscode/** 或手动触发。产物上传 Artifact；
-# 发布 Marketplace 需 publisher 账号 + VSCE_PAT secret（见下方注释步骤）。
+# push 到 vscode/** 或 quant_terminal.py（服务端改动会随 copy-server 打进 vsix）时
+# 自动构建 + 发布 Marketplace：
+#   - 需要仓库 secret VSCE_PAT（Azure DevOps PAT，Marketplace Manage 权限）
+#   - 发布前自动查询线上版本，与本地相同则跳过（日常 commit 版本不变不重复发版）
+#   - 未配置 VSCE_PAT 时只构建/上传 artifact，不发布（不失败）
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'vscode/**'
+      - 'quant_terminal.py'
       - '.github/workflows/build-vsix.yml'
     branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,13 +47,21 @@ jobs:
           name: termetron-vsix
           path: vscode/*.vsix
 
-      # Marketplace 发布（可选）：
-      # 1) 注册 publisher：https://marketplace.visualstudio.com/manage（Azure DevOps）
-      # 2) 生成 Personal Access Token（marketplace manage 权限）→ 存为 secret VSCE_PAT
-      # 3) 取消注释下面步骤（仅在打 tag 时发布，避免每次 push 都发版）
-      # - name: Publish to Marketplace
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   working-directory: vscode
-      #   env:
-      #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      #   run: npx @vscode/vsce publish --packagePath termetron-*.vsix
+      - name: Check if version already published
+        id: check
+        working-directory: vscode
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          PUB=$(curl -s -X POST https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json;api-version=3.0-preview.1" \
+            -d "{\"filters\":[{\"criteria\":[{\"filterType\":7,\"value\":\"EliasZhang.termetron\"}],\"pageNumber\":1,\"pageSize\":10}],\"flags\":914}" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);const e=j.results&&j.results[0].extensions&&j.results[0].extensions[0];console.log(e&&e.versions&&e.versions[0]?e.versions[0].version:'')}catch(err){console.log('')}})")
+          echo "local=$VER published=$PUB"
+          if [ "$VER" = "$PUB" ]; then echo "skip=yes"; else echo "skip=no"; fi
+          echo "skip=$([ \"$VER\" = \"$PUB\" ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Marketplace
+        if: steps.check.outputs.skip != 'yes' && env.VSCE_PAT != ''
+        working-directory: vscode
+        run: npx @vscode/vsce publish --packagePath $(ls termetron-*.vsix)
