@@ -90,8 +90,47 @@ function stopServer(): void {
 }
 
 /**
- * Open the Termetron panel: a webview that embeds the full Termetron web UI
- * (multi-session terminal, progress bars, and mobile remote access via tunnel).
+ * Wait until the Python server responds (GET /api/sessions returns ok).
+ * spawn() returns before the server starts listening; without this the first
+ * fetch would hit ECONNREFUSED.
+ */
+async function waitReady(port: number): Promise<boolean> {
+  for (let i = 0; i < 60; i++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/sessions`);
+      if (r.ok) {
+        return true;
+      }
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+/**
+ * Open Termetron in the system default browser. This is the primary UX: the
+ * real web app runs natively — no webview CSP/bridge/device hacks, so it is
+ * fast, fills the window, and the pairing prompt + desktop detection behave
+ * exactly as in any browser.
+ */
+async function openBrowser(): Promise<void> {
+  const port = await startServer();
+  dlog('openBrowser port=' + port);
+  if (!(await waitReady(port))) {
+    dlog('openBrowser: server not ready');
+    vscode.window.showWarningMessage('Termetron server did not start in time.');
+    return;
+  }
+  const url = `http://127.0.0.1:${port}`;
+  dlog('openBrowser url=' + url);
+  await vscode.env.openExternal(vscode.Uri.parse(url));
+}
+
+/**
+ * EXPERIMENTAL: open the Termetron web UI inside a VS Code webview panel via a
+ * postMessage proxy. Kept only as a fallback — prefer openBrowser().
  */
 async function openPanel(): Promise<void> {
   if (panel) {
@@ -115,26 +154,8 @@ async function openPanel(): Promise<void> {
   dlog('port=' + port);
   panel.webview.options = { enableScripts: true };
 
-  // spawn() returns before the Python server starts listening; wait for it to
-  // be ready (retry GET /api/sessions) before fetching the HTML — otherwise the
-  // immediate fetch hits ECONNREFUSED and the panel stays blank.
-  let ready = false;
-  for (let i = 0; i < 60 && !ready; i++) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/api/sessions`);
-      if (r.ok) {
-        ready = true;
-      }
-    } catch {
-      // not up yet
-    }
-    if (!ready) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  }
-  dlog('server ready=' + ready);
-  if (!ready) {
-    dlog('server not ready after retries');
+  if (!(await waitReady(port))) {
+    dlog('panel: server not ready');
     return;
   }
 
@@ -157,6 +178,14 @@ async function openPanel(): Promise<void> {
   const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src http://127.0.0.1:${port} http://localhost:${port};">`;
   html = html.replace('<head>', '<head>' + cspMeta);
   const bridge = `
+<style>
+/* Termetron webview: tighter side margins so content fills the panel width.
+   These rules load after termtron's own <style> (head) and override the
+   20px side padding; scoped to the webview only, other clients unchanged. */
+header{padding-left:10px;padding-right:10px}
+.tabs{padding-left:8px;padding-right:8px}
+.wrap{padding-left:8px;padding-right:8px}
+</style>
 <script>
 (function(){
   window.__termetronLocal = true;  // webview hostname != localhost → treat as local (no tunnel gate)
@@ -250,11 +279,14 @@ async function openPanel(): Promise<void> {
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('termetron.open', () => {
+      void openBrowser();
+    }),
+    vscode.commands.registerCommand('termetron.openPanel', () => {
       void openPanel();
     }),
     vscode.commands.registerCommand('termetron.restart', () => {
       stopServer();
-      void openPanel();
+      void openBrowser();
     }),
     vscode.commands.registerCommand('termetron.stop', () => {
       stopServer();
