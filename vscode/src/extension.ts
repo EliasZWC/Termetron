@@ -159,6 +159,21 @@ async function openPanel(): Promise<void> {
   const bridge = `
 <script>
 (function(){
+  // Force desktop mode: VS Code webview has no hover/coarse pointer, so termtron's
+  // matchMedia('(hover: none) and (pointer: coarse)...') would mark it mobile and
+  // show the tunnel-closed mask + small-screen layout. Mock to desktop semantics.
+  (function(){
+    var _orig = window.matchMedia ? window.matchMedia.bind(window) : null;
+    var _stub = function(media, matches){ return { matches: !!matches, media: media, onchange: null,
+      addListener: function(){}, removeListener: function(){},
+      addEventListener: function(){}, removeEventListener: function(){},
+      dispatchEvent: function(){ return false; } }; };
+    window.matchMedia = function(query){
+      if (/pointer\s*:\s*(coarse|none)|hover\s*:\s*none/.test(query)) return _stub(query, false);
+      if (/hover\s*:\s*hover|pointer\s*:\s*fine/.test(query)) return _stub(query, true);
+      return _orig ? _orig(query) : _stub(query, false);
+    };
+  })();
   var vscode = acquireVsCodeApi();
   var seq = 0;
   var pending = {};
