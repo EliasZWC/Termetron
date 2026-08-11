@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>updater.js test harness</title>
+<style>
+  body { background:#0a0e14; color:#c9d1d9; font-family:system-ui,sans-serif; padding:22px; }
+  h2 { color:#a78bfa; margin:0 0 6px; }
+  p  { margin:2px 0; font-size:13px; color:#5a6a7a; }
+  #log { white-space:pre-wrap; font-family:Consolas,monospace; font-size:12px; margin-top:12px; color:#7ee787; }
+</style>
+</head>
+<body>
+<h2>updater.js test harness</h2>
+<p>Load with ?scene=has | none | fail to auto-run a scenario against the real src/updater.js</p>
+<p>Current version: <b>0.3.5</b> (mock __APP_VERSION__)</p>
+<pre id="log"></pre>
+
+<script type="importmap">
+{
+  "imports": {
+    "@capacitor/core": "./mock-capacitor.js",
+    "@capacitor/filesystem": "./mock-filesystem.js"
+  }
+}
+</script>
+
+<script>
+  // 当前版本（vite define 在真实构建注入的是全局 __APP_VERSION__，这里 mock）
+  window.__APP_VERSION__ = '0.3.5';
+  window.__log = [];
+  function log(s) { window.__log.push(String(s)); document.getElementById('log').textContent = window.__log.join('\n'); }
+
+  // mock GitHub API：检查阶段 fetch(api.github.com/.../releases/latest)
+  window.__mockRelease = null;
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    if (String(url).includes('/releases/latest')) {
+      if (!window.__mockRelease) return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(window.__mockRelease) });
+    }
+    return realFetch(url, opts);
+  };
+
+  const REL_V036 = { tag_name: 'v0.3.6', assets: [{ name: 'app-debug.apk', browser_download_url: 'https://github.com/x/releases/download/v0.3.6/app-debug.apk' }] };
+  const REL_V035 = { tag_name: 'v0.3.5', assets: [] };
+
+  async function autoRun() {
+    const scene = new URLSearchParams(location.search).get('scene');
+    window.__installCalls = [];
+    window.__downloadCfg = {};
+    if (scene === 'has') { window.__mockRelease = REL_V036; }
+    else if (scene === 'fail') { window.__mockRelease = REL_V036; window.__downloadCfg = { fail: true, failMsg: 'mock download failed' }; }
+    else if (scene === 'none') { window.__mockRelease = REL_V035; }
+    else { log('no scene; use ?scene=has|none|fail'); return; }
+    log('scene=' + scene + ' -> checkForUpdate()');
+    const { checkForUpdate } = await import('../src/updater.js');
+    checkForUpdate().catch((e) => log('unhandled: ' + e));
+  }
+  autoRun();
+</script>
+</body>
+</html>

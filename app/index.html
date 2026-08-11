@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e14">
+  <title>Termetron</title>
+  <style>
+    /* 内置等宽字体：DejaVu Sans Mono Bold（Linux 终端默认等宽字体，自由许可证可分发）。
+       logo 的 >_ 用真实等宽字体渲染，Android 上严格等宽 + Linux 终端质感。
+       字体在 public/fonts/，vite 构建后位于 www/fonts/。 */
+    @font-face {
+      font-family: 'TmtMono';
+      src: url('/fonts/dejavu-sans-mono-bold.ttf') format('truetype');
+      font-weight: 700;
+      font-display: swap;
+    }
+    /* 与电脑端 quant_terminal.py 一致的主题：--bg #0a0e14 / --panel #0d131b / --bar #171e2b / --border #1b2733 / --txt #c9d1d9 / --dim #5a6a7a / --acc #a78bfa */
+    :root { color-scheme: dark; --bg:#0a0e14; --panel:#0d131b; --bar:#171e2b; --border:#1b2733; --txt:#c9d1d9; --dim:#5a6a7a; --acc:#a78bfa; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; -webkit-touch-callout: none; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: var(--bg); color: var(--txt); font-family: system-ui, sans-serif;
+      padding: 0 24px;
+    }
+    .card { width: 100%; max-width: 360px; text-align: center; margin-top: -5vh; }
+    .logo { display: inline-flex; align-items: center; gap: 14px; color: var(--acc); margin: 0 0 4px; }
+    .logo svg { width: 38px; height: 38px; flex: none; }
+    .logo svg * { stroke-width: 2.6; }
+    .logo .ttl { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: 800; letter-spacing: 3px; }
+    .sub { color: var(--dim); font-size: 12px; margin: 0 0 28px; }
+    input {
+      width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--panel); color: var(--txt); font-size: 14px; outline: none; margin-bottom: 10px;
+    }
+    input:focus { border-color: var(--acc); }
+    .btn {
+      width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 15px;
+      font-weight: 600; cursor: pointer; margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn svg { width: 16px; height: 16px; flex: none; }
+    .primary { background: var(--acc); color: var(--bg); }
+    .ghost { background: var(--panel); color: var(--txt); border: 1px solid var(--border); }
+    .primary:disabled { opacity: .6; cursor: default; }
+    button:focus { outline: none; box-shadow: 0 0 0 2px rgba(167,139,250,.3); }
+    .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
+    .hint b { color: var(--acc); }
+    .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; line-height: 1.6; margin: 0; }
+    .ver b { color: var(--acc); }
+    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-bottom: 6vh; z-index: 99999; animation: ut-splash 2.6s ease forwards; pointer-events: none; }
+    @keyframes ut-splash { 0%, 77% { opacity: 1; } 100% { opacity: 0; } }
+    .splash svg { width: 108px; height: 108px; color: var(--acc); }
+    .splash-brand { color: var(--acc); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 7px; }
+    /* logo 的 >_ 用内置等宽字体 TmtMono（Cascadia Mono）渲染，回退到系统等宽字体 */
+    .logo svg text, .splash svg text { font-family: 'TmtMono', 'Roboto Mono', 'Droid Sans Mono', monospace; }
+  </style>
+</head>
+<body>
+  <div id="splash" class="splash">
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
+    <div class="splash-brand">TERMETRON</div>
+  </div>
+  <div class="card">
+    <p class="logo">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg>
+      <span class="ttl">TERMETRON</span>
+    </p>
+    <p class="sub">Mobile Client</p>
+    <input id="url" placeholder="paste tunnel URL from computer" autocomplete="off">
+    <button class="btn primary" id="connect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Connect</button>
+    <button class="btn ghost" id="scan">Scan QR Code</button>
+    <p class="hint">
+      On the computer run <b>termetron remote on</b>, then either paste the URL or scan the QR.
+      Enter the one-time password, then enter the 4-digit code on the computer to pair.
+    </p>
+    <p class="ver" id="ver"></p>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

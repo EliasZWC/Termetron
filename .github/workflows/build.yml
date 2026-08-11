@@ -1,0 +1,97 @@
+name: build-apk
+
+# 云端构建 Android APK（无需本地 Node/JDK/Android SDK）
+# 仓库需 public：构建后发布 GitHub Release（tag=v<version>，附件=APK），
+# 作为 App 内自动更新的更新源（App 查 /releases/latest）。
+# 版本号未变时 tag 已存在，gh release 失败被容忍（跳过发布）。
+on:
+  workflow_dispatch:          # 手动触发
+  push:
+    branches: [main]
+
+permissions:
+  contents: write              # 发布 GitHub Release 需要
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 固定 debug keystore：android-debug.p12 已入库（PKCS12），由 patch-android.py 的
+      # patch_signing() 显式配置 signingConfigs.debug 指向它 → 每次构建签名 100% 一致，
+      # 不再依赖 actions/cache（cache 曾失效导致各版本签名不同，覆盖安装报签名冲突）。
+      - name: Install deps
+        working-directory: app
+        run: npm install
+
+      - name: Build web (vite -> www)
+        working-directory: app
+        run: npm run build
+
+      - name: Add Capacitor Android platform
+        working-directory: app
+        run: npx cap add android
+
+      - name: Generate app icons
+        working-directory: app
+        run: npx capacitor-assets generate --android
+
+      - name: Sync Capacitor
+        working-directory: app
+        run: npx cap sync android
+
+      - name: Patch Android project (OutSystems repo + minSdk 26 + apk install)
+        working-directory: app
+        run: python3 scripts/patch-android.py
+
+      - name: Build APK (gradle)
+        working-directory: app/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: termetron-apk
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Get app version
+        id: ver
+        working-directory: app
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Check release tag exists
+        id: checkrel
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release (App update source)
+        if: steps.checkrel.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Termetron v${{ steps.ver.outputs.version }}
+          body: Auto-built APK for Termetron v${{ steps.ver.outputs.version }} (App in-app update source).
+          files: app/android/app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true

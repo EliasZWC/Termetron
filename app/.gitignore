@@ -1,0 +1,10 @@
+# 依赖与构建产物（CI 云端生成，不入库）
+node_modules/
+www/
+android/
+
+# 本地杂项
+*.log
+.DS_Store
+__pycache__/
+*.pyc

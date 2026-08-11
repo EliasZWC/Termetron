@@ -1,0 +1,24 @@
+{
+  "name": "termetron-app",
+  "version": "0.4.13",
+  "description": "Termetron mobile client — Capacitor (WebView) wrapper with QR scan + in-app update",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/barcode-scanner": "^1.0.0",
+    "@capacitor/core": "^6.1.0",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/splash-screen": "^6.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.0"
+  }
+}
