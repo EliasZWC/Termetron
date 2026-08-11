@@ -123,9 +123,16 @@ async function openPanel(): Promise<void> {
   // webview postMessage. This fully sidesteps the localhost restriction.
   const resp = await fetch(`http://127.0.0.1:${port}/`);
   let html = await resp.text();
+  dlog('fetch status=' + resp.status + ' len=' + html.length);
   if (!panel) {
     return;
   }
+  // termtron HTML has no CSP meta, so VS Code would inject a strict default
+  // CSP (default-src 'none' without script-src) that blocks ALL inline JS.
+  // Inject our own CSP: inline scripts allowed (everything is inline), and
+  // connect-src limited to the local server in case any fetch bypasses api().
+  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; connect-src http://127.0.0.1:${port} http://localhost:${port};">`;
+  html = html.replace('<head>', '<head>' + cspMeta);
   const bridge = `
 <script>
 (function(){
@@ -155,10 +162,14 @@ async function openPanel(): Promise<void> {
     'async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }',
     'async function api(path, opts) { return window.__termetronBridge(path, opts); }',
   );
+  dlog('injected bridge=' + (html.includes('__termetronBridge')) +
+       ' apiReplaced=' + (html.includes('window.__termetronBridge(path, opts)')) +
+       ' csp=' + (html.includes('Content-Security-Policy')));
   panel.webview.html = html;
 
   // Proxy /api requests from the embedded front-end to the Python server.
   panel.webview.onDidReceiveMessage(async (msg: any) => {
+    dlog('webview msg: ' + (msg && msg.command) + ' ' + (msg && msg.path));
     if (!msg || msg.command !== 'api') {
       return;
     }
