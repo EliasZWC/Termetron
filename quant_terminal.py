@@ -1353,9 +1353,21 @@ class RemoteMgr:
         return self.proc is not None and self.proc.poll() is None
 
     def _bin_dir(self) -> str:
-        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
-        os.makedirs(d, exist_ok=True)
-        return d
+        # 优先随文件部署的 bin/（手动部署 lib/termetron/bin 已在，直接用）；
+        # 扩展服务器（vsix 打包只含 out/server/，无 bin/）回退到用户缓存目录，
+        # 让 cloudflared 跨实例/跨版本复用 —— 否则每次更新扩展都会重新下载 ~50MB，
+        # 导致 remote on 慢 + 隧道迟迟未就绪（手机端报 TUNNEL CLOSED）。
+        local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
+        if os.path.isdir(local):
+            return local
+        cache = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+                             "Termetron", "bin")
+        try:
+            os.makedirs(cache, exist_ok=True)
+        except OSError:
+            cache = local
+            os.makedirs(cache, exist_ok=True)
+        return cache
 
     def _bin_path(self) -> str:
         sysname = platform.system()
