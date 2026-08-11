@@ -26,6 +26,21 @@ Commands:
 | Termetron: Restart Server | kill the Python server and reopen |
 | Termetron: Stop Server | stop the Python server |
 
+## Extension API
+
+Other extensions can drive Termetron programmatically:
+
+```ts
+const tmt = vscode.extensions.getExtension('eliaszhang.termetron')?.exports;
+await tmt.open();                              // open the embedded terminal panel
+await tmt.openInBrowser();                     // open in the system browser
+await tmt.restart();                           // restart the server + reopen
+await tmt.stop();                              // stop the server
+const { running, port } = await tmt.getStatus(); // server state
+```
+
+Type declarations are provided in `api.d.ts` in the extension folder.
+
 ## Requirements
 
 - **Python ≥ 3.10** on PATH (`quant_terminal.py` is stdlib-only).

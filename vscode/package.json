@@ -20,6 +20,7 @@
     "mobile"
   ],
   "main": "./out/extension.js",
+  "api": "0.0.1",
   "contributes": {
     "commands": [
       {

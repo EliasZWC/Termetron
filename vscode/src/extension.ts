@@ -195,7 +195,24 @@ window.addEventListener('message', function (e) {
   });
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+/** Termetron VS Code extension public API. Obtained by other extensions via
+ *  vscode.extensions.getExtension('eliaszhang.termetron')?.exports. */
+export interface TermetronApi {
+  /** Open the embedded terminal panel (starts the Python server if needed). */
+  open(): Promise<void>;
+  /** Open Termetron in the system default browser. */
+  openInBrowser(): Promise<void>;
+  /** Restart the Python server and reopen the panel. */
+  restart(): Promise<void>;
+  /** Stop the Python server. */
+  stop(): Promise<void>;
+  /** Current server state. */
+  getStatus(): Promise<{ running: boolean; port: number | null }>;
+  /** The port the server is listening on (or null if not running). */
+  getPort(): Promise<number | null>;
+}
+
+export function activate(context: vscode.ExtensionContext): TermetronApi {
   context.subscriptions.push(
     vscode.commands.registerCommand('termetron.open', () => {
       void openPanel();
@@ -211,6 +228,21 @@ export function activate(context: vscode.ExtensionContext): void {
       stopServer();
     }),
   );
+  const running = () => serverProc !== null && serverProc.exitCode === null;
+  return {
+    open: () => openPanel(),
+    openInBrowser: () => openBrowser(),
+    restart: async () => {
+      stopServer();
+      await openPanel();
+    },
+    stop: () => {
+      stopServer();
+      return Promise.resolve();
+    },
+    getStatus: async () => ({ running: running(), port: running() ? serverPort : null }),
+    getPort: async () => (running() ? serverPort : null),
+  };
 }
 
 export function deactivate(): void {
