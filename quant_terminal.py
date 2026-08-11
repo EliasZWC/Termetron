@@ -1148,7 +1148,7 @@ function showTunnelClosed() {
 // 避免“先露会话目录再盖遮罩”的闪烁；本地桌面访问不遮罩。
 // 刚 remote on 时隧道是 starting/URL 未就绪，须重试等待；仅明确 off/error 才显示关闭。
 async function initGate() {
-  const remote = !['127.0.0.1', 'localhost'].includes(location.hostname);
+  const remote = !window.__termetronLocal && !['127.0.0.1', 'localhost'].includes(location.hostname);
   const cm = document.getElementById('cmask');
   if (remote) {
     document.body.classList.add('tunnel');   // 隐藏会话内容区，等待检测
@@ -1176,8 +1176,8 @@ async function tunnelGuard() {
   const check = async () => {
     if (mask.style.display === 'flex') return;
     if (document.getElementById('rmask').style.display === 'flex') return; // 认证遮罩自行处理
-    // 仅远程（隧道）访问需要隧道检测；本地桌面直接访问（127.0.0.1/localhost）不受影响
-    if (['127.0.0.1', 'localhost'].includes(location.hostname)) return;
+    // 仅远程（隧道）访问需要隧道检测；本地桌面直接访问（127.0.0.1/localhost/__termetronLocal）不受影响
+    if (window.__termetronLocal || ['127.0.0.1', 'localhost'].includes(location.hostname)) return;
     let st = null;
     try { st = await api('/api/remote/status'); } catch (e) {}
     if (st && st.status === 'starting') return;  // 隧道启动中：不误报关闭

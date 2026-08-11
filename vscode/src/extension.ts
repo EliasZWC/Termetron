@@ -159,6 +159,7 @@ async function openPanel(): Promise<void> {
   const bridge = `
 <script>
 (function(){
+  window.__termetronLocal = true;  // webview hostname != localhost → treat as local (no tunnel gate)
   var vscode = acquireVsCodeApi();
   // Force desktop mode: termtron reads location.search ?d=1 (its native override)
   // AND matchMedia. The webview URL has no ?d, and its matchMedia is not always
