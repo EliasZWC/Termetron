@@ -37,6 +37,7 @@ await tmt.openInBrowser();                     // open in the system browser
 await tmt.restart();                           // restart the server + reopen
 await tmt.stop();                              // stop the server
 const { running, port } = await tmt.getStatus(); // server state
+await tmt.exec('shell', 'python run/run_demo.py'); // run a command in a session
 ```
 
 Type declarations are provided in `api.d.ts` in the extension folder.

@@ -17,6 +17,8 @@ export interface TermetronApi {
   getStatus(): Promise<{ running: boolean; port: number | null }>;
   /** The port the server is listening on (or null if not running). */
   getPort(): Promise<number | null>;
+  /** Send a command to a session (created on demand); output appears in the panel. */
+  exec(session: string, command: string): Promise<{ ok: boolean; error?: string }>;
 }
 
 export declare const api: TermetronApi;

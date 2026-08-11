@@ -210,6 +210,38 @@ export interface TermetronApi {
   getStatus(): Promise<{ running: boolean; port: number | null }>;
   /** The port the server is listening on (or null if not running). */
   getPort(): Promise<number | null>;
+  /** Send a command to a session (created on demand); output appears in the panel. */
+  exec(session: string, command: string): Promise<{ ok: boolean; error?: string }>;
+}
+
+/** Post a command to a Termetron session via the local server API. */
+async function execInSession(session: string, command: string): Promise<{ ok: boolean; error?: string }> {
+  if (!serverProc || serverProc.exitCode !== null) {
+    return { ok: false, error: 'Termetron server is not running; call open() first' };
+  }
+  const base = `http://127.0.0.1:${serverPort}`;
+  try {
+    // ensure the session exists (input returns 404 otherwise)
+    const list = (await (await fetch(base + '/api/sessions')).json()) as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(list, session)) {
+      await fetch(base + '/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: session, cmd: null }),
+      });
+    }
+    const r = await fetch(base + '/api/sessions/' + encodeURIComponent(session) + '/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: command }),
+    });
+    if (!r.ok) {
+      return { ok: false, error: 'input failed: HTTP ' + r.status };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 export function activate(context: vscode.ExtensionContext): TermetronApi {
@@ -242,6 +274,7 @@ export function activate(context: vscode.ExtensionContext): TermetronApi {
     },
     getStatus: async () => ({ running: running(), port: running() ? serverPort : null }),
     getPort: async () => (running() ? serverPort : null),
+    exec: (session, command) => execInSession(session, command),
   };
 }
 
