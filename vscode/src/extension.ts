@@ -110,20 +110,34 @@ async function openPanel(): Promise<void> {
   if (!panel) {
     return;
   }
+  console.log('[termetron] extUri =', extUri.toString());
   panel.webview.options = { enableScripts: true };
+  panel.webview.onDidReceiveMessage((msg) => {
+    console.log('[termetron] webview msg:', JSON.stringify(msg));
+  });
   const csp = panel.webview.cspSource;
   panel.webview.html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; frame-src ${csp} https://127.0.0.1 http://localhost vscode-webview:; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
+  content="default-src 'none'; frame-src ${csp} http://127.0.0.1 http://localhost https://127.0.0.1 https://localhost vscode-webview:; script-src ${csp} 'unsafe-inline'; style-src ${csp} 'unsafe-inline'; img-src ${csp} https: data:;">
 <style>
   html,body{margin:0;padding:0;height:100%;background:#0a0e14}
   iframe{width:100%;height:100%;border:0;display:block}
 </style>
 </head>
-<body><iframe src="${extUri}"></iframe></body>
+<body>
+<iframe id="tmframe" src="${extUri}"></iframe>
+<script>
+(function(){
+  var vscode = acquireVsCodeApi();
+  var f = document.getElementById('tmframe');
+  f.addEventListener('load', function(){ vscode.postMessage({type:'loaded', url: f.src}); });
+  window.addEventListener('error', function(e){ vscode.postMessage({type:'error', msg: String(e.message||e)}); }, true);
+})();
+</script>
+</body>
 </html>`;
 }
 
