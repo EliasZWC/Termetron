@@ -159,9 +159,23 @@ async function openPanel(): Promise<void> {
   const bridge = `
 <script>
 (function(){
-  // Force desktop mode: VS Code webview has no hover/coarse pointer, so termtron's
-  // matchMedia('(hover: none) and (pointer: coarse)...') would mark it mobile and
-  // show the tunnel-closed mask + small-screen layout. Mock to desktop semantics.
+  var vscode = acquireVsCodeApi();
+  // Force desktop mode: termtron reads location.search ?d=1 (its native override)
+  // AND matchMedia. The webview URL has no ?d, and its matchMedia is not always
+  // overridable — so rewrite the URL to add ?d=1 (belt) AND mock matchMedia (suspenders).
+  try {
+    var u = new URL(location.href);
+    if (!u.searchParams.get('d')) {
+      u.searchParams.set('d', '1');
+      history.replaceState(null, '', u.toString());
+    }
+  } catch (e) { /* ignore */ }
+  setTimeout(function(){ try {
+    vscode.postMessage({ command: 'diag',
+      search: location.search,
+      mobile: document.body.classList.contains('mobile'),
+      mmCoarse: window.matchMedia('(hover: none) and (pointer: coarse)').matches });
+  } catch (e) {} }, 600);
   (function(){
     var _orig = window.matchMedia ? window.matchMedia.bind(window) : null;
     var _stub = function(media, matches){ return { matches: !!matches, media: media, onchange: null,
@@ -174,7 +188,6 @@ async function openPanel(): Promise<void> {
       return _orig ? _orig(query) : _stub(query, false);
     };
   })();
-  var vscode = acquireVsCodeApi();
   var seq = 0;
   var pending = {};
   window.addEventListener('message', function(e){
@@ -208,6 +221,11 @@ async function openPanel(): Promise<void> {
   // Proxy /api requests from the embedded front-end to the Python server.
   panel.webview.onDidReceiveMessage(async (msg: any) => {
     dlog('webview msg: ' + (msg && msg.command) + ' ' + (msg && msg.path));
+    if (msg && msg.command === 'diag') {
+      dlog('webview diag: search=' + msg.search + ' mobile=' + msg.mobile +
+           ' mmCoarse=' + msg.mmCoarse);
+      return;
+    }
     if (!msg || msg.command !== 'api') {
       return;
     }
