@@ -44,9 +44,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run copy-server",
+    "copy-server": "node -e \"const fs=require('fs'),p='out/server';fs.mkdirSync(p,{recursive:true});fs.copyFileSync('../quant_terminal.py',p+'/quant_terminal.py')\"",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",

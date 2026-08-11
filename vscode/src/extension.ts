@@ -36,17 +36,26 @@ async function startServer(): Promise<number> {
   if (serverProc && serverProc.exitCode === null) {
     return serverPort;
   }
-  // This file is at <repo>/vscode/out/extension.js -> repo root is two levels up.
-  const root = path.join(__dirname, '..', '..');
-  const py = path.join(root, SERVER_PY);
+  // The Python server is bundled next to the compiled JS at out/server/quant_terminal.py
+  // (copied by `npm run copy-server`). cwd = current workspace if open, else ext dir.
+  const root = path.join(__dirname, '..');
+  const py = path.join(__dirname, 'server', SERVER_PY);
+  const wf = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const cwd = wf ?? root;
   serverPort = await findFreePort(PREFERRED_PORT);
   const p = spawn('python', [py, '--port', String(serverPort), '--no-open'], {
-    cwd: root,
+    cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
   p.stdout?.on('data', (d: Buffer) => console.log('[termetron]', d.toString().trim()));
   p.stderr?.on('data', (d: Buffer) => console.log('[termetron]', d.toString().trim()));
+  p.on('error', (e: Error) => {
+    console.error('[termetron] spawn error:', e.message);
+    if (serverProc === p) {
+      serverProc = null;
+    }
+  });
   p.on('exit', () => {
     if (serverProc === p) {
       serverProc = null;
