@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as net from 'net';
+import * as fs from 'fs';
+import * as os from 'os';
 
 const SERVER_PY = 'quant_terminal.py';
 const PREFERRED_PORT = 8900;
@@ -32,6 +34,15 @@ function findFreePort(preferred: number): Promise<number> {
  * Start the Termetron Python server (quant_terminal.py) as a child process.
  * Returns the port it is listening on.
  */
+const DIAG = path.join(os.tmpdir(), 'termetron-ext.log');
+function dlog(msg: string): void {
+  try {
+    fs.appendFileSync(DIAG, `${new Date().toISOString()} ${msg}\n`);
+  } catch {
+    // ignore
+  }
+}
+
 async function startServer(): Promise<number> {
   if (serverProc && serverProc.exitCode === null) {
     return serverPort;
@@ -110,10 +121,12 @@ async function openPanel(): Promise<void> {
   if (!panel) {
     return;
   }
-  console.log('[termetron] extUri =', extUri.toString());
+  dlog('port=' + port);
+  dlog('extUri=' + extUri.toString());
+  dlog('csp=' + panel.webview.cspSource);
   panel.webview.options = { enableScripts: true };
   panel.webview.onDidReceiveMessage((msg) => {
-    console.log('[termetron] webview msg:', JSON.stringify(msg));
+    dlog('webview msg: ' + JSON.stringify(msg));
   });
   const csp = panel.webview.cspSource;
   panel.webview.html = `<!DOCTYPE html>
