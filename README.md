@@ -3,9 +3,10 @@
 **Version:** v0.4.14
 
 A geometric metron terminal — a standalone single-page web terminal for running
-long background jobs with a live progress bar. It is project-agnostic (stdlib
-only) and kept here as an external support tool, decoupled from the quant
-pipeline. The name fuses Latin **Term** (terminal) and **Metron** (measure).
+long background jobs with a live progress bar. Pure Python stdlib, zero
+third-party dependencies. Ships with an Android companion app (`app/`) that
+connects over a secure temporary tunnel for on-the-go access. The name fuses
+Latin **Term** (terminal) and **Metron** (measure).
 
 > **Version policy** — the version number lives here in `README.md`
 > (`**Version:**`) as the single source of truth: the web UI About reads it from
@@ -50,8 +51,10 @@ Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
 | `quant_terminal.py`| Web terminal server (browser UI + per-session cmd shells)    |
 | `termetron_exec.py`| CLI to push a command into a terminal session from the shell |
 | `termetron.py`     | One-shot launcher (`python termetron.py`, opens default browser) |
-| `app/`             | Android APK (Capacitor WebView wrapper) + cloud build        |
+| `release.py`       | One-click publish: bump version + push -> CI build -> auto Release |
+| `app/`             | Android APK client (Capacitor WebView wrapper), repo subdir   |
 | `app/assets/`      | App icon sources + `generate-icons.py` (Pillow)              |
+| `.github/workflows/build.yml` | CI: builds APK on push + auto-publishes Release (App update source) |
 
 ## Features
 
@@ -190,10 +193,9 @@ An Android APK (Capacitor WebView wrapper) is in `app/` — standalone icon,
 QR scanning, no native code. Build steps in `app/README.md`. iOS requires a Mac
 + Apple developer account (defer until needed).
 
-> **When sharing this folder**: `app/` is a separate project (its own git remote
-> `EliasZWC/Termetron`) and contains `android-debug.p12` — the APK signing key.
-> Hand other people only the server files (`quant_terminal.py`, `termetron_exec.py`,
-> `termetron.py`, `bin/`) — never the whole `app/` folder.
+> **Open source**: this whole repo (server + `app/`) lives at
+> `github.com/EliasZWC/Termetron`. `app/android-debug.p12` is the CI debug
+> signing key — all published APKs are signed with it, don't replace it casually.
 
 ## Deployment / distribution
 
@@ -208,7 +210,30 @@ python quant_terminal.py                 # each machine = own instance (default 
 - **Optional QR**: `pip install qrcode` enables the QR code; without it the URL
   + password are shown as text instead (still works).
 - **cloudflared**: auto-downloaded on first `termetron remote on` (per OS), kept in
-  `bin/`.
+  `bin/` (not committed — ~50MB, fetched on demand).
+
+## Release (publish a new version)
+
+One command bumps the version and runs the whole release pipeline — CI builds
+the APK and auto-publishes a GitHub Release (the App's in-app update source):
+
+```bash
+python release.py --wait        # patch +1 (0.4.14 -> 0.4.15), push, wait for Release
+python release.py --bump minor  # 0.4.14 -> 0.5.0
+python release.py --version 0.5.0
+python release.py --no-push     # only bump locally
+```
+
+How it works (details in `release.py`):
+
+- **Version single-source**: `**Version:**` in this README; it is synced into
+  `app/package.json` (the App version mirrors it).
+- `release.py` bumps the version, commits, and pushes `main` → GitHub Actions
+  `build-apk` runs → on success `action-gh-release` publishes
+  `Release v<version>` with `app-debug.apk`.
+- **Do NOT create the git tag locally**: the CI skips publishing if the tag
+  already exists on the remote. Let CI create tag + release (avoids the
+  "build ok but no release" gotcha).
 
 ## Troubleshooting
 
