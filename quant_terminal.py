@@ -1287,8 +1287,11 @@ function switchServer() {
   if (window.parent !== window) {
     try {
       window.parent.postMessage({ kind: 'termetron:connect' }, '*');
-    } catch (e) { /* ignore */ }
+      return;
+    } catch (e) { /* fall through */ }
   }
+  // 浏览器/App 环境没有扩展可切：明确提示，而不是静默无反应
+  showMsg('SWITCH SERVER is available in the VS Code extension panel.');
 }
 (function () {
   // 扩展内嵌（iframe 壳）或显式 ?ext=1（调试/预览）才显示扩展专属菜单项
