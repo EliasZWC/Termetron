@@ -233,6 +233,8 @@ window.addEventListener('message', function (e) {
   var d = e.data;
   if (d && d.kind === 'termetron:openExternal' && d.url) {
     try { acquireVsCodeApi().postMessage({ command: 'openExternal', url: d.url }); } catch (err) { /* ignore */ }
+  } else if (d && d.kind === 'termetron:connect') {
+    try { acquireVsCodeApi().postMessage({ command: 'connect' }); } catch (err) { /* ignore */ }
   }
 });
 </script>
@@ -244,6 +246,9 @@ window.addEventListener('message', function (e) {
     if (msg && msg.command === 'openExternal' && msg.url) {
       dlog('openExternal ' + msg.url);
       void vscode.env.openExternal(vscode.Uri.parse(msg.url));
+    } else if (msg && msg.command === 'connect') {
+      dlog('menu: connect to server');
+      void connectToServer();
     }
   });
 }
