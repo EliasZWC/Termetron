@@ -228,15 +228,15 @@ async function openPanelAt(port: number): Promise<void> {
 iframe{display:block;width:100%;height:100%;border:none}</style>
 </head><body><iframe src="http://localhost:${port}" allow="clipboard-read; clipboard-write"></iframe>
 <script>
-// Bridge: the embedded iframe can't open external windows, so it posts a
-// message up to this shell page; forward it to the extension host, which calls
-// vscode.env.openExternal to open the system default browser.
+// Bridge: the embedded iframe can't reach the extension directly, so it posts
+// messages up to this shell page; forward them to the extension host.
+var __vs = acquireVsCodeApi(); // acquireVsCodeApi may only be called once
 window.addEventListener('message', function (e) {
   var d = e.data;
   if (d && d.kind === 'termetron:openExternal' && d.url) {
-    try { acquireVsCodeApi().postMessage({ command: 'openExternal', url: d.url }); } catch (err) { /* ignore */ }
+    try { __vs.postMessage({ command: 'openExternal', url: d.url }); } catch (err) { /* ignore */ }
   } else if (d && d.kind === 'termetron:connect') {
-    try { acquireVsCodeApi().postMessage({ command: 'connect' }); } catch (err) { /* ignore */ }
+    try { __vs.postMessage({ command: 'connect' }); } catch (err) { /* ignore */ }
   }
 });
 </script>
