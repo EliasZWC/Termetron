@@ -22,6 +22,16 @@
   "main": "./out/extension.js",
   "api": "0.0.1",
   "contributes": {
+    "configuration": {
+      "title": "Termetron",
+      "properties": {
+        "termetron.serverPort": {
+          "type": "number",
+          "default": 8900,
+          "description": "Preferred local port: reuse an existing Termetron server on this port if running, otherwise start the extension server here."
+        }
+      }
+    },
     "commands": [
       {
         "command": "termetron.open",
@@ -31,6 +41,11 @@
       {
         "command": "termetron.openBrowser",
         "title": "Termetron: Open in System Browser",
+        "category": "Termetron"
+      },
+      {
+        "command": "termetron.connect",
+        "title": "Termetron: Connect to Server...",
         "category": "Termetron"
       },
       {

@@ -22,7 +22,8 @@ Commands:
 
 | Command | Action |
 |---|---|
-| Termetron: Open Terminal | open the embedded terminal panel |
+| Termetron: Open Terminal | open the embedded terminal panel (reuses an existing server if running) |
+| Termetron: Connect to Server... | pick from all local Termetron servers (or start a new one) |
 | Termetron: Restart Server | kill the Python server and reopen |
 | Termetron: Stop Server | stop the Python server |
 
@@ -38,7 +39,13 @@ await tmt.restart();                           // restart the server + reopen
 await tmt.stop();                              // stop the server
 const { running, port } = await tmt.getStatus(); // server state
 await tmt.exec('shell', 'python run/run_demo.py'); // run a command in a session
+const servers = await tmt.listServers();           // discover all local Termetron servers
+await tmt.connect(servers[0].port);                // open the panel on a chosen server
 ```
+
+Set `termetron.serverPort` (default `8900`) in settings to choose which port to
+reuse/start. `Termetron: Connect to Server...` lists all running local servers
+(port + session count) so you can switch without touching the terminal.
 
 Type declarations are provided in `api.d.ts` in the extension folder.
 

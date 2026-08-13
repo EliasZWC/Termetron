@@ -128,24 +128,77 @@ async function openBrowser(): Promise<void> {
   await vscode.env.openExternal(vscode.Uri.parse(url));
 }
 
-/**
- * Open Termetron inside a VS Code panel as an embedded browser: a webview that
- * renders the REAL Termetron page via an <iframe> + webview portMapping.
- * portMapping transparently routes localhost:port inside the webview to the
- * Python server through the extension host, so the page runs natively: hostname
- * stays 'localhost' (desktop mode + pairing prompt + layout all work) and there
- * is no postMessage bridge, no CSP injection, no device mocking — just the real
- * page, like the built-in browser.
- */
-async function openPanel(): Promise<void> {
-  if (panel) {
-    panel.reveal();
-    return;
+/** Info about a discovered local Termetron server. */
+export interface ServerInfo {
+  port: number;
+  sessions: string[];
+  own: boolean;
+}
+
+/** Probe one local port to see if a Termetron server is listening. */
+async function probePort(port: number): Promise<ServerInfo | null> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 2000);
+    const r = await fetch(`http://127.0.0.1:${port}/api/sessions`, { signal: ctl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const data = (await r.json()) as Record<string, unknown>;
+    const sessions = Object.keys(data).filter(
+      (k) => data[k] && typeof data[k] === 'object' && 'status' in (data[k] as object),
+    );
+    if (Object.keys(data).length === 0) return null; // not a Termetron server
+    return { port, sessions, own: serverProc !== null && serverPort === port };
+  } catch {
+    return null;
   }
-  const port = await startServer();
+}
+
+/**
+ * Discover all local Termetron servers: the preferred port plus any
+ * quant_terminal.py --port from running python processes.
+ */
+async function scanServers(): Promise<ServerInfo[]> {
+  const ports = new Set<number>();
+  ports.add(vscode.workspace.getConfiguration('termetron').get<number>('serverPort', PREFERRED_PORT));
+  try {
+    const script =
+      process.platform === 'win32'
+        ? 'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name like \'python%\'\\" | Where-Object { $_.CommandLine -like \'*quant_terminal.py*\' } | ForEach-Object { $_.CommandLine }"'
+        : 'ps -eo args | grep -i quant_terminal.py';
+    const out = await new Promise<string>((resolve) => {
+      const cp = spawn(script, { shell: true, windowsHide: true });
+      let s = '';
+      cp.stdout?.on('data', (d: Buffer) => (s += d.toString()));
+      cp.stderr?.on('data', (d: Buffer) => (s += d.toString()));
+      cp.on('close', () => resolve(s));
+      setTimeout(() => { try { cp.kill(); } catch { /* ignore */ } }, 3000);
+    });
+    const re = /--port\s+(\d+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(out))) ports.add(Number(m[1]));
+  } catch { /* ignore */ }
+  const found: ServerInfo[] = [];
+  for (const p of ports) {
+    const info = await probePort(p);
+    if (info) found.push(info);
+  }
+  return found.sort((a, b) => a.port - b.port);
+}
+
+/**
+ * Create (or recreate) the embedded-browser webview panel connected to the
+ * Termetron server on `port` (must already be running). If a panel exists it is
+ * disposed and recreated so the portMapping points at the chosen server.
+ */
+async function openPanelAt(port: number): Promise<void> {
+  if (panel) {
+    panel.dispose();
+    panel = undefined;
+  }
   if (!(await waitReady(port))) {
-    dlog('panel: server not ready');
-    vscode.window.showWarningMessage('Termetron server did not start in time.');
+    dlog('openPanelAt: server not ready on ' + port);
+    vscode.window.showWarningMessage(`Termetron: no server on port ${port}.`);
     return;
   }
   panel = vscode.window.createWebviewPanel(
@@ -155,8 +208,8 @@ async function openPanel(): Promise<void> {
     {
       enableScripts: true,
       // localhost:port inside the webview (and its iframe) is resolved to the
-      // Python server via the extension host — the supported way for a webview
-      // to load a local service.
+      // server via the extension host — the supported way for a webview to load
+      // a local service.
       portMapping: [{ webviewPort: port, extensionHostPort: port }],
     },
   );
@@ -195,6 +248,38 @@ window.addEventListener('message', function (e) {
   });
 }
 
+/**
+ * Open Termetron: reuse an existing server on the preferred port if one is
+ * running, otherwise start the extension's own server.
+ */
+async function openPanel(): Promise<void> {
+  if (panel) {
+    panel.reveal();
+    return;
+  }
+  const preferred = vscode.workspace.getConfiguration('termetron').get<number>('serverPort', PREFERRED_PORT);
+  const existing = await probePort(preferred);
+  const port = existing ? preferred : await startServer();
+  await openPanelAt(port);
+}
+
+/** Command: pick a local Termetron server (or start a new one) to open. */
+async function connectToServer(): Promise<void> {
+  const servers = await scanServers();
+  const items: vscode.QuickPickItem[] = servers.map((s) => ({
+    label: `Port ${s.port}`,
+    description: `${s.sessions.length} session(s)${s.own ? ' · this extension' : ''}`,
+  }));
+  items.push({ label: 'Start new server', description: `start a new instance on ${PREFERRED_PORT}` });
+  const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Choose a Termetron server' });
+  if (!pick) return;
+  if (pick.label === 'Start new server') {
+    await openPanel();
+    return;
+  }
+  await openPanelAt(Number(pick.label.replace('Port ', '')));
+}
+
 /** Termetron VS Code extension public API. Obtained by other extensions via
  *  vscode.extensions.getExtension('eliaszhang.termetron')?.exports. */
 export interface TermetronApi {
@@ -212,6 +297,10 @@ export interface TermetronApi {
   getPort(): Promise<number | null>;
   /** Send a command to a session (created on demand); output appears in the panel. */
   exec(session: string, command: string): Promise<{ ok: boolean; error?: string }>;
+  /** Discover all local Termetron servers. */
+  listServers(): Promise<ServerInfo[]>;
+  /** Open the panel connected to the given local port (server must be running). */
+  connect(port: number): Promise<void>;
 }
 
 /** Post a command to a Termetron session via the local server API. */
@@ -252,6 +341,9 @@ export function activate(context: vscode.ExtensionContext): TermetronApi {
     vscode.commands.registerCommand('termetron.openBrowser', () => {
       void openBrowser();
     }),
+    vscode.commands.registerCommand('termetron.connect', () => {
+      void connectToServer();
+    }),
     vscode.commands.registerCommand('termetron.restart', () => {
       stopServer();
       void openPanel();
@@ -275,6 +367,8 @@ export function activate(context: vscode.ExtensionContext): TermetronApi {
     getStatus: async () => ({ running: running(), port: running() ? serverPort : null }),
     getPort: async () => (running() ? serverPort : null),
     exec: (session, command) => execInSession(session, command),
+    listServers: () => scanServers(),
+    connect: (port) => openPanelAt(port),
   };
 }
 

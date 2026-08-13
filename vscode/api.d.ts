@@ -19,6 +19,17 @@ export interface TermetronApi {
   getPort(): Promise<number | null>;
   /** Send a command to a session (created on demand); output appears in the panel. */
   exec(session: string, command: string): Promise<{ ok: boolean; error?: string }>;
+  /** Discover all local Termetron servers. */
+  listServers(): Promise<ServerInfo[]>;
+  /** Open the panel connected to the given local port (server must be running). */
+  connect(port: number): Promise<void>;
+}
+
+/** Info about a discovered local Termetron server. */
+export interface ServerInfo {
+  port: number;
+  sessions: string[];
+  own: boolean;
 }
 
 export declare const api: TermetronApi;
