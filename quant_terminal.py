@@ -470,6 +470,7 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
  <div class="prow"><span class="ppct" id="ppct">--</span><span class="pdesc" id="pdesc">standby</span><span class="pnum" id="pnum"></span></div>
  <div class="pbar"><div class="pfill" id="pfill"></div></div>
  <div class="pmeta">
+   <span class="k">[server]</span> <span id="srvmeta">--</span>
    <span class="k">[status]</span> <span id="meta">waiting</span>
    <span class="k">[script]</span> <span id="scriptmeta">--</span>
    <span class="menu" id="menu">
@@ -976,7 +977,13 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#dropdown') && !e.target.closest('#setbtn')) closeDropdown();
   if (!e.target.closest('#hdropdown') && !e.target.closest('#hmbtn')) closeHDropdown();
 });
-async function refreshAll() { setClientTag(); await refreshSessions(); await refreshOutput(); }
+async function refreshAll() {
+  setClientTag();
+  const srv = document.getElementById('srvmeta');
+  if (srv) srv.textContent = location.host;  // 当前连接的服务器（localhost:port / 隧道域）
+  await refreshSessions();
+  await refreshOutput();
+}
 // ---- 移动端：会话目录页 <-> 会话视窗（电脑端保持标签栏不变）----
 function applyView() {
   const home = mobile && view === 'home';

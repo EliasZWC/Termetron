@@ -11,6 +11,7 @@ const PREFERRED_PORT = 8900;
 let serverProc: ChildProcess | null = null;
 let serverPort = PREFERRED_PORT;
 let panel: vscode.WebviewPanel | undefined;
+let panelPort: number | null = null; // port the panel is currently connected to
 
 /**
  * Find a free TCP port: try the preferred port, fall back to an OS-assigned one
@@ -213,6 +214,7 @@ async function openPanelAt(port: number): Promise<void> {
       portMapping: [{ webviewPort: port, extensionHostPort: port }],
     },
   );
+  panelPort = port;
   panel.onDidDispose(() => {
     panel = undefined;
   });
@@ -272,7 +274,7 @@ async function openPanel(): Promise<void> {
 async function connectToServer(): Promise<void> {
   const servers = await scanServers();
   const items: vscode.QuickPickItem[] = servers.map((s) => ({
-    label: `Port ${s.port}`,
+    label: `Port ${s.port}${s.port === panelPort ? ' (current)' : ''}`,
     description: `${s.sessions.length} session(s)${s.own ? ' · this extension' : ''}`,
   }));
   items.push({ label: 'Start new server', description: `start a new instance on ${PREFERRED_PORT}` });
