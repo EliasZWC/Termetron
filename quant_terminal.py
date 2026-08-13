@@ -1291,7 +1291,8 @@ function switchServer() {
   }
 }
 (function () {
-  const inExt = window.parent !== window;
+  // 扩展内嵌（iframe 壳）或显式 ?ext=1（调试/预览）才显示扩展专属菜单项
+  const inExt = window.parent !== window || new URLSearchParams(location.search).get('ext') === '1';
   for (const id of ['dd-browser', 'dd-switch']) {
     const el = document.getElementById(id);
     if (el) el.style.display = inExt ? '' : 'none';
