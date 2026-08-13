@@ -228,15 +228,22 @@ async function openPanelAt(port: number): Promise<void> {
 iframe{display:block;width:100%;height:100%;border:none}</style>
 </head><body><iframe src="http://localhost:${port}" allow="clipboard-read; clipboard-write"></iframe>
 <script>
-// Bridge: the embedded iframe can't reach the extension directly, so it posts
-// messages up to this shell page; forward them to the extension host.
+// Two-way bridge: the embedded iframe talks to the extension through this shell.
+//  - iframe -> shell -> extension: openExternal / req (id, cmd, payload)
+//  - extension -> shell -> iframe: __reqResp responses
 var __vs = acquireVsCodeApi(); // acquireVsCodeApi may only be called once
 window.addEventListener('message', function (e) {
   var d = e.data;
-  if (d && d.kind === 'termetron:openExternal' && d.url) {
-    try { __vs.postMessage({ command: 'openExternal', url: d.url }); } catch (err) { /* ignore */ }
-  } else if (d && d.kind === 'termetron:connect') {
-    try { __vs.postMessage({ command: 'connect' }); } catch (err) { /* ignore */ }
+  var iframe = document.querySelector('iframe');
+  var fromIframe = iframe && e.source === iframe.contentWindow;
+  if (fromIframe) {
+    if (d && d.kind === 'termetron:openExternal' && d.url) {
+      try { __vs.postMessage({ command: 'openExternal', url: d.url }); } catch (err) { /* ignore */ }
+    } else if (d && d.kind === 'termetron:req') {
+      try { __vs.postMessage({ command: 'req', id: d.id, cmd: d.cmd, payload: d.payload }); } catch (err) { /* ignore */ }
+    }
+  } else if (d && d.__reqResp && iframe) {
+    iframe.contentWindow.postMessage(d, '*');
   }
 });
 </script>
@@ -244,13 +251,42 @@ window.addEventListener('message', function (e) {
   dlog('panel iframe http://localhost:' + port);
 
   // Open-in-browser requests from the embedded page → system default browser.
-  panel.webview.onDidReceiveMessage((msg: any) => {
+  panel.webview.onDidReceiveMessage(async (msg: any) => {
     if (msg && msg.command === 'openExternal' && msg.url) {
       dlog('openExternal ' + msg.url);
       void vscode.env.openExternal(vscode.Uri.parse(msg.url));
-    } else if (msg && msg.command === 'connect') {
-      dlog('menu: connect to server');
-      void connectToServer();
+    } else if (msg && msg.command === 'req') {
+      dlog('req ' + msg.cmd);
+      let data: any = { error: 'unknown command ' + msg.cmd };
+      try {
+        switch (msg.cmd) {
+          case 'listServers':
+            data = await scanServers();
+            break;
+          case 'startServer':
+            data = { port: await startServer() };
+            break;
+          case 'stopServer': {
+            const p = msg.payload && msg.payload.port;
+            if (typeof p === 'number' && p === serverPort && serverProc && serverProc.exitCode === null) {
+              stopServer();
+              data = { ok: true };
+            } else {
+              data = { ok: false, error: 'not managed by this extension' };
+            }
+            break;
+          }
+          case 'connectServer': {
+            const p = Number(msg.payload && msg.payload.port);
+            await openPanelAt(p);
+            data = { ok: true, port: p };
+            break;
+          }
+        }
+      } catch (e: any) {
+        data = { error: String(e) };
+      }
+      try { panel?.webview.postMessage({ __reqResp: true, id: msg.id, data }); } catch (err) { /* ignore */ }
     }
   });
 }

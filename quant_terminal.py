@@ -399,6 +399,14 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .field input{width:100%;background:#10161f;border:1px solid var(--border);border-radius:4px;color:var(--txt);padding:7px 9px;font-size:12px;outline:none}
  .field input:focus{border-color:var(--acc)}
  .mmsg{font-size:13px;color:var(--txt);margin:4px 0}
+ .srow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border)}
+ .srow.cur{color:var(--acc)}
+ .srv-p{font-weight:700;color:var(--acc);min-width:64px}
+ .srv-m{flex:1;font-size:11px;color:var(--dim)}
+ .srv-acts{display:inline-flex;gap:6px}
+ .sbtn{padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--acc);cursor:pointer;font-size:11px}
+ .sbtn:hover{background:rgba(167,139,250,.14)}
+ .sbtn.full{width:100%;margin-top:10px;padding:8px;font-weight:700}
  .mmsg b{color:var(--acc)}
  .mactions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
  .mbtn{padding:6px 16px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;font-size:12px;transition:all .12s ease}
@@ -1283,15 +1291,59 @@ function openInBrowser() {
   }
   window.open(url, '_blank');
 }
-function switchServer() {
-  if (window.parent !== window) {
-    try {
-      window.parent.postMessage({ kind: 'termetron:connect' }, '*');
-      return;
-    } catch (e) { /* fall through */ }
+// ---- 扩展请求桥（面板内 iframe ↔ 扩展）：服务器管理 ----------------
+let __extSeq = 0;
+const __extPending = {};
+window.__extReq = (cmd, payload) => new Promise((resolve) => {
+  if (window.parent === window) { resolve({ error: 'not in extension' }); return; }
+  const id = ++__extSeq;
+  __extPending[id] = resolve;
+  window.parent.postMessage({ kind: 'termetron:req', id, cmd, payload }, '*');
+  setTimeout(() => { if (__extPending[id]) { delete __extPending[id]; resolve({ error: 'timeout' }); } }, 10000);
+});
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (d && d.__reqResp && __extPending[d.id]) {
+    const r = __extPending[d.id]; delete __extPending[d.id]; r(d.data);
   }
-  // 浏览器/App 环境没有扩展可切：明确提示，而不是静默无反应
-  showMsg('SWITCH SERVER is available in the VS Code extension panel.');
+});
+
+// 面板内服务器管理：列出 / 选择 / 创建 / 删除（经扩展，不弹 VS Code 外部选择器）
+async function manageServers() {
+  const res = await window.__extReq('listServers');
+  const servers = res && Array.isArray(res) ? res : [];
+  const cur = Number(location.port) || 0;
+  const rows = servers.map((s) => {
+    const isCur = s.port === cur;
+    return '<div class="srow' + (isCur ? ' cur' : '') + '">' +
+      '<span class="srv-p">:' + s.port + '</span>' +
+      '<span class="srv-m">' + s.sessions.length + ' sess' + (s.own ? ' · ext' : '') + (isCur ? ' · CURRENT' : '') + '</span>' +
+      '<span class="srv-acts">' +
+      (isCur ? '' : '<button class="sbtn" data-act="sel" data-p="' + s.port + '">select</button>') +
+      (s.own ? '<button class="sbtn" data-act="del" data-p="' + s.port + '">delete</button>' : '') +
+      '</span></div>';
+  }).join('') || '<p class="mmsg" style="opacity:.6">no servers found</p>';
+  openModal('MANAGE SERVERS',
+    rows + '<button class="sbtn full" id="srv-new">+ start new server</button>' +
+    '<p class="merr" id="srv-err" style="display:none"></p>',
+    'CLOSE', () => true);
+  const err = document.getElementById('srv-err');
+  const fail = (m) => { err.style.display = 'block'; err.textContent = m; };
+  document.querySelectorAll('#mbody [data-act]').forEach((b) => {
+    b.onclick = async () => {
+      const p = Number(b.dataset.p);
+      const r = await window.__extReq(b.dataset.act === 'sel' ? 'connectServer' : 'stopServer', { port: p });
+      if (r && r.error) { fail(r.error); return; }
+      if (b.dataset.act === 'del') { closeModal(); manageServers(); }  // 删除后刷新
+      // select 成功后面板重建（前端重载），无需再处理
+    };
+  });
+  const nb = document.getElementById('srv-new');
+  if (nb) nb.onclick = async () => {
+    const r = await window.__extReq('startServer');
+    if (r && r.error) { fail(r.error); return; }
+    if (r && r.port) { closeModal(); await window.__extReq('connectServer', { port: r.port }); }
+  };
 }
 (function () {
   // 扩展内嵌（iframe 壳）或显式 ?ext=1（调试/预览）才显示扩展专属菜单项
@@ -1301,7 +1353,7 @@ function switchServer() {
     if (el) el.style.display = inExt ? '' : 'none';
   }
   document.getElementById('dd-browser').onclick = () => { closeDropdown(); openInBrowser(); };
-  document.getElementById('dd-switch').onclick = () => { closeDropdown(); switchServer(); };
+  document.getElementById('dd-switch').onclick = () => { closeDropdown(); manageServers(); };
 })();
 
 // ---- 配对审批（桌面端）：手机请求配对 -> 弹窗让电脑输入手机屏幕上的 4 位配对码 ----
