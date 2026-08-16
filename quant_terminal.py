@@ -736,7 +736,7 @@ async function refreshOutput() {
   if (!o || !o.lines) return;
   const pre = document.getElementById('out');
   // 内容未变化时跳过重建：避免每轮 innerHTML 重建打断用户选中/复制（选区会丢失）
-  const key = o.lines.join('\n');
+  const key = o.lines.join('\\n');
   if (pre.__lastKey === key) { setProgress(o.progress); return; }
   pre.__lastKey = key;
   const prevTop = pre.scrollTop, prevH = pre.scrollHeight;
