@@ -264,19 +264,25 @@ python termetron_exec.py --port 8900 demo "python run/run_demo.py"
 Sessions are created on demand; a long task can be started here and watched
 from the browser.
 
-## Agent channel (let an AI agent monitor)
+## Agent channel (let an AI agent monitor & drive)
 
-The server already exposes session state and output over HTTP (`/api/sessions`:
-lines[-600] / progress / busy / script / cmd / updated). `agent.py` is a small CLI
-an AI agent (e.g. GitHub Copilot) can call to see what's running — no screen
-sharing needed:
+The server exposes session state and output over HTTP (`/api/sessions`:
+lines[-600] / progress / busy / script / cmd / updated), and accepts commands
+via `/api/sessions/<name>/input`. `agent.py` is a small CLI an AI agent
+(e.g. GitHub Copilot) can call to see what's running and send commands — no
+screen sharing needed:
 
 ```bash
 python agent.py status                    # all sessions: busy/script/cmd/progress/tail
 python agent.py status --auto             # auto-detect server ports (incl. the VS Code ext)
 python agent.py watch shell --lines 50    # tail a session's output
 python agent.py wait shell --timeout 900  # block until a session is idle
+python agent.py exec shell --exec "cmd"   # send a command to a session (bidirectional)
+python agent.py run  shell --exec "cmd"   # send command, wait until idle, print tail
 ```
+
+`run` is the full round-trip: execute → wait → read output — ideal for an agent
+that needs to run a task and collect the result in one call.
 
 ## Notes
 
