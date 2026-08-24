@@ -131,11 +131,17 @@ class Session:
         self.busy = False  # 有前台命令在跑（发送命令到下次出现提示符之间）
         self._startup = True  # 丢弃 cmd 启动 banner（新建会话应干净）
         self._startup_t0 = time.time()
+        self._tqdm_t0: float | None = None  # 本进程 tqdm 起始时间（用于 ETA 估算）
         self.updated = time.time()
         self.script: dict | None = _script_from_cmd(cmd)
         self._spawn()
         if cmd:
             self.send(cmd)
+        # 会话开启输出：欢迎 + 初始状态，避免只显示光秃秃的提示符（信息不完整）
+        self.lines.append(
+            f"[termetron] session '{self.name}' ready — type /help for commands or "
+            f"run a shell command ({time.strftime('%Y-%m-%d %H:%M:%S')})"
+        )
 
     def _spawn(self) -> None:
         """(Re)start the interactive shell process and its reader thread."""
@@ -169,12 +175,12 @@ class Session:
         for ch in text:
             if ch == "\r":
                 if self.pending and _parse_tqdm(self.pending):
-                    self.prog = _parse_tqdm(self.pending)
+                    self._set_prog(_parse_tqdm(self.pending))
                 self.pending = ""
             elif ch == "\n":
                 hit = _parse_tqdm(self.pending) if self.pending else None
                 if hit:
-                    self.prog = hit
+                    self._set_prog(hit)
                 else:
                     line = self.pending or ""
                     # 丢弃启动后短暂窗口内的初始输出（cmd banner / 初始提示符），保证新会话干净；
@@ -220,6 +226,17 @@ class Session:
 
         threading.Timer(0.4, _check).start()
 
+    def _set_prog(self, hit: dict) -> None:
+        """记录 tqdm 进度；首次非零进度时记起始时间（前端据此估算 ETA）。
+        完成（done>=total）后清除，前端进度条随之隐藏。"""
+        if hit.get("pct", 0) > 0 and self._tqdm_t0 is None:
+            self._tqdm_t0 = time.time()
+        if hit.get("done", 0) >= hit.get("total", 0):
+            self._tqdm_t0 = None  # 完成：清除起始，下一进程重新计时
+            self.prog = None      # 完成：清空进度，前端隐藏进度条
+        else:
+            self.prog = hit
+
     def _read(self) -> None:
         proc = self.proc
         assert proc.stdout is not None
@@ -239,7 +256,7 @@ class Session:
         if self.pending:
             hit = _parse_tqdm(self.pending)
             if hit:
-                self.prog = hit
+                self._set_prog(hit)
             else:
                 self.lines.append(self.pending)
         if self.proc is proc:  # 只有当前 shell 结束才标记 done
@@ -248,7 +265,7 @@ class Session:
         self.updated = time.time()
 
     def snapshot(self) -> dict:
-        return {
+        out = {
             "lines": self.lines[-600:],
             "progress": self.prog,
             "done": self.done,
@@ -257,6 +274,9 @@ class Session:
             "cmd": self.cmd,
             "updated": time.strftime("%H:%M:%S", time.localtime(self.updated)),
         }
+        if self.prog is not None and self._tqdm_t0 is not None:
+            out["tqdm_t0"] = self._tqdm_t0
+        return out
 
     def stop(self, rebuild: bool = True) -> None:
         """中断当前运行的进程（杀整个进程树），随后按需重建交互 shell。
@@ -371,7 +391,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  pre{flex:1 1 auto;min-height:0;margin:0;overflow-y:auto;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin-right:-14px;padding-right:14px}
  .empty{display:none;flex:1;align-items:center;justify-content:center;color:var(--dim);font-size:20px;letter-spacing:2px}
  .empty.show{display:flex}
- .fbar{flex:none;background:var(--bar);border-top:1px solid var(--border);padding:10px 18px}
+ .fbar{flex:none;background:var(--bar);border-top:1px solid var(--border);padding:10px 18px;position:relative}
  .prow{display:flex;align-items:center;gap:12px;font-size:12px;margin-bottom:6px}
  .ppct{color:var(--acc);font-weight:700;font-size:16px;min-width:46px}
  .pdesc{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -418,7 +438,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 .btn.back:hover{opacity:.7}
 .btn.back svg{width:26px;height:26px}
 /* 移动端（窄屏）：会话目录页布局，电脑端保持标签栏 */
-body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bg)}
+body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bg)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
 :root{--fs:13px}
 #out{font-size:var(--fs)}
 .inrow textarea{font-size:var(--fs)}
@@ -455,7 +475,7 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 </style><meta name="theme-color" content="#0b0f14">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 </head><body>
-<header><span class="cur"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="1.5" y="2" width="21" height="20" rx="4" fill="none" stroke="currentColor" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="currentColor">>_</text></svg></span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
+<header><span class="cur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="1.5" y="2" width="21" height="20" rx="4" stroke-width="1.6"></rect><path d="M9 8 L14 12 L9 16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14.5 15.5 H19" stroke-width="2" stroke-linecap="round"></path></svg></span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
 <div id="dropdown" style="display:none">
   <button class="dd-item" id="dd-sess">MANAGE SESSIONS</button>
   <button class="dd-item" id="dd-more">MORE SETTINGS</button>
@@ -477,10 +497,10 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 <footer class="fbar">
  <div class="prow"><span class="ppct" id="ppct">--</span><span class="pdesc" id="pdesc">standby</span><span class="pnum" id="pnum"></span></div>
  <div class="pbar"><div class="pfill" id="pfill"></div></div>
- <div class="pmeta">
-   <span class="k">[server]</span> <span id="srvmeta">--</span>
-   <span class="k">[status]</span> <span id="meta">waiting</span>
-   <span class="k">[script]</span> <span id="scriptmeta">--</span>
+ <div class="pmeta" id="pmeta-srv"><span class="k">[server]</span> <span id="srvmeta">--</span></div>
+ <div class="pmeta" id="pmeta-ses">
+   <span class="pm-item"><span class="k">[status]</span> <span id="meta">waiting</span></span>
+   <span class="pm-item"><span class="k">[script]</span> <span id="scriptmeta">--</span></span>
    <span class="menu" id="menu">
      <button class="menu-btn" id="menubtn" title="session actions"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
      <div class="menu-pop" id="menupop">
@@ -527,7 +547,7 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
      <p class="mmsg">The tunnel is closed or no longer available.</p>
      <p class="mmsg" style="font-size:11px;opacity:.6">The tunnel on the computer is not running. Run <b>termetron remote on</b> on the computer, then reconnect from the login page.</p>
    </div>
-   <div class="mactions"><button class="mbtn ok" id="cback">Back</button></div>
+   <div class="mactions"><button class="mbtn ok" id="cnew" style="display:none">Restart Tunnel</button><button class="mbtn ok" id="cback">Back</button></div>
  </div>
 </div>
 <div id="fullpage" class="fullpage" style="display:none">
@@ -591,12 +611,38 @@ function closeMenu() { document.getElementById('menupop').classList.remove('open
 let lastTabs = '';
 // 空闲自动聚焦跟踪：首次加载 / busy→空闲 时自动 focus 输入框（终端无鼠标可用）
 let prevBusy = false, initBusy = false;
+// 会话 busy 状态跟踪（用于"进程完成"通知）：会话名 -> busy
+let _prevBusyMap = {};
+function notifyDone(name) {
+  // 移动端 + 不在前台时发系统通知（Capacitor WebView 用 document.title 提示，浏览器用 Notification API）
+  const title = 'termetron: ' + name + ' done';
+  const body = (sessionsData[name] && sessionsData[name].script
+    ? (sessionsData[name].script.name || name) : name) + ' finished';
+  try {
+    if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification(title, { body, tag: 'term-done-' + name });
+    } else if (document.hidden) {
+      document.title = title;   // 降级：改标题提示（WebView/无权限）
+    }
+  } catch (e) { /* 忽略通知异常 */ }
+}
+function trackBusy(s) {
+  for (const n of Object.keys(s)) {
+    const b = !!s[n].busy;
+    if (_prevBusyMap[n] === true && b === false) notifyDone(n);  // busy→idle 转换
+    _prevBusyMap[n] = b;
+  }
+  for (const n of Object.keys(_prevBusyMap)) {
+    if (!(n in s)) delete _prevBusyMap[n];  // 会话已删，清理
+  }
+}
 
 async function refreshSessions() {
   let s;
   try { s = await api('/api/sessions'); }
   catch (e) { document.getElementById('stopbtn').style.display = 'none'; return; }
   sessionsData = s;
+  trackBusy(s);
   const names = Object.keys(s);
   if (mobile) { renderSessList(names); }
   if (!current && names.length) current = names[0];
@@ -667,12 +713,35 @@ async function refreshSessions() {
     stopbtn.style.display = 'none';
   }
 }
-function setProgress(p) {
+function setProgress(p, t0) {
+  const prow = document.querySelector('.prow'), pbar = document.querySelector('.pbar');
   const d = document.getElementById('pdesc'), c = document.getElementById('ppct'),
         n = document.getElementById('pnum'), f = document.getElementById('pfill');
-  if (!p) { d.textContent='standby'; c.textContent='--'; n.textContent=''; f.style.width='0%'; return; }
+  // 无进度（未检测到 tqdm）→ 隐藏整条进度条；只有检测到 tqdm 才显示
+  if (!p || p.pct === undefined) {
+    if (prow) prow.style.display = 'none';
+    if (pbar) pbar.style.display = 'none';
+    return;
+  }
+  if (prow) prow.style.display = '';
+  if (pbar) pbar.style.display = '';
   d.textContent = p.desc; c.textContent = Math.round(p.pct) + '%';
-  n.textContent = p.done + '/' + p.total; f.style.width = p.pct + '%';
+  const speed = Math.round(p.pct) + '%';
+  // 时间估计：已用时间 / 进度 → 剩余时间；t0 来自服务端（snapshot 的 tqdm_t0）
+  let eta = '';
+  if (t0 && p.total > 0 && p.done > 0) {
+    const elapsed = (Date.now() / 1000) - t0;
+    const rate = elapsed / p.done;                 // 秒/单位
+    const remain = Math.max(0, rate * (p.total - p.done));
+    eta = ' · ' + fmtDur(remain);
+  }
+  n.textContent = p.done + '/' + p.total + eta; f.style.width = p.pct + '%';
+}
+function fmtDur(s) {
+  if (!(s > 0) || !isFinite(s)) return '';
+  if (s < 60) return Math.round(s) + 's';
+  if (s < 3600) { const m = Math.floor(s / 60); return m + 'm' + Math.round(s % 60) + 's'; }
+  const h = Math.floor(s / 3600); return h + 'h' + Math.round((s % 3600) / 60) + 'm';
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 // 检测连续 pipe 表格（| a | b |）与连续 tab 表格（a\tb\tc）并渲染为 HTML 表格。
@@ -737,7 +806,7 @@ async function refreshOutput() {
   const pre = document.getElementById('out');
   // 内容未变化时跳过重建：避免每轮 innerHTML 重建打断用户选中/复制（选区会丢失）
   const key = o.lines.join('\\n');
-  if (pre.__lastKey === key) { setProgress(o.progress); return; }
+  if (pre.__lastKey === key) { setProgress(o.progress, o.tqdm_t0); return; }
   pre.__lastKey = key;
   const prevTop = pre.scrollTop, prevH = pre.scrollHeight;
   pre.innerHTML = renderOutput(o.lines);
@@ -746,7 +815,7 @@ async function refreshOutput() {
   } else {
     pre.scrollTop = prevTop + (pre.scrollHeight - prevH);  // 保持用户浏览位置
   }
-  setProgress(o.progress);
+  setProgress(o.progress, o.tqdm_t0);
 }
 // 命令输入框：回车发送到当前会话（像真实终端）；cls/clear 清屏
 //（cmd 的 cls 只清控制台缓冲区，管道里无清屏信号，故在此拦截真正清空输出）
@@ -1001,18 +1070,30 @@ function applyView() {
   const home = mobile && view === 'home';
   document.getElementById('sesslist').style.display = mobile ? (home ? 'flex' : 'none') : 'none';
   document.querySelector('.wrap').style.display = home ? 'none' : '';
-  document.querySelector('.fbar').style.display = home ? 'none' : '';
+  document.querySelector('.fbar').style.display = home ? '' : '';
   document.getElementById('backbtn').style.display = mobile && !home ? 'inline-flex' : 'none';
   document.getElementById('tabs').style.display = mobile ? 'none' : '';
-  // 移动端会话视窗：header 只显示返回 + 会话名；logo 仅目录页显示
+  // 移动端会话视窗：header 保留 logo + 会话名 + 返回；brand 文字隐藏（空间窄），logo 保留
   document.getElementById('curtitle').style.display = mobile && !home ? '' : 'none';
-  document.getElementById('brand').style.display = mobile && !home ? 'none' : '';
-  document.querySelector('.cur').style.display = mobile && !home ? 'none' : '';
+  document.getElementById('brand').style.display = mobile ? (home ? '' : 'none') : '';
+  document.querySelector('.cur').style.display = mobile ? (home ? '' : 'inline-flex') : '';
   // ☰ 菜单：桌面端主界面 + 手机端目录页显示（会话跳转入口）；手机端会话视窗不显示
   document.getElementById('setbtn').style.display = mobile && !home ? 'none' : 'inline-flex';
   // 手机端会话视窗：会话操作三点按钮移到 header 右侧；footer 的三点菜单隐藏（只留进度条）
   document.getElementById('hmbtn').style.display = mobile && !home ? 'inline-flex' : 'none';
   document.getElementById('menu').style.display = mobile && !home ? 'none' : '';
+  // 移动端底边栏分工：目录页只显示 Server；会话页显示进度条 + status/script（分行）
+  if (mobile) {
+    document.getElementById('pmeta-srv').style.display = home ? '' : 'none';
+    document.getElementById('pmeta-ses').style.display = home ? 'none' : '';
+    document.querySelector('.prow').style.display = home ? 'none' : '';
+    document.querySelector('.pbar').style.display = home ? 'none' : '';
+  } else {
+    document.getElementById('pmeta-srv').style.display = '';
+    document.getElementById('pmeta-ses').style.display = '';
+    document.querySelector('.prow').style.display = '';
+    document.querySelector('.pbar').style.display = '';
+  }
 }
 function renderSessList(names) {
   const host = document.getElementById('sesslist');
@@ -1158,11 +1239,39 @@ function showTunnelClosed() {
   const mask = document.getElementById('cmask');
   mask.style.display = 'flex';
   document.getElementById('ctitle').textContent = 'TUNNEL CLOSED';
+  // 电脑端（本机）可重开新隧道换新 URL；移动端/远程只能回登录重新连接（不自动连新 tunnel）
+  const localDesktop = !mobile && window.__termetronLocal;
   document.getElementById('cbody').innerHTML =
     '<p class="mmsg">The tunnel is closed or no longer available.</p>' +
-    '<p class="mmsg" style="font-size:11px;opacity:.6">The tunnel on the computer is not running. Run <b>termetron remote on</b> on the computer, then reconnect from the login page.</p>';
+    '<p class="mmsg" style="font-size:11px;opacity:.6">' +
+    (localDesktop
+      ? 'Restart to get a fresh tunnel URL & one-time password, or turn the tunnel off.'
+      : 'The tunnel on the computer is not running. Run <b>termetron remote on</b> on the computer, then reconnect from the login page.') +
+    '</p>';
   document.getElementById('cback').style.display = '';
   document.getElementById('cback').onclick = goBackToLogin;
+  const cnew = document.getElementById('cnew');
+  cnew.style.display = localDesktop ? '' : 'none';
+  cnew.onclick = async () => {
+    cnew.disabled = true;
+    document.getElementById('cbody').innerHTML =
+      '<p class="mmsg">Restarting tunnel, please wait ...</p>';
+    try {
+      const r = await api('/api/remote/restart', {method:'POST'});
+      if (r && r.url) {
+        mask.style.display = 'none';
+        document.onkeydown = null;
+        if (window.__extReq) { window.__extReq('openExternal', { url: r.url }); }
+        else { window.open(r.url, '_blank'); }
+      } else {
+        document.getElementById('cbody').innerHTML =
+          '<p class="mmsg">Restart failed: ' + (r && r.error ? r.error : 'unknown') + '</p>';
+      }
+    } catch (e) {
+      document.getElementById('cbody').innerHTML = '<p class="mmsg">Restart failed: ' + e + '</p>';
+    }
+    cnew.disabled = false;
+  };
   document.onkeydown = (e) => { if (e.key === 'Escape') { mask.style.display = 'none'; document.onkeydown = null; } };
 }
 // 进入门控：远程（隧道）访问先显示检测遮罩（CHECKING TUNNEL），检测通过才展示会话/认证——
@@ -1761,6 +1870,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             REMOTE.stop()
             self._json({"ok": True})
+            return
+        if self.path == "/api/remote/restart":
+            # 隧道失效后重开：停旧隧道 → 开新隧道（新 URL + 新一次性密码）
+            if not self._authed():
+                self._json({"error": "auth required", "auth_required": True}, 401)
+                return
+            REMOTE.stop()
+            time.sleep(0.5)
+            self._json(REMOTE.start(_LOCAL_PORT))
             return
         if self.path == "/api/remote/auth":
             try:

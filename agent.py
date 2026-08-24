@@ -37,6 +37,16 @@ def _api(base: str, path: str) -> dict:
         return json.loads(r.read().decode())
 
 
+def _post(base: str, path: str, payload: dict | None = None) -> dict:
+    body = json.dumps(payload or {}).encode()
+    req = urllib.request.Request(
+        base + path, data=body, method="POST",
+        headers={"User-Agent": "termetron-agent", "Content-Type": "application/json"},
+    )
+    with _opener().open(req, timeout=10) as r:
+        return json.loads(r.read().decode())
+
+
 def _detect_ports() -> list[int]:
     """Windows：扫 python 进程命令行里的 quant_terminal.py --port。"""
     if os.name != "nt":
@@ -140,14 +150,41 @@ def cmd_wait(base: str, name: str, timeout: float, idle_for: float = 2.0) -> Non
     sys.exit(f"[wait] TIMEOUT after {timeout:.0f}s — session '{name}' still busy")
 
 
+def cmd_exec(base: str, name: str, text: str) -> None:
+    """发送命令到会话（agent 交流核心：发命令 → 读输出）。"""
+    try:
+        r = _post(base, f"/api/sessions/{name}/input", {"text": text})
+    except Exception as e:  # noqa: BLE001
+        sys.exit(f"[error] exec '{name}': {e}")
+    if r.get("error"):
+        sys.exit(f"[error] exec '{name}': {r['error']}")
+    print(f"[exec] sent to '{name}': {text}")
+
+
+def cmd_run(base: str, name: str, text: str, timeout: float, lines_n: int,
+            idle_for: float = 2.0) -> None:
+    """组合交流：发送命令 → 等待空闲 → 打印尾部输出。"""
+    cmd_exec(base, name, text)
+    cmd_wait(base, name, timeout, idle_for)
+    try:
+        ss = _api(base, f"/api/sessions/{name}")
+    except Exception:  # noqa: BLE001
+        return
+    tail = ss.get("lines") or []
+    print(f"[run] session '{name}' tail (last {min(lines_n, len(tail))}):")
+    for ln in tail[-lines_n:]:
+        print("  " + ln)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Termetron agent 通道：共享/监控会话")
-    ap.add_argument("command", choices=["status", "watch", "wait"])
-    ap.add_argument("session", nargs="?", default=None, help="watch/wait 的会话名")
+    ap.add_argument("command", choices=["status", "watch", "wait", "exec", "run"])
+    ap.add_argument("session", nargs="?", default=None, help="watch/wait/exec/run 的会话名")
     ap.add_argument("--port", type=int, default=8900)
     ap.add_argument("--auto", action="store_true", help="自动探测运行中的服务器端口")
     ap.add_argument("--lines", type=int, default=15, help="输出尾部行数（默认 15）")
-    ap.add_argument("--timeout", type=float, default=1800.0, help="wait 超时秒数")
+    ap.add_argument("--timeout", type=float, default=1800.0, help="wait/run 超时秒数")
+    ap.add_argument("--exec", default=None, help="exec/run 的命令 text")
     args = ap.parse_args()
 
     base = _resolve_base(args)
@@ -157,10 +194,18 @@ def main() -> None:
         if not args.session:
             sys.exit("[error] watch needs a session name")
         cmd_watch(base, args.session, args.lines)
-    else:  # wait
+    elif args.command == "wait":
         if not args.session:
             sys.exit("[error] wait needs a session name")
         cmd_wait(base, args.session, args.timeout)
+    elif args.command == "exec":
+        if not args.session or not args.exec:
+            sys.exit("[error] exec needs <session> --exec <text>")
+        cmd_exec(base, args.session, args.exec)
+    else:  # run
+        if not args.session or not args.exec:
+            sys.exit("[error] run needs <session> --exec <text>")
+        cmd_run(base, args.session, args.exec, args.timeout, args.lines)
 
 
 if __name__ == "__main__":
