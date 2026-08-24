@@ -350,7 +350,6 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  header{display:flex;align-items:center;gap:12px;background:var(--bar);border-bottom:none;padding:12px 18px;position:relative}
  .cur{display:inline-flex;align-items:center;color:var(--acc);line-height:1}
  .cur svg{width:20px;height:20px}
- .cur svg *{stroke-width:2.6}
  .ttl{font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;font-weight:800;color:var(--acc);letter-spacing:3px}
  .client-tag{font-size:11px;color:var(--dim);letter-spacing:1px;align-self:center;margin-left:2px;padding-top:4px}
  #curtitle{font-family:Consolas,'Courier New',monospace;font-weight:700;letter-spacing:0}
@@ -381,6 +380,9 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .inrow input::placeholder{color:#3d4652}
  .running{color:var(--acc);font-size:14px;font-weight:700;letter-spacing:2px;line-height:1.4;align-self:flex-start;padding-top:5px;display:none}
  .ol{white-space:pre-wrap}
+ .hello{display:flex;align-items:flex-start;gap:8px;margin:8px 0;padding:8px 12px;border:1px solid var(--acc);border-left:3px solid var(--acc);border-radius:6px;background:rgba(167,139,250,.08);white-space:pre-wrap}
+ .hello-i{color:var(--acc);font-weight:700;line-height:1.5;font-size:14px}
+ .hello-t{color:var(--txt);font-size:12px;line-height:1.6}
  .tblwrap{overflow-x:auto;margin:8px 0;border:1px solid var(--border);border-radius:6px}
  .tblwrap table{border-collapse:collapse;font-size:12px;width:100%}
  .tblwrap th,.tblwrap td{border:1px solid var(--border);padding:4px 12px;text-align:right;white-space:nowrap}
@@ -438,7 +440,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 .btn.back:hover{opacity:.7}
 .btn.back svg{width:26px;height:26px}
 /* 移动端（窄屏）：会话目录页布局，电脑端保持标签栏 */
-body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bg)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
+body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
 :root{--fs:13px}
 #out{font-size:var(--fs)}
 .inrow textarea{font-size:var(--fs)}
@@ -713,20 +715,28 @@ async function refreshSessions() {
     stopbtn.style.display = 'none';
   }
 }
+let _progHideTimer = null;
 function setProgress(p, t0) {
   const prow = document.querySelector('.prow'), pbar = document.querySelector('.pbar');
   const d = document.getElementById('pdesc'), c = document.getElementById('ppct'),
         n = document.getElementById('pnum'), f = document.getElementById('pfill');
-  // 无进度（未检测到 tqdm）→ 隐藏整条进度条；只有检测到 tqdm 才显示
+  // 无进度（未检测到 tqdm）→ 延迟隐藏（防闪烁：tqdm 换行/重建时短暂 None 不闪）
   if (!p || p.pct === undefined) {
-    if (prow) prow.style.display = 'none';
-    if (pbar) pbar.style.display = 'none';
+    if (!prow || !pbar) return;
+    if (!_progHideTimer) {
+      _progHideTimer = setTimeout(() => {
+        _progHideTimer = null;
+        prow.style.display = 'none';
+        pbar.style.display = 'none';
+      }, 900);
+    }
     return;
   }
+  // 有进度：立即显示并取消待定隐藏
+  if (_progHideTimer) { clearTimeout(_progHideTimer); _progHideTimer = null; }
   if (prow) prow.style.display = '';
   if (pbar) pbar.style.display = '';
   d.textContent = p.desc; c.textContent = Math.round(p.pct) + '%';
-  const speed = Math.round(p.pct) + '%';
   // 时间估计：已用时间 / 进度 → 剩余时间；t0 来自服务端（snapshot 的 tqdm_t0）
   let eta = '';
   if (t0 && p.total > 0 && p.done > 0) {
@@ -784,6 +794,9 @@ function renderOutput(lines) {
         const valid = pm[1] === '$' || (sessionsData && nm in sessionsData);
         if (valid) html += '<div class="ol"><span class="d">' + esc(pm[1]) + '</span> ' + esc(pm[2]) + '</div>';
         else html += '<div class="ol">' + esc(raw) + '</div>';
+      } else if (raw.indexOf('[termetron]') === 0) {
+        // 会话开启欢迎/状态横幅：醒目（边框 + 图标 + 紫色强调），区别于普通输出
+        html += '<div class="hello"><span class="hello-i">›</span><span class="hello-t">' + esc(raw) + '</span></div>';
       } else {
         html += '<div class="ol">' + esc(raw) + '</div>';
       }
@@ -1073,10 +1086,10 @@ function applyView() {
   document.querySelector('.fbar').style.display = home ? '' : '';
   document.getElementById('backbtn').style.display = mobile && !home ? 'inline-flex' : 'none';
   document.getElementById('tabs').style.display = mobile ? 'none' : '';
-  // 移动端会话视窗：header 保留 logo + 会话名 + 返回；brand 文字隐藏（空间窄），logo 保留
+  // 移动端会话视窗：header 用背景色与会话区区分；只留返回 + 会话名（不需要 logo/brand）
   document.getElementById('curtitle').style.display = mobile && !home ? '' : 'none';
   document.getElementById('brand').style.display = mobile ? (home ? '' : 'none') : '';
-  document.querySelector('.cur').style.display = mobile ? (home ? '' : 'inline-flex') : '';
+  document.querySelector('.cur').style.display = mobile ? (home ? '' : 'none') : '';
   // ☰ 菜单：桌面端主界面 + 手机端目录页显示（会话跳转入口）；手机端会话视窗不显示
   document.getElementById('setbtn').style.display = mobile && !home ? 'none' : 'inline-flex';
   // 手机端会话视窗：会话操作三点按钮移到 header 右侧；footer 的三点菜单隐藏（只留进度条）
