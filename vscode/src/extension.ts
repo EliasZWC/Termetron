@@ -376,18 +376,16 @@ async function execInSession(session: string, command: string): Promise<{ ok: bo
   }
 }
 
-// ---- Agent 桥：轮询 termetron 的 agent 会话 → Copilot → 回复 ----
-const AGENT_SESSION = 'agent';
+// ---- Agent 桥：扫描所有本地 termetron 服务器上的 agent 会话 → Copilot → 回复 ----
 const AGENT_POLL_MS = 2500;
 let agentPollTimer: NodeJS.Timeout | null = null;
-let agentProcessing = false;
+const agentBusy = new Set<string>();  // "port:name" 正在处理（防并发重复）
 
-const AGENT_SYSTEM_PROMPT =
+const AGENT_DEFAULT_PROMPT =
   'You are Termetron\'s remote agent. The user is talking to you through the ' +
-  'Termetron terminal UI (they may be on a mobile phone over a tunnel, or on this ' +
-  'desktop). You run on their desktop inside VS Code with GitHub Copilot. Help with ' +
-  'code, quant/trading strategies, Python, math, and general tech. Keep replies ' +
-  'concise and actionable.';
+  'Termetron terminal UI (possibly from a mobile phone over a tunnel). You run on ' +
+  'their desktop inside VS Code with GitHub Copilot. Help with code, quant/trading ' +
+  'strategies, Python, math, and general tech. Keep replies concise and actionable.';
 
 /** Start the background poller that turns agent-session messages into Copilot replies. */
 function startAgentBridge(context: vscode.ExtensionContext): void {
@@ -398,34 +396,76 @@ function startAgentBridge(context: vscode.ExtensionContext): void {
   dlog('agent bridge started (poll ' + AGENT_POLL_MS + 'ms)');
 }
 
-/** Poll the agent session; if a user message is waiting (pending+busy), answer it. */
+/** 收集所有候选端口：配置端口 + 面板端口 + 扩展自己的服务器；每 ~30s 全量扫描补充一次。 */
+let lastFullScan = 0;
+async function collectPorts(): Promise<Set<number>> {
+  const ports = new Set<number>();
+  ports.add(vscode.workspace.getConfiguration('termetron').get<number>('serverPort', 8900));
+  if (panelPort) ports.add(panelPort);
+  if (serverProc && serverProc.exitCode === null) ports.add(serverPort);
+  // 全量扫描（spawn powershell）较慢且可能卡住：限制频率 + 超时兜底
+  const now = Date.now();
+  if (now - lastFullScan > 30000) {
+    lastFullScan = now;
+    try {
+      const srv = await Promise.race([
+        scanServers(),
+        new Promise<ServerInfo[] | null>((res) => setTimeout(() => res(null), 3000)),
+      ]);
+      if (srv) for (const s of srv) ports.add(s.port);
+    } catch { /* ignore */ }
+  }
+  return ports;
+}
+
+/** 轮询所有服务器上所有 agent 会话；有待回复消息则调 Copilot 并写回。 */
 async function pollAgent(): Promise<void> {
-  if (agentProcessing) return;
-  const port = panelPort ?? serverPort;
-  if (!port) return;
-  let data: any;
+  const ports = await collectPorts();
+  for (const port of ports) {
+    await pollPort(port);
+  }
+}
+
+/** 扫一个服务器上的全部 agent 会话，处理待回复消息。 */
+async function pollPort(port: number): Promise<void> {
+  let list: Record<string, any>;
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/api/output/${AGENT_SESSION}`);
+    const r = await fetch(`http://127.0.0.1:${port}/api/sessions`);
     if (!r.ok) return;
-    data = await r.json();
+    list = (await r.json()) as Record<string, any>;
   } catch {
     return;
   }
-  if (!data || data.kind !== 'agent' || !data.pending || !data.busy) return;
-  const history: any[] = data.messages || [];
-  const last = history[history.length - 1];
-  if (!last || last.role !== 'user') return;  // 尾部须是待回复的 user 消息
-  agentProcessing = true;
-  try {
-    await replyAsAgent(port, history);
-  } finally {
-    agentProcessing = false;
+  for (const name of Object.keys(list)) {
+    if ((list[name] || {}).kind !== 'agent') continue;
+    const key = port + ':' + name;
+    if (agentBusy.has(key)) continue;
+    let snap: any;
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/output/${encodeURIComponent(name)}`);
+      if (!r.ok) continue;
+      snap = await r.json();
+    } catch {
+      continue;
+    }
+    if (!snap || snap.kind !== 'agent' || !snap.pending || !snap.busy) continue;
+    const history: any[] = snap.messages || [];
+    const last = history[history.length - 1];
+    if (!last || last.role !== 'user') continue;  // 尾部须是待回复的 user 消息
+    agentBusy.add(key);
+    void (async () => {
+      try {
+        await replyAsAgent(port, name, history, snap.system_prompt || null);
+      } finally {
+        agentBusy.delete(key);
+      }
+    })();
   }
 }
 
 /** Ask Copilot (vscode.lm) for a reply and write it back to the agent session. */
-async function replyAsAgent(port: number, history: any[]): Promise<void> {
-  const fail = async (msg: string) => { try { await postReply(port, msg); } catch { /* ignore */ } };
+async function replyAsAgent(port: number, name: string, history: any[], systemPrompt: string | null): Promise<void> {
+  const fail = async (msg: string) => { try { await postReply(port, name, msg); } catch { /* ignore */ } };
   try {
     const lm = (vscode as any).lm;
     if (!lm || typeof lm.selectChatModels !== 'function') {
@@ -438,6 +478,7 @@ async function replyAsAgent(port: number, history: any[]): Promise<void> {
       return;
     }
     const model = models[0];
+    const system = systemPrompt && systemPrompt.trim() ? systemPrompt : AGENT_DEFAULT_PROMPT;
     // system 提示前置（User 角色，兼容无 System 角色的旧 API）；历史只带最近 40 条
     const hist: vscode.LanguageModelChatMessage[] = history.slice(-40).map((m) =>
       m.role === 'user'
@@ -445,7 +486,7 @@ async function replyAsAgent(port: number, history: any[]): Promise<void> {
         : vscode.LanguageModelChatMessage.Assistant(String(m.text || '')),
     );
     const msgs: vscode.LanguageModelChatMessage[] = [
-      vscode.LanguageModelChatMessage.User(AGENT_SYSTEM_PROMPT),
+      vscode.LanguageModelChatMessage.User(system),
       ...hist,
     ];
     const token = new vscode.CancellationTokenSource().token;
@@ -454,7 +495,7 @@ async function replyAsAgent(port: number, history: any[]): Promise<void> {
     }, token);
     let text = '';
     for await (const chunk of resp.text) text += chunk;
-    await postReply(port, text.trim() || '(empty response)');
+    await postReply(port, name, text.trim() || '(empty response)');
   } catch (e: any) {
     const msg = e && e.message ? e.message : String(e);
     await fail('(Copilot 回复失败: ' + String(msg).slice(0, 300) + ')');
@@ -462,14 +503,14 @@ async function replyAsAgent(port: number, history: any[]): Promise<void> {
 }
 
 /** Write the assistant reply (or error note) back to the agent session. */
-async function postReply(port: number, text: string): Promise<void> {
+async function postReply(port: number, name: string, text: string): Promise<void> {
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/api/agent/${AGENT_SESSION}/reply`, {
+    const r = await fetch(`http://127.0.0.1:${port}/api/agent/${encodeURIComponent(name)}/reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
-    dlog('agent reply -> :' + port + ' (' + (r.ok ? 'ok' : 'HTTP ' + r.status) + ')');
+    dlog('agent reply -> :' + port + '/' + name + ' (' + (r.ok ? 'ok' : 'HTTP ' + r.status) + ')');
   } catch { /* ignore */ }
 }
 

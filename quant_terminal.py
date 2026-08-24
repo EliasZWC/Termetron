@@ -319,6 +319,15 @@ class Session:
         self.updated = time.time()
 
 
+_DEFAULT_AGENT_PROMPT = (
+    "You are Termetron's remote agent. The user is talking to you through the "
+    "Termetron terminal UI (possibly from a mobile phone over a tunnel). You run "
+    "on their desktop inside VS Code with GitHub Copilot. Help with code, "
+    "quant/trading strategies, Python, math, and general tech. Keep replies "
+    "concise and actionable."
+)
+
+
 class AgentSession:
     """Agent 聊天会话：非 shell，纯消息队列。
 
@@ -326,11 +335,13 @@ class AgentSession:
     调 Copilot 生成回复 → POST /api/agent/<name>/reply 写回 → 前端显示。
     与 Session 兼容：有 snapshot / send / clear / stop，可放进 SESSIONS 字典，
     /api/sessions 与 /api/output/<name> 路由无需改动即可工作。
+    通过新建会话（kind='agent'）创建，可填名称 + 角色设定（system_prompt）。
     """
 
-    def __init__(self, name: str = "agent"):
+    def __init__(self, name: str = "agent", system_prompt: str | None = None):
         self.name = name
         self.cmd = "(agent chat)"
+        self.system_prompt = system_prompt or _DEFAULT_AGENT_PROMPT
         self.lines: list[str] = []
         self.messages: list[dict] = []  # [{role:'user'|'assistant', text, ts}]
         self.pending = False            # 有未回复的 user 消息
@@ -342,7 +353,7 @@ class AgentSession:
         self.updated = time.time()
         self.messages.append({
             "role": "assistant",
-            "text": "agent 通道就绪 —— 在这里发消息，电脑端的 Copilot 会回复。"
+            "text": f"agent「{name}」就绪 —— 在这里发消息，电脑端的 Copilot 会回复。"
                     "（需要电脑开着 VS Code 且已登录 Copilot；手机端通过隧道即可对话）",
             "ts": time.strftime("%H:%M:%S"),
         })
@@ -350,6 +361,7 @@ class AgentSession:
     def snapshot(self) -> dict:
         return {
             "kind": "agent",
+            "system_prompt": self.system_prompt,
             "lines": self.lines[-600:],
             "messages": self.messages[-200:],
             "pending": self.pending,
@@ -522,7 +534,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 .btn.back:hover{opacity:.7}
 .btn.back svg{width:26px;height:26px}
 /* 移动端（窄屏）：会话目录页布局，电脑端保持标签栏 */
-body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:rgba(167,139,250,.16);border:1px solid rgba(167,139,250,.4);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
+body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:rgba(167,139,250,.16);border:1px solid rgba(167,139,250,.4);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}.seg{display:flex;gap:8px;margin:2px 0 6px}.seg-btn{flex:1;padding:6px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;font-size:11px;font-weight:600;letter-spacing:1px}.seg-btn.act{color:var(--acc);border-color:rgba(167,139,250,.55);background:rgba(167,139,250,.12)}.field textarea{width:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:4px;color:var(--txt);padding:7px 9px;font-size:12px;outline:none;font-family:inherit;resize:vertical;min-height:72px}.field textarea:focus{border-color:var(--acc)}.sess-item.agent{border:1px solid rgba(167,139,250,.5);background:rgba(167,139,250,.06)}.sess-item .si-tag{font-size:9px;letter-spacing:1.5px;color:var(--acc);border:1px solid rgba(167,139,250,.4);border-radius:3px;padding:1px 5px;font-weight:700;vertical-align:middle;margin-left:4px}.tab.agent{color:var(--acc)}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
 :root{--fs:13px}
 #out{font-size:var(--fs)}
 .inrow textarea{font-size:var(--fs)}
@@ -738,8 +750,8 @@ async function refreshSessions() {
     tabs.innerHTML = '';
     names.forEach(n => {
       const a = document.createElement('button');
-      a.className = 'tab' + (n === current ? ' act' : '');
-      a.textContent = (s[n].kind === 'agent' ? '🤖 ' : '') + n;
+      a.className = 'tab' + (n === current ? ' act' : '') + (s[n].kind === 'agent' ? ' agent' : '');
+      a.textContent = n;
       a.title = s[n].cmd;
       a.onclick = () => { current = n; refreshAll(); document.getElementById('in').focus(); };
       tabs.appendChild(a);
@@ -952,11 +964,23 @@ async function stopNow() {
 }
 function newSessionModal() {
   openModal('NEW SESSION',
-    '<div class="field"><label>session name</label><input id="nname" spellcheck="false" placeholder="e.g. demo"></div>',
+    '<div class="field"><label>session type</label>' +
+    '<div class="seg" id="ntype"><button class="seg-btn act" data-t="term" type="button">TERMINAL</button>' +
+    '<button class="seg-btn" data-t="agent" type="button">AGENT</button></div></div>' +
+    '<div class="field"><label>session name</label><input id="nname" spellcheck="false" placeholder="e.g. demo"></div>' +
+    '<div class="field" id="ncmd-w"><label>command (optional)</label><input id="ncmd" spellcheck="false" placeholder="e.g. python run/demo.py"></div>' +
+    '<div class="field" id="nsp-w" style="display:none"><label>agent role / system prompt</label>' +
+    '<textarea id="nsp" rows="5" spellcheck="false" placeholder="describe what this agent is for — e.g. 你是量化策略助手，精通因子/回测/风控..."></textarea></div>',
     'Create', async () => {
       const name = document.getElementById('nname').value.trim();
       if (!name) { modalError('session name required'); return false; }
-      const r = await api('/api/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, cmd: null})});
+      const kind = (document.querySelector('#ntype .seg-btn.act') || {}).dataset?.t || 'term';
+      const body = { name, cmd: kind === 'agent' ? null : (document.getElementById('ncmd').value.trim() || null) };
+      if (kind === 'agent') {
+        body.kind = 'agent';
+        body.agent = { system_prompt: document.getElementById('nsp').value.trim() || null };
+      }
+      const r = await api('/api/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       if (r.error) { modalError(r.error); return false; }
         hist[name] = []; histIdx[name] = 0;  // 新会话无历史（防同名重建残留）
         current = name; await refreshAll();  // 等会话列表刷新完成，管理页才能显示新卡片
@@ -965,6 +989,15 @@ function newSessionModal() {
         if (fp && fp.style.display === 'flex') { openSessionManager(); } else { document.getElementById('in').focus(); }
         return true;
     });
+  // 类型切换：agent 显示角色表单（隐藏 command），普通终端反之
+  document.querySelectorAll('#ntype .seg-btn').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('#ntype .seg-btn').forEach(b => b.classList.toggle('act', b === btn));
+      const isAgent = btn.dataset.t === 'agent';
+      document.getElementById('ncmd-w').style.display = isAgent ? 'none' : '';
+      document.getElementById('nsp-w').style.display = isAgent ? '' : 'none';
+    };
+  });
 }
 const inp = document.getElementById('in');
 // textarea 自动增高：无上限，随输入内容无限扩展（输入多行时页面/区域滚动查看全部）
@@ -1234,11 +1267,11 @@ function renderSessList(names) {
     const s = sessionsData[n];
     const isAgent = s.kind === 'agent';
     const it = document.createElement('button');
-    it.className = 'sess-item' + (n === current ? ' act' : '');
-    it.innerHTML = '<span class="si-line"><span class="si-name">' + (isAgent ? '🤖 ' : '') + esc(n) + '</span>' +
+    it.className = 'sess-item' + (n === current ? ' act' : '') + (isAgent ? ' agent' : '');
+    it.innerHTML = '<span class="si-line"><span class="si-name">' + esc(n) + (isAgent ? ' <span class="si-tag">AGENT</span>' : '') + '</span>' +
       (isAgent ? (s.busy ? '<span class="si-busy">thinking</span>' : '<span class="si-idle">chat</span>') :
         (s.busy ? '<span class="si-busy">running</span>' : '<span class="si-idle">idle</span>')) + '</span>' +
-      '<span class="si-cmd">' + esc(isAgent ? 'agent chat — talk to Copilot' : (s.cmd || '')) + '</span>';
+      '<span class="si-cmd">' + esc(isAgent ? ((s.system_prompt || 'agent chat').replace(/\s+/g, ' ').slice(0, 42)) : (s.cmd || '')) + '</span>';
     it.onclick = () => openSession(n);
     host.appendChild(it);
   });
@@ -1968,7 +2001,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/sessions":
                 self._json({
                     n: ({"status": "agent", "cmd": s.cmd, "progress": None, "busy": s.busy,
-                         "script": None, "kind": "agent"}
+                         "script": None, "kind": "agent", "system_prompt": s.system_prompt}
                          if isinstance(s, AgentSession) else
                          {"status": "done" if s.done else "running", "cmd": s.cmd,
                           "progress": s.prog, "busy": s.busy, "script": s.script})
@@ -2146,7 +2179,14 @@ class Handler(BaseHTTPRequestHandler):
             if name in SESSIONS:
                 self._json({"error": "session exists"}, 409)
                 return
-            SESSIONS[name] = Session(name, cmd)
+            kind = (body.get("kind") or "").strip()
+            if kind == "agent":
+                # 新建 agent 聊天会话：表单填名称 + 角色设定（system_prompt）
+                acfg = body.get("agent") or {}
+                sp = (acfg.get("system_prompt") or "").strip()
+                SESSIONS[name] = AgentSession(name, sp or None)
+            else:
+                SESSIONS[name] = Session(name, cmd)
             self._json({"ok": True, "name": name})
         else:
             self._json({"error": "not found"}, 404)
@@ -2182,13 +2222,7 @@ def main() -> None:
             print("[termetron] created default session 'shell'")
         except Exception as e:  # noqa: BLE001
             print(f"[termetron] warn: cannot create default session: {e}")
-    # agent 聊天会话（非 shell）：手机/电脑发消息 → 扩展桥转 Copilot 回复
-    if "agent" not in SESSIONS:
-        try:
-            SESSIONS["agent"] = AgentSession("agent")
-            print("[termetron] created agent chat session 'agent'")
-        except Exception as e:  # noqa: BLE001
-            print(f"[termetron] warn: cannot create agent session: {e}")
+    # agent 聊天会话由用户通过“新建会话 → agent 类型 → 填表单”创建（不预置）
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Termetron running at http://{args.host}:{args.port}")
