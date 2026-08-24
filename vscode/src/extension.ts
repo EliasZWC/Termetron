@@ -469,12 +469,12 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
   try {
     const lm = (vscode as any).lm;
     if (!lm || typeof lm.selectChatModels !== 'function') {
-      await fail('(Copilot 不可用：需要 VS Code 1.90+ 且已登录 GitHub Copilot)');
+      await fail('(Copilot unavailable: requires VS Code 1.90+ with GitHub Copilot signed in)');
       return;
     }
     const models = await lm.selectChatModels({ vendor: 'copilot' });
     if (!models || models.length === 0) {
-      await fail('(Copilot 不可用：未找到模型，请检查 GitHub Copilot 登录状态)');
+      await fail('(Copilot unavailable: no model found — check GitHub Copilot sign-in)');
       return;
     }
     const model = models[0];
@@ -491,14 +491,14 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
     ];
     const token = new vscode.CancellationTokenSource().token;
     const resp = await model.sendRequest(msgs, {
-      justification: 'Termetron 远程 agent：把你通过 termetron 发来的消息转给 Copilot，并把回复显示回 termetron。',
+      justification: 'Termetron remote agent: forwards messages you send via termetron to Copilot and shows the reply back in termetron.',
     }, token);
     let text = '';
     for await (const chunk of resp.text) text += chunk;
     await postReply(port, name, text.trim() || '(empty response)');
   } catch (e: any) {
     const msg = e && e.message ? e.message : String(e);
-    await fail('(Copilot 回复失败: ' + String(msg).slice(0, 300) + ')');
+    await fail('(Copilot reply failed: ' + String(msg).slice(0, 300) + ')');
   }
 }
 
