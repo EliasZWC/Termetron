@@ -137,11 +137,13 @@ class Session:
         self._spawn()
         if cmd:
             self.send(cmd)
-        # 会话开启输出：欢迎 + 初始状态，避免只显示光秃秃的提示符（信息不完整）
+        # 会话开启输出：终端风格欢迎横幅（纯文本 `***` 分隔，醒目且不依赖 CSS 样式）
+        self.lines.append("*" * 44)
         self.lines.append(
             f"[termetron] session '{self.name}' ready — type /help for commands or "
             f"run a shell command ({time.strftime('%Y-%m-%d %H:%M:%S')})"
         )
+        self.lines.append("*" * 44)
 
     def _spawn(self) -> None:
         """(Re)start the interactive shell process and its reader thread."""
@@ -380,9 +382,6 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .inrow input::placeholder{color:#3d4652}
  .running{color:var(--acc);font-size:14px;font-weight:700;letter-spacing:2px;line-height:1.4;align-self:flex-start;padding-top:5px;display:none}
  .ol{white-space:pre-wrap}
- .hello{display:flex;align-items:flex-start;gap:8px;margin:8px 0;padding:8px 12px;border:1px solid var(--acc);border-left:3px solid var(--acc);border-radius:6px;background:rgba(167,139,250,.08);white-space:pre-wrap}
- .hello-i{color:var(--acc);font-weight:700;line-height:1.5;font-size:14px}
- .hello-t{color:var(--txt);font-size:12px;line-height:1.6}
  .tblwrap{overflow-x:auto;margin:8px 0;border:1px solid var(--border);border-radius:6px}
  .tblwrap table{border-collapse:collapse;font-size:12px;width:100%}
  .tblwrap th,.tblwrap td{border:1px solid var(--border);padding:4px 12px;text-align:right;white-space:nowrap}
@@ -716,19 +715,27 @@ async function refreshSessions() {
   }
 }
 let _progHideTimer = null;
-function setProgress(p, t0) {
+let _progEverShown = false;
+function setProgress(p, t0, busy) {
   const prow = document.querySelector('.prow'), pbar = document.querySelector('.pbar');
   const d = document.getElementById('pdesc'), c = document.getElementById('ppct'),
         n = document.getElementById('pnum'), f = document.getElementById('pfill');
-  // 无进度（未检测到 tqdm）→ 延迟隐藏（防闪烁：tqdm 换行/重建时短暂 None 不闪）
-  if (!p || p.pct === undefined) {
-    if (!prow || !pbar) return;
-    if (!_progHideTimer) {
-      _progHideTimer = setTimeout(() => {
-        _progHideTimer = null;
-        prow.style.display = 'none';
-        pbar.style.display = 'none';
-      }, 900);
+  const hasP = p && p.pct !== undefined;
+  if (hasP) _progEverShown = true;
+  // 会话空闲（busy=false）→ 彻底隐藏（清状态，供下个进程重新判断）
+  if (!busy && !hasP) {
+    _progEverShown = false;
+    if (_progHideTimer) { clearTimeout(_progHideTimer); _progHideTimer = null; }
+    if (prow) prow.style.display = 'none';
+    if (pbar) pbar.style.display = 'none';
+    return;
+  }
+  // busy 但此刻无进度：若有历史进度则保留显示（运行中不因短暂 None 频闪）；
+  // 无历史进度（还没见过 tqdm）则隐藏
+  if (!hasP) {
+    if (!_progEverShown) {
+      if (prow) prow.style.display = 'none';
+      if (pbar) pbar.style.display = 'none';
     }
     return;
   }
@@ -794,9 +801,6 @@ function renderOutput(lines) {
         const valid = pm[1] === '$' || (sessionsData && nm in sessionsData);
         if (valid) html += '<div class="ol"><span class="d">' + esc(pm[1]) + '</span> ' + esc(pm[2]) + '</div>';
         else html += '<div class="ol">' + esc(raw) + '</div>';
-      } else if (raw.indexOf('[termetron]') === 0) {
-        // 会话开启欢迎/状态横幅：醒目（边框 + 图标 + 紫色强调），区别于普通输出
-        html += '<div class="hello"><span class="hello-i">›</span><span class="hello-t">' + esc(raw) + '</span></div>';
       } else {
         html += '<div class="ol">' + esc(raw) + '</div>';
       }
@@ -819,7 +823,7 @@ async function refreshOutput() {
   const pre = document.getElementById('out');
   // 内容未变化时跳过重建：避免每轮 innerHTML 重建打断用户选中/复制（选区会丢失）
   const key = o.lines.join('\\n');
-  if (pre.__lastKey === key) { setProgress(o.progress, o.tqdm_t0); return; }
+  if (pre.__lastKey === key) { setProgress(o.progress, o.tqdm_t0, o.busy); return; }
   pre.__lastKey = key;
   const prevTop = pre.scrollTop, prevH = pre.scrollHeight;
   pre.innerHTML = renderOutput(o.lines);
@@ -828,7 +832,7 @@ async function refreshOutput() {
   } else {
     pre.scrollTop = prevTop + (pre.scrollHeight - prevH);  // 保持用户浏览位置
   }
-  setProgress(o.progress, o.tqdm_t0);
+  setProgress(o.progress, o.tqdm_t0, o.busy);
 }
 // 命令输入框：回车发送到当前会话（像真实终端）；cls/clear 清屏
 //（cmd 的 cls 只清控制台缓冲区，管道里无清屏信号，故在此拦截真正清空输出）
