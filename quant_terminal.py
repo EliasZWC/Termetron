@@ -434,6 +434,8 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .srv-acts{display:inline-flex;gap:6px}
  .sbtn{padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--acc);cursor:pointer;font-size:11px}
  .sbtn:hover{background:rgba(167,139,250,.14)}
+ .sbtn.del{color:#ff7b72;border-color:rgba(255,123,114,.4)}
+ .sbtn.del:hover{background:rgba(255,123,114,.14)}
  .sbtn.full{width:100%;margin-top:10px;padding:8px;font-weight:700}
  .mmsg b{color:var(--acc)}
  .mactions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
@@ -1459,10 +1461,10 @@ async function manageServers() {
     const isCur = s.port === cur;
     return '<div class="srow' + (isCur ? ' cur' : '') + '">' +
       '<span class="srv-p">:' + s.port + '</span>' +
-      '<span class="srv-m">' + s.sessions.length + ' sess' + (s.own ? ' · ext' : '') + (isCur ? ' · CURRENT' : '') + '</span>' +
+      '<span class="srv-m">' + s.sessions.length + ' sess' + (s.own ? ' · ext' : ' · external') + (isCur ? ' · CURRENT' : '') + '</span>' +
       '<span class="srv-acts">' +
       (isCur ? '' : '<button class="sbtn" data-act="sel" data-p="' + s.port + '">select</button>') +
-      (s.own ? '<button class="sbtn" data-act="del" data-p="' + s.port + '">delete</button>' : '') +
+      (s.own ? '<button class="sbtn del" data-act="del" data-p="' + s.port + '">delete</button>' : '') +
       '</span></div>';
   }).join('') || '<p class="mmsg" style="opacity:.6">no servers found</p>';
   openModal('MANAGE SERVERS',
