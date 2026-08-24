@@ -2,12 +2,12 @@
   "name": "termetron",
   "displayName": "Termetron",
   "description": "Geometric metron terminal — multi-session web terminal with live progress bars and mobile remote access. Embedded in a VS Code panel as a real browser view (iframe + portMapping); optional system-browser fallback.",
-  "version": "0.5.12",
+  "version": "0.6.0",
   "publisher": "EliasZhang",
   "icon": "icon.png",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.134.0"
   },
   "categories": [
     "Other"
