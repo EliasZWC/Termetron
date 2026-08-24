@@ -181,8 +181,15 @@ class Session:
                 self.pending = ""
             elif ch == "\n":
                 hit = _parse_tqdm(self.pending) if self.pending else None
+                # 注意：\n 分支不设置 prog —— tqdm 实时更新用 \r（不换行），
+                # \n 出现的"像 tqdm"的行常是命令回显文本（如 `46/48`），
+                # 若在此 set_prog 会让已完成的进度条在空闲时"复活"闪现。
+                # 仅当当前有活跃进度（prog 非 None 且未完成）时，\n 才可用于更新/收尾。
                 if hit:
-                    self._set_prog(hit)
+                    if self.prog is not None and hit.get("done", 0) >= hit.get("total", 0):
+                        self._set_prog(hit)  # 完成行：清空 prog（隐藏进度条）
+                    self.pending = None
+                    continue
                 else:
                     line = self.pending or ""
                     # 丢弃启动后短暂窗口内的初始输出（cmd banner / 初始提示符），保证新会话干净；
@@ -716,6 +723,7 @@ async function refreshSessions() {
 }
 let _progHideTimer = null;
 let _progEverShown = false;
+let _progVisible = false;  // 当前进度条是否可见（由 setProgress 维护；applyView 会话页据此保持，防闪现）
 function setProgress(p, t0, busy) {
   const prow = document.querySelector('.prow'), pbar = document.querySelector('.pbar');
   const d = document.getElementById('pdesc'), c = document.getElementById('ppct'),
@@ -725,6 +733,7 @@ function setProgress(p, t0, busy) {
   // 会话空闲（busy=false）→ 彻底隐藏（清状态，供下个进程重新判断）
   if (!busy && !hasP) {
     _progEverShown = false;
+    _progVisible = false;
     if (_progHideTimer) { clearTimeout(_progHideTimer); _progHideTimer = null; }
     if (prow) prow.style.display = 'none';
     if (pbar) pbar.style.display = 'none';
@@ -734,12 +743,14 @@ function setProgress(p, t0, busy) {
   // 无历史进度（还没见过 tqdm）则隐藏
   if (!hasP) {
     if (!_progEverShown) {
+      _progVisible = false;
       if (prow) prow.style.display = 'none';
       if (pbar) pbar.style.display = 'none';
     }
     return;
   }
   // 有进度：立即显示并取消待定隐藏
+  _progVisible = true;
   if (_progHideTimer) { clearTimeout(_progHideTimer); _progHideTimer = null; }
   if (prow) prow.style.display = '';
   if (pbar) pbar.style.display = '';
@@ -1103,13 +1114,14 @@ function applyView() {
   if (mobile) {
     document.getElementById('pmeta-srv').style.display = home ? '' : 'none';
     document.getElementById('pmeta-ses').style.display = home ? 'none' : '';
-    document.querySelector('.prow').style.display = home ? 'none' : '';
-    document.querySelector('.pbar').style.display = home ? 'none' : '';
+    // 进度条显隐交给 setProgress（_progVisible）；会话页空闲时保持隐藏，不因轮询闪现
+    document.querySelector('.prow').style.display = home ? 'none' : (_progVisible ? '' : 'none');
+    document.querySelector('.pbar').style.display = home ? 'none' : (_progVisible ? '' : 'none');
   } else {
     document.getElementById('pmeta-srv').style.display = '';
     document.getElementById('pmeta-ses').style.display = '';
-    document.querySelector('.prow').style.display = '';
-    document.querySelector('.pbar').style.display = '';
+    document.querySelector('.prow').style.display = _progVisible ? '' : 'none';
+    document.querySelector('.pbar').style.display = _progVisible ? '' : 'none';
   }
 }
 function renderSessList(names) {
