@@ -319,7 +319,81 @@ class Session:
         self.updated = time.time()
 
 
-SESSIONS: dict[str, Session] = {}
+class AgentSession:
+    """Agent 聊天会话：非 shell，纯消息队列。
+
+    用户（手机/电脑）在这里发消息 → 扩展桥（VS Code 内）轮询收件箱 →
+    调 Copilot 生成回复 → POST /api/agent/<name>/reply 写回 → 前端显示。
+    与 Session 兼容：有 snapshot / send / clear / stop，可放进 SESSIONS 字典，
+    /api/sessions 与 /api/output/<name> 路由无需改动即可工作。
+    """
+
+    def __init__(self, name: str = "agent"):
+        self.name = name
+        self.cmd = "(agent chat)"
+        self.lines: list[str] = []
+        self.messages: list[dict] = []  # [{role:'user'|'assistant', text, ts}]
+        self.pending = False            # 有未回复的 user 消息
+        self.busy = False               # agent 正在思考（等待回复）
+        self.done = False
+        self.prog = None
+        self.script = None
+        self._tqdm_t0 = None
+        self.updated = time.time()
+        self.messages.append({
+            "role": "assistant",
+            "text": "agent 通道就绪 —— 在这里发消息，电脑端的 Copilot 会回复。"
+                    "（需要电脑开着 VS Code 且已登录 Copilot；手机端通过隧道即可对话）",
+            "ts": time.strftime("%H:%M:%S"),
+        })
+
+    def snapshot(self) -> dict:
+        return {
+            "kind": "agent",
+            "lines": self.lines[-600:],
+            "messages": self.messages[-200:],
+            "pending": self.pending,
+            "progress": None,
+            "done": self.done,
+            "busy": self.busy,
+            "script": None,
+            "cmd": self.cmd,
+            "updated": time.strftime("%H:%M:%S", time.localtime(self.updated)),
+        }
+
+    def send(self, text: str) -> bool:
+        """用户消息入队（扩展桥轮询后转给 Copilot）。"""
+        self.messages.append({"role": "user", "text": text, "ts": time.strftime("%H:%M:%S")})
+        self.pending = True
+        self.busy = True  # 等待 agent 回复（前端显示 thinking）
+        self.updated = time.time()
+        return True
+
+    def reply(self, text: str) -> None:
+        """扩展桥写入 agent 回复；text 空串视为取消（清 pending 但补一条提示）。"""
+        if text:
+            self.messages.append({"role": "assistant", "text": text, "ts": time.strftime("%H:%M:%S")})
+        else:
+            self.messages.append({"role": "assistant", "text": "(no response)",
+                                  "ts": time.strftime("%H:%M:%S")})
+        self.pending = False
+        self.busy = False
+        self.updated = time.time()
+
+    def clear(self) -> None:
+        self.messages.clear()
+        self.pending = False
+        self.busy = False
+        self.updated = time.time()
+
+    def stop(self, rebuild: bool = True) -> None:
+        """兼容 DELETE/stop 路由：清 pending（不杀进程，本类无进程）。"""
+        self.pending = False
+        self.busy = False
+        self.updated = time.time()
+
+
+SESSIONS: dict[str, Session | AgentSession] = {}
 
 def _load_about() -> dict:
     """从 lib/termetron/README.md 解析版本号（About 单一来源，随迭代递增）。"""
@@ -448,7 +522,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 .btn.back:hover{opacity:.7}
 .btn.back svg{width:26px;height:26px}
 /* 移动端（窄屏）：会话目录页布局，电脑端保持标签栏 */
-body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
+body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:rgba(167,139,250,.12)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:rgba(167,139,250,.16);border:1px solid rgba(167,139,250,.4);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
 :root{--fs:13px}
 #out{font-size:var(--fs)}
 .inrow textarea{font-size:var(--fs)}
@@ -665,7 +739,7 @@ async function refreshSessions() {
     names.forEach(n => {
       const a = document.createElement('button');
       a.className = 'tab' + (n === current ? ' act' : '');
-      a.textContent = n;
+      a.textContent = (s[n].kind === 'agent' ? '🤖 ' : '') + n;
       a.title = s[n].cmd;
       a.onclick = () => { current = n; refreshAll(); document.getElementById('in').focus(); };
       tabs.appendChild(a);
@@ -828,12 +902,32 @@ const _out = document.getElementById('out');
 _out.addEventListener('scroll', () => {
   autoScroll = _out.scrollHeight - _out.scrollTop - _out.clientHeight < 40;
 });
+// agent 聊天会话渲染：用户消息靠右（紫），agent 回复靠左（面板色）；busy 时显示 thinking
+function renderAgentChat(pre, o) {
+  const msgs = o.messages || [];
+  const key = JSON.stringify(msgs) + '|' + (o.busy ? 'B' : '');
+  if (pre.__lastKey === key) return;
+  pre.__lastKey = key;
+  const prevTop = pre.scrollTop, prevH = pre.scrollHeight;
+  pre.innerHTML = '<div class="chat">' + msgs.map(m =>
+    '<div class="chat-msg ' + (m.role === 'user' ? 'chat-user' : 'chat-agent') + '">' +
+    '<span class="chat-txt">' + esc(m.text || '') + '</span>' +
+    '<div class="chat-meta">' + (m.role === 'user' ? 'you' : 'agent') + ' · ' + esc(m.ts || '') + '</div>' +
+    '</div>').join('') +
+    (o.busy && o.pending ? '<div class="chat-thinking">agent is thinking…</div>' : '') +
+    '</div>';
+  if (autoScroll) pre.scrollTop = pre.scrollHeight;
+  else pre.scrollTop = prevTop + (pre.scrollHeight - prevH);
+}
 async function refreshOutput() {
   if (mobile && view !== 'session') return;  // 移动端目录页不刷输出
   if (!current) { document.getElementById('out').innerHTML = ''; setProgress(null); return; }
   const o = await api('/api/output/' + current);
-  if (!o || !o.lines) return;
+  if (!o) return;
   const pre = document.getElementById('out');
+  // agent 聊天会话：独立气泡渲染（不走终端 renderOutput）
+  if (o.kind === 'agent') { renderAgentChat(pre, o); setProgress(null, null, false); return; }
+  if (!o.lines) return;
   // 内容未变化时跳过重建：避免每轮 innerHTML 重建打断用户选中/复制（选区会丢失）
   const key = o.lines.join('\\n');
   if (pre.__lastKey === key) { setProgress(o.progress, o.tqdm_t0, o.busy); return; }
@@ -1138,11 +1232,13 @@ function renderSessList(names) {
   }
   names.forEach(n => {
     const s = sessionsData[n];
+    const isAgent = s.kind === 'agent';
     const it = document.createElement('button');
     it.className = 'sess-item' + (n === current ? ' act' : '');
-    it.innerHTML = '<span class="si-line"><span class="si-name">' + esc(n) + '</span>' +
-      (s.busy ? '<span class="si-busy">running</span>' : '<span class="si-idle">idle</span>') + '</span>' +
-      '<span class="si-cmd">' + esc(s.cmd || '') + '</span>';
+    it.innerHTML = '<span class="si-line"><span class="si-name">' + (isAgent ? '🤖 ' : '') + esc(n) + '</span>' +
+      (isAgent ? (s.busy ? '<span class="si-busy">thinking</span>' : '<span class="si-idle">chat</span>') :
+        (s.busy ? '<span class="si-busy">running</span>' : '<span class="si-idle">idle</span>')) + '</span>' +
+      '<span class="si-cmd">' + esc(isAgent ? 'agent chat — talk to Copilot' : (s.cmd || '')) + '</span>';
     it.onclick = () => openSession(n);
     host.appendChild(it);
   });
@@ -1871,8 +1967,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/sessions":
                 self._json({
-                    n: {"status": "done" if s.done else "running", "cmd": s.cmd,
-                        "progress": s.prog, "busy": s.busy, "script": s.script}
+                    n: ({"status": "agent", "cmd": s.cmd, "progress": None, "busy": s.busy,
+                         "script": None, "kind": "agent"}
+                         if isinstance(s, AgentSession) else
+                         {"status": "done" if s.done else "running", "cmd": s.cmd,
+                          "progress": s.prog, "busy": s.busy, "script": s.script})
                     for n, s in SESSIONS.items()
                 })
             elif path.startswith("/api/output/"):
@@ -1951,6 +2050,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "bad request"}, 400)
                 return
             self._json(REMOTE.deny((body.get("key") or "").strip()))
+            return
+        # agent 回复（扩展桥写入 Copilot 回复 / 取消）
+        if self.path.startswith("/api/agent/") and self.path.endswith("/reply"):
+            name = self.path.split("/")[3]
+            s = SESSIONS.get(name)
+            if not isinstance(s, AgentSession):
+                self._json({"error": "agent session not found"}, 404)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:  # noqa: BLE001
+                self._json({"error": "bad request"}, 400)
+                return
+            s.reply((body.get("text") or "").strip())
+            self._json({"ok": True})
             return
         # 清屏（cls/clear 在管道模式下无效，由这里真正清空输出）
         if self.path.startswith("/api/sessions/") and self.path.endswith("/clear"):
@@ -2067,6 +2182,13 @@ def main() -> None:
             print("[termetron] created default session 'shell'")
         except Exception as e:  # noqa: BLE001
             print(f"[termetron] warn: cannot create default session: {e}")
+    # agent 聊天会话（非 shell）：手机/电脑发消息 → 扩展桥转 Copilot 回复
+    if "agent" not in SESSIONS:
+        try:
+            SESSIONS["agent"] = AgentSession("agent")
+            print("[termetron] created agent chat session 'agent'")
+        except Exception as e:  # noqa: BLE001
+            print(f"[termetron] warn: cannot create agent session: {e}")
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Termetron running at http://{args.host}:{args.port}")

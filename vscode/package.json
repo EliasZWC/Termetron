@@ -7,7 +7,7 @@
   "icon": "icon.png",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -68,8 +68,8 @@
     "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.134.0",
     "@vscode/vsce": "^2.26.0",
     "typescript": "^5.5.0"
   }

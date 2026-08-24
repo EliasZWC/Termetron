@@ -376,7 +376,105 @@ async function execInSession(session: string, command: string): Promise<{ ok: bo
   }
 }
 
+// ---- Agent 桥：轮询 termetron 的 agent 会话 → Copilot → 回复 ----
+const AGENT_SESSION = 'agent';
+const AGENT_POLL_MS = 2500;
+let agentPollTimer: NodeJS.Timeout | null = null;
+let agentProcessing = false;
+
+const AGENT_SYSTEM_PROMPT =
+  'You are Termetron\'s remote agent. The user is talking to you through the ' +
+  'Termetron terminal UI (they may be on a mobile phone over a tunnel, or on this ' +
+  'desktop). You run on their desktop inside VS Code with GitHub Copilot. Help with ' +
+  'code, quant/trading strategies, Python, math, and general tech. Keep replies ' +
+  'concise and actionable.';
+
+/** Start the background poller that turns agent-session messages into Copilot replies. */
+function startAgentBridge(context: vscode.ExtensionContext): void {
+  agentPollTimer = setInterval(() => { void pollAgent(); }, AGENT_POLL_MS);
+  context.subscriptions.push({
+    dispose: () => { if (agentPollTimer) { clearInterval(agentPollTimer); agentPollTimer = null; } },
+  });
+  dlog('agent bridge started (poll ' + AGENT_POLL_MS + 'ms)');
+}
+
+/** Poll the agent session; if a user message is waiting (pending+busy), answer it. */
+async function pollAgent(): Promise<void> {
+  if (agentProcessing) return;
+  const port = panelPort ?? serverPort;
+  if (!port) return;
+  let data: any;
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/output/${AGENT_SESSION}`);
+    if (!r.ok) return;
+    data = await r.json();
+  } catch {
+    return;
+  }
+  if (!data || data.kind !== 'agent' || !data.pending || !data.busy) return;
+  const history: any[] = data.messages || [];
+  const last = history[history.length - 1];
+  if (!last || last.role !== 'user') return;  // 尾部须是待回复的 user 消息
+  agentProcessing = true;
+  try {
+    await replyAsAgent(port, history);
+  } finally {
+    agentProcessing = false;
+  }
+}
+
+/** Ask Copilot (vscode.lm) for a reply and write it back to the agent session. */
+async function replyAsAgent(port: number, history: any[]): Promise<void> {
+  const fail = async (msg: string) => { try { await postReply(port, msg); } catch { /* ignore */ } };
+  try {
+    const lm = (vscode as any).lm;
+    if (!lm || typeof lm.selectChatModels !== 'function') {
+      await fail('(Copilot 不可用：需要 VS Code 1.90+ 且已登录 GitHub Copilot)');
+      return;
+    }
+    const models = await lm.selectChatModels({ vendor: 'copilot' });
+    if (!models || models.length === 0) {
+      await fail('(Copilot 不可用：未找到模型，请检查 GitHub Copilot 登录状态)');
+      return;
+    }
+    const model = models[0];
+    // system 提示前置（User 角色，兼容无 System 角色的旧 API）；历史只带最近 40 条
+    const hist: vscode.LanguageModelChatMessage[] = history.slice(-40).map((m) =>
+      m.role === 'user'
+        ? vscode.LanguageModelChatMessage.User(String(m.text || ''))
+        : vscode.LanguageModelChatMessage.Assistant(String(m.text || '')),
+    );
+    const msgs: vscode.LanguageModelChatMessage[] = [
+      vscode.LanguageModelChatMessage.User(AGENT_SYSTEM_PROMPT),
+      ...hist,
+    ];
+    const token = new vscode.CancellationTokenSource().token;
+    const resp = await model.sendRequest(msgs, {
+      justification: 'Termetron 远程 agent：把你通过 termetron 发来的消息转给 Copilot，并把回复显示回 termetron。',
+    }, token);
+    let text = '';
+    for await (const chunk of resp.text) text += chunk;
+    await postReply(port, text.trim() || '(empty response)');
+  } catch (e: any) {
+    const msg = e && e.message ? e.message : String(e);
+    await fail('(Copilot 回复失败: ' + String(msg).slice(0, 300) + ')');
+  }
+}
+
+/** Write the assistant reply (or error note) back to the agent session. */
+async function postReply(port: number, text: string): Promise<void> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/agent/${AGENT_SESSION}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    dlog('agent reply -> :' + port + ' (' + (r.ok ? 'ok' : 'HTTP ' + r.status) + ')');
+  } catch { /* ignore */ }
+}
+
 export function activate(context: vscode.ExtensionContext): TermetronApi {
+  startAgentBridge(context);
   context.subscriptions.push(
     vscode.commands.registerCommand('termetron.open', () => {
       void openPanel();
