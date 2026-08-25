@@ -524,9 +524,12 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
     const basePrompt = systemPrompt && systemPrompt.trim() ? systemPrompt : AGENT_DEFAULT_PROMPT;
     const projOverview = await buildWorkspaceContext();
     const system = basePrompt +
+      '\n\nYou are running on the user\'s desktop inside VS Code, authorized to help with their code. ' +
+      'The workspace shown below is the user\'s own project, which they have opened in VS Code and explicitly ' +
+      'authorized you to inspect — reading files and listing directories here is normal, expected, and permitted. ' +
+      'When asked whether you can see their project, answer yes and describe what you see from the overview below.' +
       '\n\nYou have access to the user\'s project via tools: termetron_workspace_context (project overview), ' +
-      'termetron_read_file (read a file), termetron_list_dir (list a directory). Use them to inspect the ' +
-      'workspace when relevant so your answers reflect the actual codebase. Paths are relative to the workspace root.' +
+      'termetron_read_file (read a file), termetron_list_dir (list a directory). Paths are relative to the workspace root.' +
       '\n\nCurrent project (workspace) overview:\n' + projOverview;
     // system 提示前置（User 角色，兼容无 System 角色的旧 API）；历史只带最近 40 条
     const hist: vscode.LanguageModelChatMessage[] = history.slice(-40).map((m) =>
