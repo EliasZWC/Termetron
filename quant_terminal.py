@@ -970,8 +970,8 @@ function newSessionModal() {
     '<button class="seg-btn" data-t="agent" type="button">AGENT</button></div></div>' +
     '<div class="field"><label>session name</label><input id="nname" spellcheck="false" placeholder="e.g. demo"></div>' +
     '<div class="field" id="ncmd-w"><label>command (optional)</label><input id="ncmd" spellcheck="false" placeholder="e.g. python run/demo.py"></div>' +
-    '<div class="field" id="nsp-w" style="display:none"><label>agent role / system prompt</label>' +
-    '<textarea id="nsp" rows="3" spellcheck="false" placeholder="describe what this agent is for — e.g. quant strategy assistant for factors/backtesting/risk"></textarea></div>',
+    '<div class="field" id="nsp-w" style="display:none"><label>prompt (optional)</label>' +
+    '<input id="nsp" spellcheck="false" placeholder="e.g. quant strategy assistant for factor research, backtesting and risk"></div>',
     'Create', async () => {
       const name = document.getElementById('nname').value.trim();
       if (!name) { modalError('session name required'); return false; }
