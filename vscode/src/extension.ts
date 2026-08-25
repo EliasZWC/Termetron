@@ -380,6 +380,8 @@ async function execInSession(session: string, command: string): Promise<{ ok: bo
 const AGENT_POLL_MS = 2500;
 let agentPollTimer: NodeJS.Timeout | null = null;
 const agentBusy = new Set<string>();  // "port:name" 正在处理（防并发重复）
+let extContext: vscode.ExtensionContext | null = null;  // 保存 context（Copilot 授权 prime 用）
+let primeInFlight = false;  // 防并发 prime
 
 const AGENT_DEFAULT_PROMPT =
   'You are Termetron\'s remote agent. The user is talking to you through the ' +
@@ -427,6 +429,42 @@ async function pollAgent(): Promise<void> {
 }
 
 /** 扫一个服务器上的全部 agent 会话，处理待回复消息。 */
+/**
+ * Copilot 首次授权（vscode.lm consent）提前到“创建 agent 会话后”弹出，
+ * 而不是首次发消息时：poll 到任意 agent 会话且未授权（canSendRequest 为
+ * undefined）就发一次 priming 请求触发同意框；用户允许后固化，之后不再弹。
+ */
+async function ensureCopilotPrimed(): Promise<void> {
+  if (primeInFlight || !extContext) return;
+  const lm = (vscode as any).lm;
+  if (!lm || typeof lm.selectChatModels !== 'function') return;
+  let model: any = null;
+  try {
+    const models = await lm.selectChatModels({ vendor: 'copilot' });
+    model = models && models[0];
+  } catch {
+    return;
+  }
+  if (!model) return;
+  const acc = (extContext as any).languageModelAccessInformation;
+  // undefined = 尚未询问过授权 → 触发一次 priming（弹同意框）；true/false 已定，不再弹
+  if (!acc || acc.canSendRequest(model) !== undefined) return;
+  primeInFlight = true;
+  try {
+    const msgs = [vscode.LanguageModelChatMessage.User('Reply with a single word: OK')];
+    const token = new vscode.CancellationTokenSource().token;
+    const resp = await model.sendRequest(msgs, {
+      justification: 'Termetron agent: pre-authorize Copilot access when you create an agent session.',
+    }, token);
+    for await (const chunk of resp.text) { /* drain */ }
+    dlog('agent copilot primed (consent granted)');
+  } catch (e: any) {
+    dlog('agent copilot prime failed: ' + (e && e.message ? e.message : String(e)));
+  } finally {
+    primeInFlight = false;
+  }
+}
+
 async function pollPort(port: number): Promise<void> {
   let list: Record<string, any>;
   try {
@@ -448,18 +486,23 @@ async function pollPort(port: number): Promise<void> {
     } catch {
       continue;
     }
-    if (!snap || snap.kind !== 'agent' || !snap.pending || !snap.busy) continue;
-    const history: any[] = snap.messages || [];
-    const last = history[history.length - 1];
-    if (!last || last.role !== 'user') continue;  // 尾部须是待回复的 user 消息
-    agentBusy.add(key);
-    void (async () => {
-      try {
-        await replyAsAgent(port, name, history, snap.system_prompt || null);
-      } finally {
-        agentBusy.delete(key);
-      }
-    })();
+    if (!snap || snap.kind !== 'agent') continue;
+    if (snap.pending && snap.busy) {
+      const history: any[] = snap.messages || [];
+      const last = history[history.length - 1];
+      if (!last || last.role !== 'user') continue;  // 尾部须是待回复的 user 消息
+      agentBusy.add(key);
+      void (async () => {
+        try {
+          await replyAsAgent(port, name, history, snap.system_prompt || null);
+        } finally {
+          agentBusy.delete(key);
+        }
+      })();
+    } else {
+      // 无待回复消息：Copilot 尚未授权则 prime 一次（创建 agent 会话后即弹同意框）
+      void ensureCopilotPrimed();
+    }
   }
 }
 
@@ -515,6 +558,7 @@ async function postReply(port: number, name: string, text: string): Promise<void
 }
 
 export function activate(context: vscode.ExtensionContext): TermetronApi {
+  extContext = context;
   startAgentBridge(context);
   context.subscriptions.push(
     vscode.commands.registerCommand('termetron.open', () => {
