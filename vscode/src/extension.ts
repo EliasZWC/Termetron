@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, execFile, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as net from 'net';
 import * as fs from 'fs';
@@ -521,7 +521,11 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
       return;
     }
     const model = models[0];
-    const system = systemPrompt && systemPrompt.trim() ? systemPrompt : AGENT_DEFAULT_PROMPT;
+    const basePrompt = systemPrompt && systemPrompt.trim() ? systemPrompt : AGENT_DEFAULT_PROMPT;
+    const system = basePrompt +
+      '\n\nYou have access to the user\'s project via tools: termetron_workspace_context (project overview), ' +
+      'termetron_read_file (read a file), termetron_list_dir (list a directory). Use them to inspect the ' +
+      'workspace when relevant so your answers reflect the actual codebase. Paths are relative to the workspace root.';
     // system 提示前置（User 角色，兼容无 System 角色的旧 API）；历史只带最近 40 条
     const hist: vscode.LanguageModelChatMessage[] = history.slice(-40).map((m) =>
       m.role === 'user'
@@ -533,11 +537,36 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
       ...hist,
     ];
     const token = new vscode.CancellationTokenSource().token;
-    const resp = await model.sendRequest(msgs, {
+    // 启用工作区工具（让 agent 能查看项目）
+    const tools = vscode.lm.tools.filter((t) => t.name.startsWith('termetron_'));
+    const reqOpts: vscode.LanguageModelChatRequestOptions = {
       justification: 'Termetron remote agent: forwards messages you send via termetron to Copilot and shows the reply back in termetron.',
-    }, token);
+    };
+    if (tools.length > 0) {
+      reqOpts.tools = tools as any;
+      reqOpts.toolMode = vscode.LanguageModelChatToolMode.Auto;
+    }
+    // 工具调用循环：模型可请求调用工具（读文件/列目录/项目概览），结果回传后继续
     let text = '';
-    for await (const chunk of resp.text) text += chunk;
+    for (let round = 0; round < 8; round++) {
+      const resp = await model.sendRequest(msgs, reqOpts, token);
+      const parts: any[] = [];
+      for await (const part of resp.stream) parts.push(part);
+      const texts = parts.filter((p) => p instanceof vscode.LanguageModelTextPart).map((p: any) => p.value).join('');
+      if (texts) text = texts;
+      const calls = parts.filter((p) => p instanceof vscode.LanguageModelToolCallPart);
+      if (calls.length === 0) break;  // 无工具调用 → 完成
+      for (const call of calls) {
+        let result: any;
+        try {
+          result = await vscode.lm.invokeTool(call.name, { toolInvocationToken: undefined, input: call.input }, token);
+        } catch (e: any) {
+          result = new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`(tool ${call.name} failed: ${e.message})`)]);
+        }
+        msgs.push(vscode.LanguageModelChatMessage.Assistant([new vscode.LanguageModelToolCallPart(call.callId, call.name, call.input)]));
+        msgs.push(vscode.LanguageModelChatMessage.User([new vscode.LanguageModelToolResultPart(call.callId, result)]));
+      }
+    }
     await postReply(port, name, text.trim() || '(empty response)');
   } catch (e: any) {
     const msg = e && e.message ? e.message : String(e);
@@ -557,8 +586,82 @@ async function postReply(port: number, name: string, text: string): Promise<void
   } catch { /* ignore */ }
 }
 
+// ---- 工作区工具：让 termetron agent 能查看用户的项目目录（像当前 Copilot 一样）----
+function workspaceBase(): string | null {
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+}
+
+/** 解析路径（绝对或相对工作区根），限制在工作区内；越界返回 null。 */
+function resolveWSPath(p: string): string | null {
+  const base = workspaceBase();
+  if (!base) return null;
+  let full = (p || '').trim();
+  if (!full) return base;
+  if (!path.isAbsolute(full)) full = path.join(base, full);
+  const norm = path.normalize(full);
+  return norm.toLowerCase().startsWith(base.toLowerCase()) ? norm : null;
+}
+
+async function wsReadDir(dir: string, limit: number): Promise<string[]> {
+  const out: string[] = [];
+  try {
+    const names = await fs.promises.readdir(dir);
+    for (const n of names.slice(0, limit)) {
+      let k = '?';
+      try { k = (await fs.promises.stat(path.join(dir, n))).isDirectory() ? 'D' : 'F'; } catch { /* ignore */ }
+      out.push(`${k} ${n}`);
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+
+function registerWorkspaceTools(context: vscode.ExtensionContext): void {
+  // 项目概览：工作区根 + git 状态 + 顶层条目
+  context.subscriptions.push(vscode.lm.registerTool('termetron_workspace_context', {
+    async invoke(options: any, token: vscode.CancellationToken) {
+      const base = workspaceBase();
+      if (!base) return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart('(no workspace folder open)')]);
+      let git = '(git unavailable)';
+      try {
+        const r = await execFile('git', ['-C', base, 'status', '--short'], { timeout: 5000, encoding: 'utf-8' }) as any;
+        git = (r.stdout || '').trim() || '(clean)';
+      } catch { /* ignore */ }
+      const entries = await wsReadDir(base, 120);
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(`workspace root: ${base}\n\ngit status:\n${git}\n\ntop-level:\n${entries.join('\n') || '(empty)'}`),
+      ]);
+    },
+  }));
+  // 读文件（限制工作区内 + 截断）
+  context.subscriptions.push(vscode.lm.registerTool('termetron_read_file', {
+    async invoke(options: any, token: vscode.CancellationToken) {
+      const full = resolveWSPath(String((options.input || {}).path || ''));
+      if (!full) return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart('(path must be inside the workspace)')]);
+      try {
+        const maxBytes = Number((options.input || {}).maxBytes) || 40000;
+        const data = await fs.promises.readFile(full, 'utf-8');
+        const out = data.length > maxBytes ? data.slice(0, maxBytes) + `\n… [truncated, ${data.length} bytes total]` : data;
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`--- ${full} ---\n${out}`)]);
+      } catch (e: any) {
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`(read failed: ${e.message})`)]);
+      }
+    },
+  }));
+  // 列目录
+  context.subscriptions.push(vscode.lm.registerTool('termetron_list_dir', {
+    async invoke(options: any, token: vscode.CancellationToken) {
+      const full = resolveWSPath(String((options.input || {}).path || ''));
+      if (!full) return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart('(path must be inside the workspace)')]);
+      const entries = await wsReadDir(full, 200);
+      return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`--- ${full} ---\n${entries.join('\n') || '(empty)'}`)]);
+    },
+  }));
+  dlog('workspace tools registered (termetron_workspace_context / read_file / list_dir)');
+}
+
 export function activate(context: vscode.ExtensionContext): TermetronApi {
   extContext = context;
+  registerWorkspaceTools(context);
   startAgentBridge(context);
   context.subscriptions.push(
     vscode.commands.registerCommand('termetron.open', () => {

@@ -22,6 +22,26 @@
   "main": "./out/extension.js",
   "api": "0.0.1",
   "contributes": {
+    "languageModelTools": [
+      {
+        "name": "termetron_workspace_context",
+        "tags": [
+          "workspace"
+        ]
+      },
+      {
+        "name": "termetron_read_file",
+        "tags": [
+          "workspace"
+        ]
+      },
+      {
+        "name": "termetron_list_dir",
+        "tags": [
+          "workspace"
+        ]
+      }
+    ],
     "configuration": {
       "title": "Termetron",
       "properties": {
