@@ -522,10 +522,12 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
     }
     const model = models[0];
     const basePrompt = systemPrompt && systemPrompt.trim() ? systemPrompt : AGENT_DEFAULT_PROMPT;
+    const projOverview = await buildWorkspaceContext();
     const system = basePrompt +
       '\n\nYou have access to the user\'s project via tools: termetron_workspace_context (project overview), ' +
       'termetron_read_file (read a file), termetron_list_dir (list a directory). Use them to inspect the ' +
-      'workspace when relevant so your answers reflect the actual codebase. Paths are relative to the workspace root.';
+      'workspace when relevant so your answers reflect the actual codebase. Paths are relative to the workspace root.' +
+      '\n\nCurrent project (workspace) overview:\n' + projOverview;
     // system 提示前置（User 角色，兼容无 System 角色的旧 API）；历史只带最近 40 条
     const hist: vscode.LanguageModelChatMessage[] = history.slice(-40).map((m) =>
       m.role === 'user'
@@ -537,8 +539,8 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
       ...hist,
     ];
     const token = new vscode.CancellationTokenSource().token;
-    // 启用工作区工具（让 agent 能查看项目）
-    const tools = vscode.lm.tools.filter((t) => t.name.startsWith('termetron_'));
+    // 启用工作区工具（硬编码定义，确保模型可见）
+    const tools = getAgentTools();
     const reqOpts: vscode.LanguageModelChatRequestOptions = {
       justification: 'Termetron remote agent: forwards messages you send via termetron to Copilot and shows the reply back in termetron.',
     };
@@ -613,6 +615,28 @@ async function wsReadDir(dir: string, limit: number): Promise<string[]> {
     }
   } catch { /* ignore */ }
   return out;
+}
+
+/** 构建项目概览文本（工作区根 + git 状态 + 顶层条目）。 */
+async function buildWorkspaceContext(): Promise<string> {
+  const base = workspaceBase();
+  if (!base) return '(no workspace folder open)';
+  let git = '(git unavailable)';
+  try {
+    const r = await execFile('git', ['-C', base, 'status', '--short'], { timeout: 5000, encoding: 'utf-8' }) as any;
+    git = (r.stdout || '').trim() || '(clean)';
+  } catch { /* ignore */ }
+  const entries = await wsReadDir(base, 120);
+  return `workspace root: ${base}\n\ngit status:\n${git}\n\ntop-level:\n${entries.join('\n') || '(empty)'}`;
+}
+
+/** 硬编码的工具定义（直接传给模型；不依赖 lm.tools 是否可见）。 */
+function getAgentTools(): any[] {
+  return [
+    { name: 'termetron_workspace_context', description: "Get an overview of the user's project: workspace root, git status, and top-level files/directories.", inputSchema: { type: 'object', properties: {} } },
+    { name: 'termetron_read_file', description: 'Read the content of a file inside the workspace. Provide { "path": "relative or absolute path" }.', inputSchema: { type: 'object', properties: { path: { type: 'string' }, maxBytes: { type: 'number' } }, required: ['path'] } },
+    { name: 'termetron_list_dir', description: 'List files and directories inside a workspace directory. Provide { "path": "relative or absolute path" }.', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
+  ];
 }
 
 function registerWorkspaceTools(context: vscode.ExtensionContext): void {
