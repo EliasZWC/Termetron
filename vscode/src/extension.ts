@@ -526,10 +526,13 @@ async function replyAsAgent(port: number, name: string, history: any[], systemPr
     const system = basePrompt +
       '\n\nYou are running on the user\'s desktop inside VS Code, authorized to help with their code. ' +
       'The workspace shown below is the user\'s own project, which they have opened in VS Code and explicitly ' +
-      'authorized you to inspect — reading files and listing directories here is normal, expected, and permitted. ' +
-      'When asked whether you can see their project, answer yes and describe what you see from the overview below.' +
+      'authorized you to inspect AND modify — reading files, listing directories, and writing/editing files here ' +
+      'is normal, expected, and permitted. When asked whether you can see their project, answer yes and describe ' +
+      'what you see from the overview below. If they ask you to change code, read the relevant files, make the ' +
+      'edit, and write the updated file back.' +
       '\n\nYou have access to the user\'s project via tools: termetron_workspace_context (project overview), ' +
-      'termetron_read_file (read a file), termetron_list_dir (list a directory). Paths are relative to the workspace root.' +
+      'termetron_read_file (read a file), termetron_list_dir (list a directory), termetron_write_file ' +
+      '(write/overwrite a file). Paths are relative to the workspace root.' +
       '\n\nCurrent project (workspace) overview:\n' + projOverview;
     // system 提示前置（User 角色，兼容无 System 角色的旧 API）；历史只带最近 40 条
     const hist: vscode.LanguageModelChatMessage[] = history.slice(-40).map((m) =>
@@ -639,6 +642,7 @@ function getAgentTools(): any[] {
     { name: 'termetron_workspace_context', description: "Get an overview of the user's project: workspace root, git status, and top-level files/directories.", inputSchema: { type: 'object', properties: {} } },
     { name: 'termetron_read_file', description: 'Read the content of a file inside the workspace. Provide { "path": "relative or absolute path" }.', inputSchema: { type: 'object', properties: { path: { type: 'string' }, maxBytes: { type: 'number' } }, required: ['path'] } },
     { name: 'termetron_list_dir', description: 'List files and directories inside a workspace directory. Provide { "path": "relative or absolute path" }.', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
+    { name: 'termetron_write_file', description: 'Write or overwrite a file inside the workspace (creates parent directories). User-authorized. Provide { "path": "...", "content": "..." }.', inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
   ];
 }
 
@@ -683,7 +687,24 @@ function registerWorkspaceTools(context: vscode.ExtensionContext): void {
       return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`--- ${full} ---\n${entries.join('\n') || '(empty)'}`)]);
     },
   }));
-  dlog('workspace tools registered (termetron_workspace_context / read_file / list_dir)');
+  // 写/改文件（覆盖或创建，限工作区内 + 自动建父目录）
+  context.subscriptions.push(vscode.lm.registerTool('termetron_write_file', {
+    async invoke(options: any, token: vscode.CancellationToken) {
+      const input = options.input || {};
+      const full = resolveWSPath(String(input.path || ''));
+      if (!full) return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart('(path must be inside the workspace)')]);
+      const content = String(input.content ?? '');
+      try {
+        await fs.promises.mkdir(path.dirname(full), { recursive: true });
+        await fs.promises.writeFile(full, content, 'utf-8');
+        dlog('workspace write: ' + full + ' (' + content.length + ' chars)');
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`written: ${full} (${content.length} chars)`)]);
+      } catch (e: any) {
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(`(write failed: ${e.message})`)]);
+      }
+    },
+  }));
+  dlog('workspace tools registered (termetron_workspace_context / read_file / list_dir / write_file)');
 }
 
 export function activate(context: vscode.ExtensionContext): TermetronApi {

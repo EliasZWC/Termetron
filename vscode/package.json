@@ -40,6 +40,12 @@
         "tags": [
           "workspace"
         ]
+      },
+      {
+        "name": "termetron_write_file",
+        "tags": [
+          "workspace"
+        ]
       }
     ],
     "configuration": {
