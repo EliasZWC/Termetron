@@ -20,14 +20,21 @@ function tmtToast(msg) {
 
 const urlInput = document.getElementById('url');
 
-// Termetron 风格提示框（替代系统默认 alert）：中性灰阶（面 #242424 + 墨白按钮），与 updater 弹窗一致
+// Termetron 提示框（替代系统默认 alert）—— 照搬 Scholarius 的 .sheet 抽屉
+//
+// ⚠️ Scholarius 的弹层是**底部升起的抽屉**，不是居中的对话框：
+//     background:--surface(#242424)  border-radius:20px 20px 0 0
+//     box-shadow:0 -8px 32px          遮罩 rgba(0,0,0,.32)
+//     按钮：无边框、无底色、纯文字 15px/700/uppercase，主操作用 --success 绿
+// 旧样式是「居中 + 1px 边框 + 12px 圆角 + 实心白底按钮」，风格完全不同。
 const TMT_CSS = `
-.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.66);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
-.tmt-modal{background:#242424;border:1px solid #333333;border-radius:12px;padding:22px 20px;width:min(320px,88vw);color:#ECECEA;box-shadow:0 10px 32px rgba(0,0,0,.55);text-align:left}
-.tmt-modal p{margin:0 0 18px;font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}
-.tmt-actions{display:flex;gap:10px;justify-content:flex-end}
-.tmt-btn{padding:9px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:#F2F2F0;color:#1B1B1B;-webkit-tap-highlight-color:transparent}
-.tmt-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(242,242,240,.3)}
+.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+.tmt-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
+.tmt-modal p{margin:12px 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}
+.tmt-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:18px}
+.tmt-btn{padding:14px 12px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#7EE2A8;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease}
+.tmt-btn:active{opacity:.7}
+.tmt-btn:focus{outline:none}
 `;
 function tmtAlert(message) {
   if (!document.getElementById('tmt-css')) {

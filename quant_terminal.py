@@ -442,7 +442,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   --bg 页面底（比栏更深）/ --panel 卡片与输入框 / --bar 顶栏与底栏 / --border 分隔线 /
   --txt 正文 / --dim 次要文字 / --acc 强调色 = 与正文同色的墨黑，靠反色块表达主次。
  */
- :root{--bg:#1B1B1B;--panel:#242424;--bar:#131313;--raised:#303030;--border:#333333;--txt:#ECECEA;--dim:#9A9A98;--acc:#F2F2F0;--danger:#E06C5E;--on-acc:#1B1B1B;--acc-soft:rgba(242,242,240,.10);--acc-soft2:rgba(242,242,240,.16)}
+ :root{--bg:#1B1B1B;--panel:#242424;--bar:#131313;--raised:#303030;--border:#333333;--txt:#ECECEA;--dim:#9A9A98;--acc:#F2F2F0;--danger:#E06C5E;--success:#7EE2A8;--on-acc:#1B1B1B;--acc-soft:rgba(242,242,240,.10);--acc-soft2:rgba(242,242,240,.16)}
  *{box-sizing:border-box;font-family:'Termetron Mono','Roboto Mono','Noto Sans Mono','Droid Sans Mono',Menlo,Monaco,'Courier New',monospace;-webkit-tap-highlight-color:transparent!important;-webkit-touch-callout:none}
  *:focus{outline:none}
  button:focus{box-shadow:0 0 0 2px var(--acc-soft2)}
@@ -514,10 +514,25 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .menu-item:hover{background:var(--acc);color:var(--on-acc)}
  .menu-item.del{color:var(--danger)}
  .menu-item.del:hover{background:var(--acc);color:var(--on-acc)}
- .overlay{position:fixed;inset:0;background:rgba(0,0,0,.66);display:none;align-items:center;justify-content:center;z-index:70}
+ /*
+  ══ 弹窗：照搬 Scholarius 的 .sheet（底部抽屉）══
+
+  Scholarius 的弹层不是居中的对话框，而是**从底部升起的抽屉**：
+      .sheet  background:--surface  border-radius:20px 20px 0 0
+              box-shadow:0 -8px 32px rgba(0,0,0,.28)
+              padding:8px 20px 20px
+      .sheet-scrim  background:rgba(0,0,0,.32)
+
+  ⚠️ 旧样式是「居中 + 1px 边框 + 8px 圆角」的对话框，风格完全不同。
+  ⚠️ .overlay 改成 align-items:flex-end 让弹窗贴底；justify-content 保留居中，
+     这样窄屏时 .modal 的 width:min(440px,92vw) 仍然水平居中。
+  ⚠️ 遮罩透明度从 .66 降到 .32：Scholarius 的 scrim 很淡，靠抽屉自身的
+     阴影分层，不是靠把背景压黑。
+  */
+ .overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:none;align-items:flex-end;justify-content:center;z-index:70}
  #rmask{background:var(--bg)} /* 认证遮罩不透明：挡住背景会话目录，防止输入密码时泄露信息 */
- .modal{background:var(--panel);border:1px solid var(--border);border-radius:8px;width:min(440px,92vw);padding:18px;box-shadow:0 12px 44px rgba(0,0,0,.6)}
- .mtitle{font-size:13px;font-weight:700;color:var(--acc);letter-spacing:.5px;margin-bottom:12px}
+ .modal{background:var(--panel);border:0;border-radius:20px 20px 0 0;width:min(560px,100%);padding:8px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(0,0,0,.28)}
+ .mtitle{font-size:13px;font-weight:700;color:var(--acc);letter-spacing:.5px;margin:12px 0 12px}
  /*
   ══ 表单样式：直接照搬 Scholarius ══
 
@@ -552,23 +567,44 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .srv-p{font-weight:700;color:var(--acc);min-width:64px}
  .srv-m{flex:1;font-size:11px;color:var(--dim)}
  .srv-acts{display:inline-flex;gap:6px}
- .sbtn{padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--acc);cursor:pointer;font-size:11px}
- .sbtn:hover{background:var(--acc-soft)}
- .sbtn.del{color:var(--danger);border-color:rgba(224,108,94,.4)}
- .sbtn.del:hover{background:rgba(224,108,94,.14)}
- .sbtn.full{width:100%;margin-top:10px;padding:8px;font-weight:700}
+ .sbtn{padding:10px 16px;border:0;border-radius:10px;background:var(--raised);color:var(--txt);font:inherit;font-size:15px;line-height:1.4;cursor:pointer;-webkit-tap-highlight-color:transparent}
+ .sbtn:active{opacity:.75}
+ .sbtn.del{color:var(--danger)}
+ .sbtn.full{width:100%;margin-top:10px;padding:14px;font-weight:700;text-transform:uppercase;letter-spacing:.6px}
  .mmsg b{color:var(--acc)}
- .mactions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
- .mbtn{padding:6px 16px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;font-size:12px;transition:all .12s ease}
- .mbtn:hover{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}
- .mbtn.ok{color:var(--acc);border-color:var(--acc);font-weight:600}
- .mbtn.ok:hover{background:var(--acc);color:var(--on-acc)}
+ /*
+  ══ 弹窗按钮：照搬 Scholarius 的 .btn / .btn-ghost ══
+
+  Scholarius 的按钮是**无边框、无底色、纯文字**，靠颜色区分层级：
+      .btn          15px / 700 / uppercase / letter-spacing .6px
+      .btn-action   --nav-active  (#F2F2F0)  普通操作
+      .btn-primary  --success     (#7EE2A8)  主操作（确认/升级）
+      .btn-danger   --danger      (#E06C5E)  危险操作（删除）
+      .btn-ghost    全宽 / radius 14px / 透明底 / #9A9A98
+
+  ⚠️ 旧样式是「1px 边框 + --panel 底色 + 5px 圆角」的方块按钮，
+     与 Scholarius 完全不是一个风格。
+  ⚠️ 主操作不用 --acc（近白）而用 --success（绿）：Scholarius 就是这么分的，
+     而且绿色在深底上能一眼看出「这是继续按钮」。
+ */
+ .mactions{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:18px}
+ .mbtn{padding:14px 12px;border:0;border-radius:0;background:none;color:var(--dim);cursor:pointer;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;outline:none;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
+ .mbtn:hover{color:var(--acc)}
+ .mbtn.ok{color:var(--success)}
+ .mbtn.ok:hover{color:var(--success);opacity:.82}
+ .mbtn.cancel{color:var(--dim)}
+ .mbtn.del{color:var(--danger)}
+ .mbtn.del:hover{color:var(--danger);opacity:.82}
  .merr{color:var(--danger);font-size:12px;margin:8px 0 0;font-weight:600}
 .btn.back{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;flex:none;padding:0;border:none;background:none;color:var(--acc);cursor:pointer;line-height:1;-webkit-tap-highlight-color:transparent;transition:opacity .15s}
 .btn.back:hover{opacity:.7}
 .btn.back svg{width:26px;height:26px}
 /* 移动端（窄屏）：会话目录页布局，电脑端保持标签栏 */
-body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:var(--acc-soft2)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:var(--acc-soft2);border:1px solid var(--border);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}.modal-new{min-height:320px}  /* 新建会话弹窗固定高度：TERMINAL/AGENT 切换不跳变 */.seg{display:flex;gap:8px;margin:2px 0 6px}.seg-btn{flex:1;padding:6px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;font-size:11px;font-weight:600;letter-spacing:1px}.seg-btn.act{color:var(--acc);border-color:var(--acc);background:var(--acc-soft2)}.sess-item.agent{border:1px solid var(--acc-soft2);background:var(--acc-soft)}.sess-item .si-tag{font-size:9px;letter-spacing:1.5px;color:var(--acc);border:1px solid var(--acc-soft2);border-radius:3px;padding:1px 5px;font-weight:700;vertical-align:middle;margin-left:4px}.tab.agent{color:var(--acc)}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
+body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:var(--acc-soft2)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:var(--acc-soft2);border:1px solid var(--border);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}.modal-new{min-height:320px}  /* 新建会话弹窗固定高度：TERMINAL/AGENT 切换不跳变 */.seg{display:flex;gap:8px;margin:2px 0 10px}
+/* 分段按钮：照搬 Scholarius 的列表项形态（无边框，选中态靠底色 + 文字色区分） */
+.seg-btn{flex:1;padding:12px;border:0;border-radius:10px;background:transparent;color:var(--dim);font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .12s ease,color .16s ease}
+.seg-btn.act{color:var(--txt);background:var(--raised)}
+.sess-item.agent{border:1px solid var(--acc-soft2);background:var(--acc-soft)}.sess-item .si-tag{font-size:9px;letter-spacing:1.5px;color:var(--acc);border:1px solid var(--acc-soft2);border-radius:3px;padding:1px 5px;font-weight:700;vertical-align:middle;margin-left:4px}.tab.agent{color:var(--acc)}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
 :root{--fs:13px}
 #out{font-size:var(--fs)}
 .inrow textarea{font-size:var(--fs)}
@@ -577,22 +613,25 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 .set-sec{margin:0 0 14px;text-align:left}
 .set-h{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--dim);margin:0 0 8px}
 .set-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.set-mini{padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--acc);font-size:12px;font-weight:600;cursor:pointer}
-.set-mini.del{color:var(--danger);font-size:11px}
+.set-mini{padding:10px 14px;border:0;border-radius:10px;background:var(--raised);color:var(--txt);font:inherit;font-size:15px;line-height:1.4;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.set-mini:active{opacity:.75}
+.set-mini.del{color:var(--danger);font-size:14px}
 .set-val{color:var(--txt);font-size:13px;min-width:44px;text-align:center;font-weight:600}
 .set-sess{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
 .ss-name{font-size:12px;color:var(--txt);font-weight:600}
 .set-empty{color:var(--dim);font-size:12px}
 .set-about{color:var(--dim);font-size:12px;line-height:1.7}
-.menu-opt{display:flex;align-items:center;justify-content:space-between;width:100%;padding:14px 16px;margin-bottom:8px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--txt);font-size:14px;font-weight:600;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
-.menu-opt:hover{background:var(--acc-soft)}
-.menu-opt .mo-arr{color:var(--acc);font-size:16px}
+/* 选项行：照搬 Scholarius 的 .sheet-picker-item
+   （透明底 / 无边框 / radius 10px / 15px；靠分隔线与缩进分层，不靠卡片框） */
+.menu-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:13px 12px;margin-bottom:2px;background:transparent;border:0;border-radius:10px;color:var(--txt);font:inherit;font-size:15px;line-height:1.4;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
+.menu-opt:active{background:var(--raised)}
+.menu-opt .mo-arr{color:var(--dim);font-size:16px}
 /* 设置下拉框（图标下方） */
 #dropdown,#hdropdown{position:absolute;top:calc(100% + 6px);right:12px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:210px;box-shadow:0 12px 36px rgba(0,0,0,.55);z-index:50}
-.dd-item{display:flex;align-items:center;justify-content:space-between;width:100%;padding:12px 14px;border-radius:6px;border:none;background:none;color:var(--txt);font-size:13px;font-weight:600;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
-.dd-item:hover{background:var(--acc-soft2)}
+.dd-item{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:13px 12px;border:0;border-radius:10px;background:transparent;color:var(--txt);font:inherit;font-size:15px;line-height:1.4;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
+.dd-item:active{background:var(--raised)}
 #hd-del{color:var(--danger)}
-.dd-item .mo-arr{color:var(--acc)}
+.dd-item .mo-arr{color:var(--dim)}
 /* 全屏设置页 */
 .fullpage{position:fixed;inset:0;background:var(--bg);z-index:60;display:flex;flex-direction:column}
 .fp-header{display:flex;align-items:center;gap:8px;background:var(--bar);padding:12px 16px;flex:none}
