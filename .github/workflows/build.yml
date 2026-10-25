@@ -31,6 +31,12 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # ⚠️ 不要写 `packages: tools platform-tools`：`tools` 是 Google 已下架的
+          # 遗留包，sdkmanager 会报 `Failed to find package 'tools'` 并让整个 job 失败
+          # （v0.8.9 构建就是因此失败，与应用代码无关）。
+          # 只装平台工具；build-tools / platforms 由 Gradle 按需自动下载。
+          packages: platform-tools
 
       # 固定 debug keystore：android-debug.p12 已入库（PKCS12），由 patch-android.py 的
       # patch_signing() 显式配置 signingConfigs.debug 指向它 → 每次构建签名 100% 一致，
