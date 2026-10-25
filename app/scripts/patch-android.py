@@ -12,16 +12,113 @@
 """
 import json
 import re
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 # ⚠️ 必须等于网页**页面底色**（--bg #1B1B1B），不是顶栏色（--bar #131313）。
 # 状态栏比页面深一档会在顶部形成一条明显色阶接缝（用户 v0.8.10 反馈的那个色差）。
 STATUS_BAR_COLOR = "#1B1B1B"
+BG_RGB = (0x1B, 0x1B, 0x1B)
 
 FEED = ("https://pkgs.dev.azure.com/OutSystemsRD/"
         "9e79bc5b-69b2-4476-9ca5-d67594972a52/"
         "_packaging/PublicArtifactRepository/maven/v1")
+
+
+# ──────────────────────────────────────────────────────────────
+#  纯 stdlib 的 PNG 读 / 写（CI 不装 Pillow，不能引入新依赖）
+# ──────────────────────────────────────────────────────────────
+def _png_read(path: Path):
+    """读 8-bit RGB/RGBA PNG -> (w, h, channels, bytearray 像素数据)。"""
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"{path} 不是 PNG")
+    pos = 8
+    w = h = bitdepth = colortype = None
+    idat = bytearray()
+    while pos < len(data):
+        (ln,) = struct.unpack(">I", data[pos:pos + 4])
+        typ = data[pos + 4:pos + 8]
+        chunk = data[pos + 8:pos + 8 + ln]
+        pos += 12 + ln
+        if typ == b"IHDR":
+            w, h, bitdepth, colortype = struct.unpack(">IIBB", chunk[:10])
+        elif typ == b"IDAT":
+            idat += chunk
+        elif typ == b"IEND":
+            break
+    if bitdepth != 8 or colortype not in (2, 6):
+        raise ValueError(f"{path}: 只支持 8-bit RGB/RGBA（实测 {bitdepth}/{colortype}）")
+    ch = 3 if colortype == 2 else 4
+    raw = zlib.decompress(bytes(idat))
+    stride = w * ch
+    out = bytearray(h * stride)
+    prev = bytearray(stride)
+    src = 0
+    for y in range(h):
+        f = raw[src]
+        src += 1
+        line = bytearray(raw[src:src + stride])
+        src += stride
+        if f == 1:
+            for i in range(ch, stride):
+                line[i] = (line[i] + line[i - ch]) & 0xFF
+        elif f == 2:
+            for i in range(stride):
+                line[i] = (line[i] + prev[i]) & 0xFF
+        elif f == 3:
+            for i in range(stride):
+                a = line[i - ch] if i >= ch else 0
+                line[i] = (line[i] + ((a + prev[i]) >> 1)) & 0xFF
+        elif f == 4:
+            for i in range(stride):
+                a = line[i - ch] if i >= ch else 0
+                b = prev[i]
+                c = prev[i - ch] if i >= ch else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                line[i] = (line[i] + pr) & 0xFF
+        out[y * stride:(y + 1) * stride] = line
+        prev = line
+    return w, h, ch, out
+
+
+def _png_write(path: Path, w: int, h: int, rgb: bytearray) -> None:
+    """写 8-bit RGB PNG（filter=0）。"""
+    raw = bytearray()
+    stride = w * 3
+    for y in range(h):
+        raw.append(0)
+        raw += rgb[y * stride:(y + 1) * stride]
+
+    def chunk(typ: bytes, payload: bytes) -> bytes:
+        return (struct.pack(">I", len(payload)) + typ + payload
+                + struct.pack(">I", zlib.crc32(typ + payload) & 0xFFFFFFFF))
+
+    png = (b"\x89PNG\r\n\x1a\n"
+           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+           + chunk(b"IEND", b""))
+    path.write_bytes(png)
+
+
+def _composite_on_bg(src: Path, dst: Path) -> None:
+    """把带 alpha 的前景图合成到 #1B1B1B 实底上，输出不透明 PNG。"""
+    w, h, ch, px = _png_read(src)
+    out = bytearray(w * h * 3)
+    for i in range(w * h):
+        if ch == 4:
+            r, g, b, a = px[i * 4], px[i * 4 + 1], px[i * 4 + 2], px[i * 4 + 3]
+            # alpha 混合到实底
+            out[i * 3] = (r * a + BG_RGB[0] * (255 - a)) // 255
+            out[i * 3 + 1] = (g * a + BG_RGB[1] * (255 - a)) // 255
+            out[i * 3 + 2] = (b * a + BG_RGB[2] * (255 - a)) // 255
+        else:
+            out[i * 3], out[i * 3 + 1], out[i * 3 + 2] = px[i * 3], px[i * 3 + 1], px[i * 3 + 2]
+    _png_write(dst, w, h, out)
 
 
 def patch_build_gradle() -> None:
@@ -147,7 +244,9 @@ def patch_launcher_background() -> None:
             p.write_text(s2, encoding="utf-8")
             print(f"  drawable/ic_launcher_background.xml: {STATUS_BAR_COLOR}")
         else:
-            print("  drawable/ic_launcher_background.xml: fillColor not found, skip")
+            # 值已正确（重复运行时会走到这里），不是错误
+            m = re.search(r'android:fillColor="([^"]+)"', s)
+            print(f"  drawable/ic_launcher_background.xml: 已是 {m.group(1) if m else '?'}")
     else:
         print("  drawable/ic_launcher_background.xml not found, skip", file=sys.stderr)
 
@@ -187,6 +286,25 @@ def patch_launcher_background() -> None:
             '    android:src="@mipmap/ic_launcher_foreground" />\n',
             encoding="utf-8")
         print("  drawable/ic_launcher_foreground.xml: -> @mipmap/ic_launcher_foreground")
+
+    # 5) ic_launcher.png / ic_launcher_round.png —— 补上实底
+    #    ⚠️ 这是「桌面图标是空的」的真因：
+    #       capacitor-assets 产出的这两个 PNG **只有符号、没有底板**，
+    #       不透明像素仅约 3%。Android 8+ 走 adaptive-icon（有 background 层）
+    #       所以看着正常；但 Android 7 及以下、以及部分启动器/文件管理器
+    #       直接显示这两个 PNG —— 深色桌面上就是一个空白格子。
+    #       参考两款应用的图标资源里根本没有这两个文件（纯 adaptive），
+    #       我们要兼容旧系统，就得自己把底色合上去。
+    for name in ("ic_launcher", "ic_launcher_round"):
+        for d in ("ldpi", "mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
+            fg = Path(f"android/app/src/main/res/mipmap-{d}/ic_launcher_foreground.png")
+            out = Path(f"android/app/src/main/res/mipmap-{d}/{name}.png")
+            if fg.exists():
+                try:
+                    _composite_on_bg(fg, out)
+                except Exception as e:                     # noqa: BLE001
+                    print(f"  {out.name} ({d}) 合成失败: {e}", file=sys.stderr)
+        print(f"  mipmap-*/{name}.png: 已合成 #1B1B1B 实底")
 
 
 def patch_version_name() -> None:
