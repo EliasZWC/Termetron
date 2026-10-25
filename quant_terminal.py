@@ -433,13 +433,17 @@ _QT_ABOUT = _load_about()
 _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <title>Termetron</title>
 <style>
+ /* 字体：与 Scholarius / Livolog 同一份 Sarasa Mono SC 子集（见 app/public/fonts/，
+   由 /fonts/ 路由提供）。字重映射同两款应用：Regular 抵 400/500，Bold 抵 600/700。 */
+ @font-face{font-family:'Termetron Mono';src:url('/fonts/termetron-mono-regular.woff2') format('woff2');font-weight:400 500;font-style:normal;font-display:swap}
+ @font-face{font-family:'Termetron Mono';src:url('/fonts/termetron-mono-bold.woff2') format('woff2');font-weight:600 700;font-style:normal;font-display:swap}
  /*
   配色 = Scholarius / Livolog 同一套中性灰阶设计语言（黑白，不用纯黑 #000 / 纯白 #fff）。
   --bg 页面底（比栏更深）/ --panel 卡片与输入框 / --bar 顶栏与底栏 / --border 分隔线 /
   --txt 正文 / --dim 次要文字 / --acc 强调色 = 与正文同色的墨黑，靠反色块表达主次。
  */
- :root{--bg:#1E1E1E;--panel:#242424;--bar:#131313;--raised:#303030;--border:#333333;--txt:#ECECEA;--dim:#9A9A98;--acc:#F2F2F0;--danger:#E06C5E;--on-acc:#1E1E1E;--acc-soft:rgba(242,242,240,.10);--acc-soft2:rgba(242,242,240,.16)}
- *{box-sizing:border-box;font-family:'Scholarius Mono',Consolas,'Cascadia Code','JetBrains Mono','Fira Code','Roboto Mono','Noto Sans Mono','Droid Sans Mono',Menlo,Monaco,'Courier New',monospace;-webkit-tap-highlight-color:transparent!important;-webkit-touch-callout:none}
+ :root{--bg:#1B1B1B;--panel:#242424;--bar:#131313;--raised:#303030;--border:#333333;--txt:#ECECEA;--dim:#9A9A98;--acc:#F2F2F0;--danger:#E06C5E;--on-acc:#1B1B1B;--acc-soft:rgba(242,242,240,.10);--acc-soft2:rgba(242,242,240,.16)}
+ *{box-sizing:border-box;font-family:'Termetron Mono','Roboto Mono','Noto Sans Mono','Droid Sans Mono',Menlo,Monaco,'Courier New',monospace;-webkit-tap-highlight-color:transparent!important;-webkit-touch-callout:none}
  *:focus{outline:none}
  button:focus{box-shadow:0 0 0 2px var(--acc-soft2)}
  body{margin:0;background:var(--bg);color:var(--txt);font-size:13px;display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -451,9 +455,9 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  header{display:flex;align-items:center;gap:12px;background:var(--bar);border-bottom:none;padding:12px 18px;position:relative}
  .cur{display:inline-flex;align-items:center;color:var(--acc);line-height:1}
  .cur svg{width:20px;height:20px}
- .ttl{font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;font-weight:800;color:var(--acc);letter-spacing:3px}
+ .ttl{font-family:inherit;font-size:15px;font-weight:700;color:var(--acc);letter-spacing:3px}
  .client-tag{font-size:11px;color:var(--dim);letter-spacing:1px;align-self:center;margin-left:2px;padding-top:4px}
- #curtitle{font-family:Consolas,'Courier New',monospace;font-weight:700;letter-spacing:0}
+ #curtitle{font-family:inherit;font-weight:700;letter-spacing:0}
  .tabs{display:flex;align-items:flex-end;gap:10px;background:var(--bar);padding:8px 14px 0;border-bottom:none;overflow-x:auto}
  .tab{font-size:13px;color:var(--txt);font-weight:600;padding:6px 16px 8px;border-radius:8px 8px 0 0;display:inline-flex;align-items:center;justify-content:center;min-width:100px;flex-shrink:0;cursor:pointer;border:none;background:var(--raised);white-space:nowrap;transition:all .12s ease}
  .tab:hover{background:var(--acc-soft);color:var(--txt)}
@@ -570,9 +574,9 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 .fp-header{display:flex;align-items:center;gap:8px;background:var(--bar);padding:12px 16px;flex:none}
 .fp-back{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:none;background:none;color:var(--acc);cursor:pointer;line-height:1;-webkit-tap-highlight-color:transparent}
 .fp-back svg{width:24px;height:24px}
-.fp-title{font-family:Consolas,'Courier New',monospace;font-size:15px;font-weight:700;letter-spacing:0;color:var(--acc)}
+.fp-title{font-family:inherit;font-size:15px;font-weight:700;letter-spacing:0;color:var(--acc)}
 .fp-body{flex:1;overflow-y:auto;padding:18px}
-</style><meta name="theme-color" content="#131313">
+</style><meta name="theme-color" content="#1B1B1B">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 </head><body>
 <header><span class="cur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="1.5" y="2" width="21" height="20" rx="4" stroke-width="1.6"></rect><path d="M9 8 L14 12 L9 16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14.5 15.5 H19" stroke-width="2" stroke-linecap="round"></path></svg></span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
@@ -1900,9 +1904,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
+        # ⚠️ extra_headers 先发，默认的 no-store 只在没被覆盖时发 ——
+        #    否则字体的 Cache-Control 会被后面的 no-store 盖掉（重复头，浏览器取第一个）。
+        #    页面本身必须 no-store（保证 reload 拿到最新 UI），字体则可以长缓存。
+        cache = (extra_headers or {}).get("Cache-Control")
+        if cache is None:
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
         # CORS：允许 App（Capacitor WebView，跨域）探测隧道可达性（/api/remote/status）
         self.send_header("Access-Control-Allow-Origin", "*")
         for k, v in (extra_headers or {}).items():
@@ -1912,6 +1921,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj: dict, code: int = 200) -> None:
         self._send(code, json.dumps(obj).encode(), "application/json")
+
+    # 字体：与 Scholarius / Livolog 同一份 Sarasa Mono SC 子集（放在 app/public/fonts/，
+    # 构建后也会被 vite 拷到 www/fonts/）。这里直接读源文件，保证桌面端/手机端是同一份字体。
+    _FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "app", "public", "fonts")
+    _FONT_MIME = {".woff2": "font/woff2", ".ttf": "font/ttf"}
+
+    def _serve_font(self, path: str) -> None:
+        """只允许白名单文件名，避免路径穿越读任意文件。"""
+        name = path.rsplit("/", 1)[-1]
+        if name not in ("termetron-mono-regular.woff2", "termetron-mono-bold.woff2"):
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        full = os.path.join(self._FONT_DIR, name)
+        if not os.path.isfile(full):
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        with open(full, "rb") as f:
+            body = f.read()
+        ext = os.path.splitext(name)[1].lower()
+        self._send(200, body, self._FONT_MIME.get(ext, "application/octet-stream"),
+                   extra_headers={"Cache-Control": "public, max-age=604800"})
 
     def _query(self, name: str) -> str:
         if "?" not in self.path:
@@ -1959,6 +1990,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             html = _INDEX.replace("__QT_ABOUT__", json.dumps(_QT_ABOUT))
             self._send(200, html.encode(), "text/html; charset=utf-8")
+        elif path.startswith("/fonts/"):
+            self._serve_font(path)
         elif path == "/api/remote/status":
             st = REMOTE.status_json()
             st["remote"] = self._remote()

@@ -73,11 +73,21 @@ def _read_version() -> tuple[str, str, str, str]:
 
 
 def _bump(ver: str, part: str) -> str:
+    """递增版本号。
+
+    ⚠️ patch 的上限是 **0.8.99**，不会自动进位到 0.9.0（用户 2026-10-26 指定）。
+       0.8.99 之后继续 patch 会明确报错，要求人工 --bump minor 或 --version 决定，
+       避免「只是发布一次」意外跨过 0.9.0 这条线。
+       --bump minor / major / --version 是显式意图，不受此限制。
+    """
     a, b, c = (int(x) for x in ver.split("."))
     if part == "major":
         return f"{a + 1}.0.0"
     if part == "minor":
         return f"{a}.{b + 1}.0"
+    if c >= 99:
+        sys.exit(f"[error] patch 已到上限 {ver}（patch 最高 0.8.99）——\n"
+                 f"        请显式指定：--bump minor 或 --version X.Y.Z")
     return f"{a}.{b}.{c + 1}"
 
 

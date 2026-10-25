@@ -109,20 +109,32 @@ Force a mode from any browser (useful for preview):
 
 ## UI conventions
 
+- **Font = the Scholarius / Livolog font, byte for byte.** Both of those apps ship the
+  same subsetted Sarasa Mono SC (`sha256` identical); Termetron uses the exact same
+  files under the family name `Termetron Mono` (weights 400/500 = regular,
+  600/700 = bold), in the desktop UI, the mobile UI and the connection page.
+  Sources live in `app/public/fonts/` (vite copies them to `www/fonts/`; the desktop
+  server serves them from `/fonts/` with a filename whitelist).
+  Do **not** reintroduce a second font family (DejaVu / Segoe UI) for the logo —
+  see `tools/check_fonts.py`.
 - **Colour system = the Scholarius / Livolog neutral palette.** Both of those
   apps share one monochrome-grey design language, and Termetron uses exactly the
-  same values — page `#1E1E1E`, surface `#242424`, bar `#131313`, raised `#303030`,
+  same values — page `#1B1B1B`, surface `#242424`, bar `#131313`, raised `#303030`,
   outline `#333333`, text `#ECECEA`, dim `#9A9A98`, ink accent `#F2F2F0`
   (emphasis is expressed by inverting to a filled block, never by a hue),
-  danger `#E06C5E`, tab icons `#1B1B1B`.
+  danger `#E06C5E`, icon/status-bar background `#1B1B1B`.
   **No colour outside that palette is allowed** — see `tools/check_palette.py`.
 - `python tools/check_palette.py` audits every Termetron source file against the
   Scholarius + Livolog palettes and fails on any foreign colour. Run it after
   touching styles.
+- **Status bar = page background.** The Android status/navigation bar colour must
+  equal `--bg` (`#1B1B1B`), never `--bar` (`#131313`) — a one-step difference shows
+  up as a visible seam under the status bar.
 - Icon buttons are **pure SVG icons** — no box, border or background; hover
   only changes opacity.
-- Headers: the `TERMETRON` logo uses the brand font (Segoe UI 800 +
-  wide letter-spacing); session/settings titles use **Consolas bold**.
+- Headers: the `TERMETRON` logo uses the **same monospace family as everything else**
+  (700 weight + wide letter-spacing). Scholarius / Livolog do not ship a separate
+  sans-serif brand font, so neither do we.
 - Modals are responsive (`width:min(440px, 92vw)`) — never overflow narrow
   screens.
 - Server sends `Cache-Control: no-store` — reloads always get the latest UI.

@@ -7,7 +7,7 @@
    不被采用），必须注入到根 build.gradle。
 2) minSdkVersion 22 -> 26：osbarcode-android:1.1.x 要求 minSdk >= 26。
 3) 深色状态栏/导航栏：Capacitor 默认浅色主题导致手机状态栏灰色（非全屏观感），
-   注入 --bar #131313 同色，配合 WebView 背景实现全屏。
+   注入与**页面底色**同色的 statusBarColor（#1B1B1B），配合 WebView 背景实现无缝全屏。
 4) versionName 从 package.json 读取（与 lib/termetron/README.md **Version:** 同步，随迭代递增）。
 """
 import json
@@ -15,7 +15,9 @@ import re
 import sys
 from pathlib import Path
 
-STATUS_BAR_COLOR = "#131313"
+# ⚠️ 必须等于网页**页面底色**（--bg #1B1B1B），不是顶栏色（--bar #131313）。
+# 状态栏比页面深一档会在顶部形成一条明显色阶接缝（用户 v0.8.10 反馈的那个色差）。
+STATUS_BAR_COLOR = "#1B1B1B"
 
 FEED = ("https://pkgs.dev.azure.com/OutSystemsRD/"
         "9e79bc5b-69b2-4476-9ca5-d67594972a52/"
@@ -74,15 +76,31 @@ def patch_variables_gradle() -> None:
 
 
 def patch_styles() -> None:
-    """深色状态栏/导航栏：给所有 style 注入 statusBarColor 等（浅色主题下状态栏灰）。"""
+    """深色状态栏/导航栏：给所有 style 注入 statusBarColor 等（浅色主题下状态栏灰）。
+
+    ⚠️ 颜色必须与网页 **页面底色** 完全一致，不能与顶栏一致。
+       用户反馈（v0.8.10）：「状态栏背景的颜色和状态栏下面的颜色不一样，有色差」。
+       根因：当时用 --bar #131313（顶栏色），而页面底是 #1B1B1B，
+       状态栏与页面之间出现一条明显色阶 —— 界面里最显眼的接缝。
+       判据：状态栏 = 页面底色（#1B1B1B），与内容区无缝；
+             顶栏/标签栏比它更深（#131313），靠亮度差自然分层。
+    """
     p = Path("android/app/src/main/res/values/styles.xml")
     if not p.exists():
         print("  styles.xml not found, skip", file=sys.stderr)
         return
     s = p.read_text(encoding="utf-8")
+
+    # 已存在就改写颜色值（历史构建里可能残留旧色），不重复注入
     if "android:statusBarColor" in s:
-        print("  styles.xml: dark status bar already present, skip")
+        s = re.sub(r'(<item name="android:statusBarColor">)[^<]*(</item>)',
+                   rf'\g<1>{STATUS_BAR_COLOR}\g<2>', s)
+        s = re.sub(r'(<item name="android:navigationBarColor">)[^<]*(</item>)',
+                   rf'\g<1>{STATUS_BAR_COLOR}\g<2>', s)
+        p.write_text(s, encoding="utf-8")
+        print(f"  styles.xml: status/nav bar colour -> {STATUS_BAR_COLOR} (matches page bg)")
         return
+
     items = (
         f'\n        <item name="android:statusBarColor">{STATUS_BAR_COLOR}</item>'
         f'\n        <item name="android:navigationBarColor">{STATUS_BAR_COLOR}</item>'
@@ -90,7 +108,7 @@ def patch_styles() -> None:
     )
     s = s.replace("</style>", items + "\n    </style>")
     p.write_text(s, encoding="utf-8")
-    print(f"  styles.xml: dark status/nav bar -> {STATUS_BAR_COLOR}")
+    print(f"  styles.xml: status/nav bar -> {STATUS_BAR_COLOR} (matches page bg)")
 
 
 def patch_version_name() -> None:
@@ -274,14 +292,14 @@ def patch_apk_install() -> None:
         print("  MainActivity: registerPlugin(ApkInstallerPlugin.class)")
 
 
-SPLASH_BG = "#131313"
+SPLASH_BG = "#1B1B1B"
 
 # Android 12+ 系统 SplashScreen：深色背景 + 透明图标（原生 splash 视觉上“取消”，
 # 由 Web 层 splash 无缝接管；Android 12+ 系统 splash 无法禁用，只能极简化）
 SPLASH_V31 = """<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:windowSplashScreenBackground">#131313</item>
+        <item name="android:windowSplashScreenBackground">#1B1B1B</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
@@ -299,7 +317,7 @@ def patch_splash() -> None:
     """原生 splash 极简化（视觉上“取消原生 splash”，品牌画面全部交给 Web 层 CSS animation）：
     1) 写透明图标 drawable（Android 12+ 系统 splash 需要 drawable，透明=不显示图标）；
     2) values-v31/styles.xml 强制 Android 12+ 系统 splash = Theme.SplashScreen + 深色背景 + 透明图标；
-    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> #131313 纯深色（Android <12）。
+    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> #1B1B1B 纯深色（Android <12）。
     不再使用 splash.png / @drawable/splash（避免原生品牌画面与 Web splash 叠加重复）。
     """
     # 1) 透明图标 drawable
@@ -326,12 +344,12 @@ def patch_splash() -> None:
                 # Capacitor styles.xml 用子元素形式：<item name="android:background">value</item>
                 s = s[:i0] + re.sub(
                     r'(<item name="android:background">)[^<]*(</item>)',
-                    r'\g<1>#131313\g<2>', block, count=1) + s[i1:]
+                    r'\g<1>#1B1B1B\g<2>', block, count=1) + s[i1:]
             else:
-                inject = '\n        <item name="android:background">#131313</item>'
+                inject = '\n        <item name="android:background">#1B1B1B</item>'
                 s = s[:i1] + inject + s[i1:]
             vals.write_text(s, encoding="utf-8")
-            print("  values/styles.xml: launch background -> #131313 (solid)")
+            print("  values/styles.xml: launch background -> #1B1B1B (solid)")
         else:
             print("  values/styles.xml: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
     else:
