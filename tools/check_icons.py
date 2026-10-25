@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """App 图标对标检查：把 Termetron 的图标与 Scholarius / Livolog 放在同一尺度下量化比对。
 
 为什么需要它：
@@ -62,39 +62,21 @@ def _tint(mask: Image.Image, top, bot) -> Image.Image:
 
 
 def render_scholarius(S: int) -> Image.Image:
-    """Σ：白 -> 灰的折线，线宽 4.67/108，外接 38/108。"""
-    k = S / 108
-    bg = Image.new("RGB", (S, S), (0x1B, 0x1B, 0x1B))
-    m = Image.new("L", (S, S), 0)
-    d = ImageDraw.Draw(m)
-    pts = [(70.665, 37.335), (37.335, 37.335), (54, 54), (37.335, 70.665), (61.325, 70.665)]
-    d.line([(x * k, y * k) for x, y in pts], fill=255, width=round(4.67 * k), joint="curve")
-    r = 4.67 * k / 2
-    for x, y in (pts[0], pts[-1]):
-        d.ellipse([x * k - r, y * k - r, x * k + r, y * k + r], fill=255)
-    bg.paste(_tint(m, (255, 255, 255), (110, 110, 110)), (0, 0), m)
-    return bg
+    """真实图标 PNG 缩放到 S 画布（不再手绘假参考）。
+
+    ⚠️ 旧实现手绘了一条 Σ 折线，并声称「外接 38/108」——
+    那是**凭印象的模型**，与真实 Scholarius 图标（秒表）形状完全不同，
+    量出的占位 35.2% 也是假的。真实 PNG 在 512 画布上实测 41.4%。
+    对比必须对真实产物，不能对自己脑补的近似图。
+    """
+    src = REF_ROOT / "Scholarius/design/assets/livolog.png"
+    return Image.open(src).convert("RGB").resize((S, S), Image.LANCZOS)
 
 
 def render_livolog(S: int) -> Image.Image:
-    """时钟环：外径 44/108，线宽 4.67/108，缺口 12 点~2 点。"""
-    k = S / 108
-    bg = Image.new("RGB", (S, S), (0x1B, 0x1B, 0x1B))
-    m = Image.new("L", (S, S), 0)
-    d = ImageDraw.Draw(m)
-    cx = cy = 54 * k
-    R = 19.67 * k
-    w = round(4.67 * k)
-    # 从 12 点逆时针 300°（PIL 角度：0=3点，顺时针增长）
-    d.arc([cx - R, cy - R, cx + R, cy + R], start=-90, end=210, fill=255, width=w)
-    # 指针
-    d.line([cx, cy, cx, cy - 10.67 * k], fill=255, width=round(4 * k))
-    hx = cx + 7.33 * k * math.cos(math.radians(240 - 90))
-    hy = cy + 7.33 * k * math.sin(math.radians(240 - 90))
-    d.line([cx, cy, hx, hy], fill=255, width=round(4 * k))
-    d.ellipse([cx - 2 * k, cy - 2 * k, cx + 2 * k, cy + 2 * k], fill=255)
-    bg.paste(_tint(m, (255, 255, 255), (110, 110, 110)), (0, 0), m)
-    return bg
+    """真实图标 PNG 缩放到 S 画布。"""
+    src = REF_ROOT / "Livolog/design/_livolog-final.png"
+    return Image.open(src).convert("RGB").resize((S, S), Image.LANCZOS)
 
 
 def render_termetron(S: int) -> Image.Image:
@@ -104,7 +86,9 @@ def render_termetron(S: int) -> Image.Image:
     gi = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gi)  # type: ignore[union-attr]
 
-    icon = gi.make_icon(bg=True, rounded=True, radius=220)
+    # ⚠️ 必须与生产一致：main() 里是 rounded=False（方形满底）。
+    #    用 True 会引入 4% 的纯黑角，与参考对比失真。
+    icon = gi.make_icon(bg=True, rounded=False)
     return icon.convert("RGB").resize((S, S), Image.LANCZOS)
 
 
@@ -122,9 +106,11 @@ def stats(im: Image.Image) -> dict:
         "bbox_h": (max(ys) - min(ys)) / h if ys else 0,
         "max": max(brights) if brights else 0,
         "min": min(brights) if brights else 0,
-        # ⚠️ 不能取 (2,2)：完整图标有圆角，四角是透明（实测 (0,0,0)），
-        #    要取靠近边缘但落在底板上的位置。
+        # 底板色：取符号区之外、靠上边缘的一点
         "bg": im.getpixel((w // 2, int(h * 0.06))),
+        # 四角：方形满底后必须也是底色，不能是纯黑（圆角残留）
+        "corners": [im.getpixel(p) for p in
+                    ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))],
     }
 
 
@@ -153,17 +139,26 @@ def main() -> int:
     strip.save(OUT / "compare.png")
 
     ref = [rows["scholarius"], rows["livolog"]]
-    lo, hi = min(r["bbox_w"] for r in ref), max(r["bbox_w"] for r in ref)
     me = rows["termetron"]
     ok = True
     print()
+    # ── 占位判定：按用户 2026-10-26 定稿的规格 ──
+    #    「占位框和 Scholarius 图标中的占位面积一样」——
+    #    所以判据是 **等于 Scholarius**，不是「落在两者之间」。
+    #    （旧判据是 [35.2%, 36.5%] ±3%，那是去掉线框前的口径，已作废。）
+    sch = rows["scholarius"]["bbox_w"]
     checks = [
-        (lo - 0.03 <= me["bbox_w"] <= hi + 0.03,
-         f"符号宽度 {me['bbox_w']:.1%} 在参考区间 [{lo:.1%}, {hi:.1%}]（容差 3%）"),
-        # Termetron 按用户要求用纯白（不用渐变）；参考应用从纯白起步，所以只要
-        # 最亮值达到纯白即视为同一色系。
-        (me["max"] >= 250, f"符号为纯白（最亮实测 {me['max']}，参考渐变起点也是 255）"),
+        (abs(me["bbox_w"] - sch) <= 0.01,
+         f"占位 {me['bbox_w']:.1%} == Scholarius {sch:.1%}（容差 1%）"),
+        (abs(me["bbox_w"] - me["bbox_h"]) <= 0.005,
+         f"占位是正方形（{me['bbox_w']:.1%} x {me['bbox_h']:.1%}）"),
+        # Termetron 的 `>` 用路径渐变（#FFFFFF -> #6E6E6E）、`_` 用最暗色。
+        # 所以既要「最亮达到纯白」，也要「存在最暗色」——两个端点都必须来自参考应用。
+        (me["max"] >= 250, f"最亮达到纯白（实测 {me['max']}，= 参考渐变起点）"),
+        (me["min"] <= 120, f"最暗达到 #6E6E6E 附近（实测 {me['min']}，= 参考渐变终点）"),
         (me["bg"] == (27, 27, 27), f"底板 #1B1B1B（实测 {me['bg']}）"),
+        (all(c == (27, 27, 27) for c in me["corners"]),
+         f"四角为底色、非纯黑（实测 {me['corners'][0]}）"),
     ]
     for cond, msg in checks:
         print(("  ✅ " if cond else "  ❌ ") + msg)

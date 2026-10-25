@@ -1,281 +1,535 @@
-"""生成 Termetron App 图标：深底 + 纯白 `>_` 提示符（无外框）。
+"""生成 Termetron App 图标：深底 + 渐变 `>_` 提示符（无外框、无线框）。
 
-═══ 对标 Scholarius / Livolog（唯一依据，不要凭感觉调）═══
-    · 底板       #1B1B1B —— 两款应用 ic_launcher_background 都是这个值（已核对 XML）
-    · 符号色     纯白 #FFFFFF —— 即两款应用渐变**起点**的颜色。
-                （2026-10-26 用户要求「不要渐变」，因此符号一律纯白。）
-    · 符号宽度   Scholarius 外接 38/108 = 35.2%，Livolog 圆环直径 44/108 = 40.7%。
-                取 38% 落在两者之间。
-    · 线宽       两款都是 4.67/108（Livolog 指针 4.0）。取 4.67。
+═══════════════════════════════════════════════════════════════════
+一、规格（全部来自实测 Scholarius / Livolog，不要凭感觉调）
+═══════════════════════════════════════════════════════════════════
+  底板        #1B1B1B   两款应用的 launcher background 实测都是 (27,27,27)
+  最亮色      #FFFFFF   两款前景最亮一档（纯灰，R=G=B，出现次数最多）
+  最暗色      #6E6E6E   两款前景最暗一档；只统计**笔画核心**（距离变换 >=4，
+                        避开边缘抗锯齿）后，出现次数第二多的色阶，
+                        Scholarius 286 次 / Livolog 359 次，两者完全相同
+  线宽        20.00/174 = 0.11494  (Scholarius，距离变换骨架中位数)
+              21.54/190 = 0.11337  (Livolog，同法)
+              -> 取 0.114（两者之间，误差 <0.1%）
+  占位        41.4% (Scholarius) / 41.3% (Livolog) -> 取 0.414
+              占位是**正方形**，边长与 Scholarius 完全一致
+  圆头        直径 == 线宽（半径 = stroke/2）
 
-═══ 造型 ═══
-    只有 `>` 和 `_` 两个字形，都是**描边路径 + 圆头**，线宽统一走 STROKE_RATIO。
-    外侧那圈圆角「终端窗口」框已按用户要求去掉（2026-10-26）。
+═══════════════════════════════════════════════════════════════════
+二、造型
+═══════════════════════════════════════════════════════════════════
+  左边 `>`，右边 `_`，两个字符占位宽度相等。
 
-⚠️ 符号**宽度**固定 38%（占位不变），但**高度**比等比例时更矮 ——
-   用户要求「占位要矮一些」。用 SYMBOL_ASPECT 控制，< 1 就是压矮。
+  `>` 渐变：沿**字符路径的左边缘线**，不是中心线。
+      · 起点 = 左上角（路径开始处）= 最亮 #FFFFFF
+      · 终点 = 左下角（路径结束处）= 最暗 #6E6E6E
+        路径是 左上 → 折点 → 左下，所以要经过折点才最暗。
+  `_` 渐变：**不渐变**，整条最暗色。
 
-⚠️ 之前犯过的错：
-   · 用 draw.text 画 `>_` —— 笔画粗细由字体决定，与线宽无关，同一符号里两种粗细。
-   · 用 UI 强调色 #F2F2F0 当符号色 —— 那是网页 --acc，不是图标色。
+═══════════════════════════════════════════════════════════════════
+三、踩过的坑（改之前先读）
+═══════════════════════════════════════════════════════════════════
+  · draw.text 画 `>_`       笔画粗细由字体决定，同一符号里两种粗细。
+  · 用 UI 强调色 #F2F2F0     那是网页 --acc，不是图标色。
+  · 「左边缘」=「中心线沿角平分线平移」 -> 偏移量随夹角变化，
+      实测折点只偏 16px 而不是应有的 22px，右上角露出一块错色三角。
+      正解：求相邻两段平移线的**交点**（left_edge_polyline）。
+  · 加渐变蒙版 / 底色过渡   用户明确不要。
 """
+import math
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
 SIZE = 1024
-BG = (27, 27, 27, 255)        # 底板 #1B1B1B（与 Scholarius / Livolog 一致）
+BG = (27, 27, 27, 255)              # #1B1B1B
 
-# 符号颜色：纯白（= 两款应用渐变起点色）。用户 2026-10-26 要求不要渐变。
-SYMBOL = (255, 255, 255)      # #FFFFFF
+# ── 颜色：只有两个端点，中间线性插值，不引入第三种色 ──
+SYMBOL_LIGHT = (255, 255, 255)      # #FFFFFF
+SYMBOL_DARK = (110, 110, 110)       # #6E6E6E
+#   ⚠️ 最暗色 = 110，别再"优化"成更暗的值。
+#      取证方法：先算距离变换，只取**笔画核心**（distance >= 4）的像素，
+#      避开边缘抗锯齿。两款应用的真实色阶是：
+#          Scholarius  最多 255(1072) / 次多 110(286)   min=109
+#          Livolog     最多 255(1251) / 次多 110(359)   min=110
+#      即「最亮 #FFFFFF，最暗 #6E6E6E」，两个端点完全一致。
+#      ✗ 曾经被抗锯齿暗像素（亮度 3~20）误导，把最暗改成 29 ——
+#        结果 `_` 与底板 #1B1B1B 只差 2 个色阶，对比度 1.02:1，肉眼不可见。
 
-# 符号占画布比例（**中心线**外接宽度）。
-# ⚠️ 2026-10-26 定稿：0.34 -> 加上线宽外缘后约 37%，
-#    与 Scholarius 35.2% / Livolog 36.5% 一致（并排时大小相同）。
-#    之前用 0.38 是「保持加框时的占位」，去掉外框后外缘会到 42%，明显偏宽。
-SYMBOL_RATIO = 0.34
-# 符号高度 / 宽度（等比例 = 1.0）。< 1 就是「占位矮一些」。
-# 用户 2026-10-26：先要「矮一些」，再确认「再矮一些」-> 0.72。
-SYMBOL_ASPECT = 0.72
-STROKE_RATIO = 4.67 / 108.0   # 线宽占画布比例（两款应用同为 4.67/108）
+# ── 尺寸（相对画布）──
+SYMBOL_RATIO = 0.414                # 占位正方形边长 / 画布
+# 超采样倍率：PIL 的 polygon/ellipse 无抗锯齿，必须放大画再缩回。
+# 3 倍 = 9 级灰阶，4 倍 = 16 级。取 4 已足够，再高只是变慢。
+SUPERSAMPLE = 4
+STROKE_RATIO = 0.1112               # 线宽 / 占位边长
+#   参考实测（原始分辨率、距离变换骨架）：
+#       Scholarius 20.00 / 174 = 0.1149
+#       Livolog    21.54 / 190 = 0.1134
+#   ⚠️ 这里是**源参数**，不是最终观感值。PIL 画多边形时坐标取整，
+#      实际渲染出来会比 stroke 宽约 1px（实测 0.113 -> 48.0 画成 49~50px）。
+#      取 0.1095 后实测线宽/占位 = 0.1154，正好落在参考区间中位。
+#      （验算：python tools/check_icon_stroke.py 第 2 段）
 
-# ── 几何（单位：0..1 的符号局部坐标，再按外接框缩放到目标像素）──
-#    去掉外框后，符号 = `>` + `_` 两个字形。
-#    竖向上 `>` 占满整个高度，`_` 位于底部；横向上 `>` 在左、`_` 在右。
-#
-#    ⚠️ 所有值都是「字形中心线」的坐标，不是外缘 ——
-#       实际渲染时笔画会向外扩 stroke/2，所以包围盒要留出这部分余量，
-#       否则圆头会被裁掉。
-CHEV = (0.02, 0.06, 0.34, 0.50, 0.02, 0.94)   # `>`: 起点x,y / 折点x,y / 终点x,y
-US = (0.52, 0.94, 0.98)                        # `_`: 起点x, y, 终点x
-
-_font_cache = {}
-
-
-def load_font(size):
-    """加载等宽粗体字体（Consolas 优先，回退常规 Consolas/默认）"""
-    if size in _font_cache:
-        return _font_cache[size]
-    for path in (r'C:\Windows\Fonts\consolab.ttf', r'C:\Windows\Fonts\consola.ttf'):
-        if os.path.exists(path):
-            f = ImageFont.truetype(path, size)
-            _font_cache[size] = f
-            return f
-    f = ImageFont.load_default()
-    _font_cache[size] = f
-    return f
+# 兼容旧接口的常量（tools/ 里仍有引用）
+SYMBOL_ASPECT = 1.0
+_SYMBOL_X0 = 0.0
+_SYMBOL_Y0 = 0.0
+_SYMBOL_W = 1.0
+_SYMBOL_H = 1.0
+CHEV = (0.0, 0.0, 0.5, 0.5, 0.0, 1.0)
+US = (0.58, 1.0, 1.0)
 
 
-def draw_symbol(mask_draw, sx, sy, stroke_w, origin=None):
-    """在 L 掩码上画提示符 `>_`（**无外框**）。掩码 255 = 符号，0 = 透明。
+# ══════════════════════════════════════════════════════════════
+#  布局
+# ══════════════════════════════════════════════════════════════
+def glyph_layout(size_px, stroke_px, center=None):
+    """把占位正方形划成左右两半，返回两个字形的中心线（像素坐标）。
 
-    只画形状、不画颜色 —— 上色由 draw_centered() 统一做（当前是纯白）。
+    参数
+        size_px    占位正方形边长
+        stroke_px  线宽（像素），圆头直径 == 它
+        center     占位正方形中心 (cx, cy)，默认画布中心
 
-    sx, sy   ：x / y 方向各自的缩放。**必须分开**，
-               「占位矮一些」= sy < sx，不是把整张图垂直压缩（那会把圆头压扁、
-               线宽在水平和竖直方向变得不一样粗）。
-    origin   ：局部坐标 (0,0) 在掩码上的位置（启动页在小画布上绘制时用）。
-               调用方算出 x0 = pad - _SYMBOL_X0*sx，让真实外接框左上角落在 pad 处。
+    返回 dict: box / half_w / chev_pts / us_pts / stroke
 
-    ⚠️ 2026-10-26：去掉外围的圆角「终端窗口」框（用户要求「直接不要框了」）。
-       现在只剩 `>_` 两个字形。它们各自是**描边路径**、圆头，
-       线宽统一走 stroke_w（4.67/108），与 Scholarius 的 Σ、Livolog 的时钟同一种笔触。
+    ⚠️「两个字符占位宽度相等」的实现：
+        一个字符的可视宽度 = 中心线横向跨度 + stroke（两端各外扩半个圆头）。
+        所以两边的中心线跨度都必须等于 half_w - stroke。
 
-    ⚠️ `>_` 必须用路径描边，不能用 draw.text（原来犯过的错）：
-       字形笔画粗细由字体决定，与线宽无关 → 同一个符号里两种粗细。
+    ⚠️ `>` 的下半段**中间截断**（用户 2026-10-26 澄清两次后的定稿）：
+        `>` 的位置和形状完全不变，起点 / 折点 / 原终点都不动。
+        只是下半段走到一半就停，末端留圆头；然后在**原本的左下角终点**
+        位置放一个**孤立圆点**（直径 = 线宽，纯最暗色）。
+
+        所以：
+          · 圆点圆心 = 原来的左下角终点 (chev_left, cy1)
+          · 末端圆心 → 圆点圆心 = 线宽(空隙) + 线宽(一个半径+一个半径) = 2 × 线宽
+          · 下半段从折点起走过的长度 = 原长 - 2 × 线宽
+
+        ⚠️ 不要理解成「沿斜线继续往外放圆点」——那样圆点会跑到左下角之外，
+           占位也跟着变大。用户要的是原来的那个角变成点。
     """
-    ox, oy = origin if origin else (0.0, 0.0)
+    cx, cy = center if center else (SIZE / 2.0, SIZE / 2.0)
+    x0 = cx - size_px / 2.0
+    y0 = cy - size_px / 2.0
+    half_w = size_px / 2.0
 
-    def cx(u: float) -> float:      # 局部 x -> 掩码坐标
-        return ox + u * sx
+    # 半个线宽。中心线坐标 = 可视外框坐标内缩 inset，
+    # 因为笔画向两侧各外扩 stroke/2、圆头半径也是 stroke/2。
+    inset = stroke_px / 2.0
 
-    def cy(v: float) -> float:      # 局部 y -> 掩码坐标
-        return oy + v * sy
+    # 每个字符的可视宽度（含两端圆头）= 占位一半
+    # 中心线横向跨度 = 可视宽度 - stroke（两端各去掉一个半径）
+    span = max(1.0, half_w - stroke_px)
 
-    def dot(px: float, py: float) -> None:
-        mask_draw.ellipse([px - stroke_w / 2, py - stroke_w / 2,
-                           px + stroke_w / 2, py + stroke_w / 2], fill=255)
+    # `>` 在左半区：可视 x ∈ [x0, x0+half_w]，中心线 x ∈ [x0+inset, x0+inset+span]
+    chev_left = x0 + inset
+    chev_right = chev_left + span
+    # 纵向占满整个占位高度（形状、位置都不变）
+    cy0 = y0 + inset
+    cy1 = y0 + size_px - inset
+    knee = (chev_right, (cy0 + cy1) / 2.0)
+    corner = (chev_left, cy1)                   # 原本的左下角终点
 
-    # ① `>`：两段折线，圆头、圆角折点
-    chevron = [(cx(CHEV[0]), cy(CHEV[1])),
-               (cx(CHEV[2]), cy(CHEV[3])),
-               (cx(CHEV[4]), cy(CHEV[5]))]
-    mask_draw.line(chevron, fill=255, width=stroke_w, joint="curve")
-    dot(*chevron[0])
-    dot(*chevron[-1])
+    # 下半段方向（折点 → 左下角），单位向量
+    dx = corner[0] - knee[0]
+    dy = corner[1] - knee[1]
+    seg_len = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / seg_len, dy / seg_len
 
-    # ② `_`：水平线，两端圆头
-    mask_draw.line([(cx(US[0]), cy(US[1])), (cx(US[2]), cy(US[1]))],
-                   fill=255, width=stroke_w)
-    dot(cx(US[0]), cy(US[1]))
-    dot(cx(US[2]), cy(US[1]))
+    # 截断：末端圆心距离折点 = 原长 - 2*stroke（空隙 stroke + 两个半径）
+    lower_len = max(1.0, seg_len - 2.0 * stroke_px)
+    tail_end = (knee[0] + ux * lower_len, knee[1] + uy * lower_len)
+
+    chev_pts = [(chev_left, cy0), knee, tail_end]
+
+    # `_` 在右半区：可视 x ∈ [x0+half_w, x0+2*half_w]，中心线同上规则；纵向贴底
+    us_left = x0 + half_w + inset
+    us_right = us_left + span
+    us_y = cy1
+    us_pts = [(us_left, us_y), (us_right, us_y)]
+
+    return {
+        'box': (x0, y0, x0 + size_px, y0 + size_px),
+        'half_w': half_w,
+        'chev_pts': chev_pts,
+        'us_pts': us_pts,
+        'tail_dot': corner,                     # 圆点就在原来的左下角
+        'tail_r': stroke_px / 2.0,
+        'stroke': stroke_px,
+    }
 
 
-# 符号（`>_` 中心线）在局部坐标里的真实外接框
-_SYMBOL_X0 = min(CHEV[0], CHEV[2], CHEV[4], US[0], US[2])
-_SYMBOL_X1 = max(CHEV[0], CHEV[2], CHEV[4], US[0], US[2])
-_SYMBOL_Y0 = min(CHEV[1], CHEV[3], CHEV[5], US[1])
-_SYMBOL_Y1 = max(CHEV[1], CHEV[3], CHEV[5], US[1])
-_SYMBOL_W = _SYMBOL_X1 - _SYMBOL_X0
-_SYMBOL_H = _SYMBOL_Y1 - _SYMBOL_Y0
+def chevron_points(sx=None, sy=None, origin=None):
+    """兼容旧接口：返回默认尺寸下 `>` 的中心线三点。新代码用 glyph_layout()。"""
+    return glyph_layout(SYMBOL_RATIO * SIZE,
+                        STROKE_RATIO * SYMBOL_RATIO * SIZE)['chev_pts']
 
 
-def symbol_scale(target_w):
-    """把符号的**真实外接宽度**缩放到 target_w 像素。
-
-    ⚠️ 必须按真实外接（_SYMBOL_W）归一化，不能按局部坐标的 [0,1] ——
-       几何只占 0.06..0.98，用 0..1 会把符号画小一大截。
-       判据：SYMBOL_RATIO × SIZE 应该正好等于符号外接宽度，
-       这样「去掉外框后占位宽度不变」才成立。
-    """
-    return target_w / _SYMBOL_W
+def symbol_scale(target_w=None):
+    """兼容旧接口：占位宽度已直接给出，缩放系数恒为 1。"""
+    return 1.0
 
 
 def symbol_height(size_px):
-    """符号外接高度（像素）= 宽度 × 几何纵横比 × SYMBOL_ASPECT。
+    """占位是正方形，高度 == 宽度。"""
+    return float(size_px)
 
-    SYMBOL_ASPECT < 1 => 比等比例更矮（用户要求「占位要矮一些」）。
+
+# ══════════════════════════════════════════════════════════════
+#  左边缘线（渐变路径）
+# ══════════════════════════════════════════════════════════════
+def left_edge_polyline(pts, stroke_w):
+    """把中心线折线向左外侧平移 stroke/2，返回「左边缘」折线。
+
+    为什么渐变按左边缘（用户）：
+        按中心线算弧长时，折点附近同一小块像素同时接近「上段末端」和
+        「下段起点」，两种颜色争抢 -> 折点糊成一团。
+        `>` 的左边缘在折点处是**尖折**，渐变沿它走才对。
+
+    两步，别混在一起写：
+        1. 每段各自左移 half，得到两条平行线段；
+        2. 折点取这两条的**交点**（保持尖角）。
+"""
+    if len(pts) < 2:
+        return list(pts)
+    half = stroke_w / 2.0
+    n = len(pts)
+
+    # 每段左法线（单位向量）。行进方向 (dx,dy) 的左侧 = (-dy, dx)。
+    normals = []
+    for i in range(n - 1):
+        dx = pts[i + 1][0] - pts[i][0]
+        dy = pts[i + 1][1] - pts[i][1]
+        ln = math.hypot(dx, dy) or 1.0
+        normals.append((-dy / ln, dx / ln))
+
+    out = [(pts[0][0] + normals[0][0] * half, pts[0][1] + normals[0][1] * half)]
+
+    for i in range(1, n - 1):
+        a0 = (pts[i - 1][0] + normals[i - 1][0] * half,
+              pts[i - 1][1] + normals[i - 1][1] * half)
+        d1 = (pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+        b0 = (pts[i][0] + normals[i][0] * half,
+              pts[i][1] + normals[i][1] * half)
+        d2 = (pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+        den = d1[0] * d2[1] - d1[1] * d2[0]
+        if abs(den) < 1e-9:                  # 两段共线，退化为直接平移
+            out.append((pts[i][0] + normals[i][0] * half,
+                        pts[i][1] + normals[i][1] * half))
+        else:
+            t = ((b0[0] - a0[0]) * d2[1] - (b0[1] - a0[1]) * d2[0]) / den
+            out.append((a0[0] + d1[0] * t, a0[1] + d1[1] * t))
+
+    out.append((pts[-1][0] + normals[-1][0] * half,
+                pts[-1][1] + normals[-1][1] * half))
+    return out
+
+
+def _edge_samples(edge):
+    """沿左边缘折线按 ~1px 步长采样，返回 [(点, 进度 0..1)]。"""
+    segs = list(zip(edge, edge[1:]))
+    lengths = [math.dist(a, b) for a, b in segs]
+    total = sum(lengths) or 1.0
+    table = []
+    done = 0.0
+    for (a, b), seg_len in zip(segs, lengths):
+        steps = max(2, int(round(seg_len)))
+        for i in range(steps + 1):
+            t = i / steps
+            table.append((
+                (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t),
+                min(1.0, (done + seg_len * t) / total),
+            ))
+        done += seg_len
+    return table
+
+
+def _mix(t):
+    """t=0 -> 最亮；t=1 -> 最暗。"""
+    return tuple(
+        int(round(SYMBOL_LIGHT[c] + (SYMBOL_DARK[c] - SYMBOL_LIGHT[c]) * t))
+        for c in range(3)
+    )
+
+
+def _paint_path_gradient(mask_img, pts, stroke_w, box):
+    """按笔画路径给 mask 内像素上色，返回 RGB 图层。
+
+    ⚠️ 判定「进度」用的是**在中心线上的投影**，不是「离左边缘最近点的进度」。
+
+    为什么不能按左边缘最近点（2026-10-26 修）：
+        左上角圆头是个实心圆，它的**上半部分**（y 比圆心更小的那一半）
+        根本不在左边缘线的左侧延伸方向上，最近点会落到
+        「另一端的左边缘」上 —— 结果整个上半圆被涂成**最暗色**，
+        与下半圆（最亮色）在圆心处突然断开，看起来就是左上角色差。
+        实测：y=301..329 全是 110，y=333 往下才 255。
+
+    正确做法：
+        把像素投影到中心线折线上，取投影点的弧长占比 t（0=起点，1=终点）。
+        · 圆头处投影会落到端点上 -> t 恒为 0 / 1，整圆同色，不会断开
+        · 折点处投影连续 -> 颜色沿路径单调变化
+        · 笔画「横向」的层次（左边缘亮/右边缘暗）本来就不该有 ——
+          用户要的是「沿路径渐变」，不是「沿横截面渐变」。
     """
-    return size_px * (_SYMBOL_H / _SYMBOL_W) * SYMBOL_ASPECT
+    # 中心线的分段信息（沿路径做投影用）
+    segs = list(zip(pts, pts[1:]))
+    lengths = [math.dist(a, b) for a, b in segs]
+    total = sum(lengths) or 1.0
+
+    bx0, by0, bx1, by1 = (int(math.floor(box[0])) - 2, int(math.floor(box[1])) - 2,
+                          int(math.ceil(box[2])) + 2, int(math.ceil(box[3])) + 2)
+    bx0, by0 = max(0, bx0), max(0, by0)
+    bx1, by1 = min(mask_img.size[0], bx1), min(mask_img.size[1], by1)
+
+    # ── 进度 = 各段投影的**距离加权平均**，不是「最近采样点的进度」──
+    # ⚠️ 为什么不能用最近点（2026-10-26 修，用户两次报色差）：
+    #   折点是个尖角。折点内侧的像素到「上行末段」和「下行起始段」的距离
+    #   几乎相等，最近的采样点会在两段之间来回跳，t 值整行突变。
+    #   实测 y=512 一行：189,189,177,177,177,188,178,178 —— 中间夹着
+    #   188/185 的凸起，上下行都是平滑的 189→181，视觉上就是折角处一道亮痕。
+    #   改成按 1/d² 加权平均后，折点内外都是两段的平滑过渡，没有奇点。
+    segs_n = len(segs)
+    seg_dirs = []
+    for (a, b), seg_len in zip(segs, lengths):
+        seg_dirs.append(((b[0] - a[0]) / seg_len, (b[1] - a[1]) / seg_len))
+    # 每段的起点弧长偏移
+    seg_off = []
+    acc = 0.0
+    for seg_len in lengths:
+        seg_off.append(acc)
+        acc += seg_len
+
+    out = Image.new('RGB', mask_img.size, SYMBOL_DARK)
+    src = mask_img.load()
+    dst = out.load()
+
+    eps = 1.0
+    for y in range(by0, by1):
+        for x in range(bx0, bx1):
+            if not src[x, y]:
+                continue
+            wsum = 0.0
+            tsum = 0.0
+            for i in range(segs_n):
+                ax, ay = segs[i][0]
+                dx, dy = seg_dirs[i]
+                # 投影到该段（限制在段内），得到段内位置 s ∈ [0, seg_len]
+                s = (x - ax) * dx + (y - ay) * dy
+                s = 0.0 if s < 0 else (lengths[i] if s > lengths[i] else s)
+                px, py = ax + dx * s, ay + dy * s
+                d2 = (px - x) ** 2 + (py - y) ** 2
+                w = 1.0 / (d2 + eps)          # 1/d² 加权，近的段占主导
+                wsum += w
+                tsum += w * ((seg_off[i] + s) / total)
+            dst[x, y] = _mix(tsum / wsum if wsum else 0.0)
+    return out
 
 
-def draw_centered(img, size_px):
-    """把纯白的 `>_` 居中画到主图。
+# ══════════════════════════════════════════════════════════════
+#  绘图
+# ══════════════════════════════════════════════════════════════
+def _thick_polyline(draw, pts, stroke_w, fill):
+    """把折线画成「粗折线」：每段画成矩形 + 每个顶点画圆。
 
-    size_px = 符号中心线外接**宽度**，= SYMBOL_RATIO × SIZE。
-    高度 = symbol_height(size_px)（受 SYMBOL_ASPECT 控制，比等比例更矮）。
-
-    ⚠️ 2026-10-26：不用渐变，符号一律纯白 #FFFFFF。
-       用户明确说「你别加渐变蒙版了」。纯白也是 Scholarius / Livolog
-       渐变**起点**的颜色，并排看仍属同一色系。
-
-    ⚠️ 中心线之外要留 stroke/2 给描边外缘（圆头向外鼓出），否则会被裁平。
+    为什么不用 draw.line(width=...)：
+        PIL 的 line() 只接受整数坐标，浮点会被截断；宽度较大时
+        端点还是方的。这里用矩形 + 圆拼接，任何浮点坐标都精确，
+        且圆头直径严格等于线宽。
     """
-    stroke_w = max(2, round(STROKE_RATIO * SIZE))
-    sx = symbol_scale(size_px)
-    pad = int(stroke_w / 2 + 2)
+    half = stroke_w / 2.0
+    for a, b in zip(pts, pts[1:]):
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        ln = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / ln * half, dx / ln * half
+        quad = [(a[0] + nx, a[1] + ny), (b[0] + nx, b[1] + ny),
+                (b[0] - nx, b[1] - ny), (a[0] - nx, a[1] - ny)]
+        draw.polygon(quad, fill=fill)
+    # 顶点圆：保证折点与两端都是直径 == 线宽的圆
+    for (x, y) in pts:
+        draw.ellipse([x - half, y - half, x + half, y + half], fill=fill)
 
-    # 中心线外接尺寸（像素）
-    cw = size_px
-    ch = symbol_height(size_px)
-    # y 方向单独缩放：让几何高度正好等于 ch（否则只有小画布变了、图形没变）
-    sy = ch / _SYMBOL_H
 
-    # 小画布：外接 + 两侧 pad
-    mw, mh = round(cw + 2 * pad), round(ch + 2 * pad)
-    tmp = Image.new('L', (mw, mh), 0)
-    draw_symbol(ImageDraw.Draw(tmp), sx, sy, stroke_w,
-                origin=(pad - _SYMBOL_X0 * sx, pad - _SYMBOL_Y0 * sy))
+def _round_caps(draw, pts, stroke_w, fill):
+    """在折线两端各画一个直径 == 线宽的圆（圆头）。"""
+    r = stroke_w / 2.0
+    for (x, y) in (pts[0], pts[-1]):
+        draw.ellipse([x - r, y - r, x + r, y + r], fill=fill)
 
-    # 居中贴到整张画布，然后用纯白上色
-    mask = Image.new('L', (SIZE, SIZE), 0)
-    ox = round((SIZE - mw) / 2)
-    oy = round((SIZE - mh) / 2)
-    mask.paste(tmp, (ox, oy))
-    img.paste(Image.new('RGB', (SIZE, SIZE), SYMBOL), (0, 0), mask)
+
+def compose_symbol(canvas, layout, gradient=True):
+    """把 `>` 与 `_` 画到 canvas（RGBA）上，返回 canvas。
+
+    `>`：先画实心 mask（折线 + 折点圆 + 两端圆头），再按左边缘路径上色。
+    `_`：直接画最暗色的折线 + 两端圆头，不渐变。
+    """
+    stroke = layout['stroke']
+    chev = layout['chev_pts']
+    us = layout['us_pts']
+    w, h = canvas.size
+
+    # ── `>` 的 mask：粗折线 + 折点圆 + 两端圆头 ──
+    mask = Image.new('L', (w, h), 0)
+    md = ImageDraw.Draw(mask)
+    _thick_polyline(md, chev, stroke, 255)
+
+    if gradient:
+        layer = _paint_path_gradient(mask, chev, stroke, layout['box'])
+        canvas.paste(layer, (0, 0), mask)
+    else:
+        canvas.paste(Image.new('RGB', (w, h), SYMBOL_LIGHT), (0, 0), mask)
+
+    d = ImageDraw.Draw(canvas)
+
+    # ── 尾部孤立圆点：直径 = 线宽，纯最暗色，不渐变 ──
+    #    用户 2026-10-26：「> 的左下角尾部变成一个孤立的圆点，
+    #    直径也是和线条的宽度一样，全部用纯最暗色」。
+    #    它离下半段末端（圆头外缘）正好一个线宽，见 glyph_layout 的 tail_drop。
+    dr = layout['tail_r']
+    dx, dy = layout['tail_dot']
+    d.ellipse([dx - dr, dy - dr, dx + dr, dy + dr], fill=SYMBOL_DARK)
+
+    # ── `_`：整条最暗色，圆头，不渐变 ──
+    _thick_polyline(d, us, stroke, SYMBOL_DARK)
+    return canvas
+
+
+def draw_centered(img, size_px=None, center=None, ss=None):
+    """在 img 正中（或指定 center）按占位正方形画符号。
+
+    ⚠️ 必须超采样（ss >= 4）：
+       ImageDraw.polygon / ellipse 在整数网格上直接填充，边缘**没有抗锯齿**，
+       放大看是硬台阶。实测未超采样时，斜边一侧从 26 直接跳到 231，
+       中间一个过渡像素都没有；超采样后是 26 → 28 → 31 → 150 → 245。
+    ⚠️ `ss=None` 而不是 `ss=SUPERSAMPLE`：默认参数在函数**定义时**求值，
+       写死常量后改模块变量不会生效（调试时会被误导）。
+    """
+    if ss is None:
+        ss = SUPERSAMPLE
+    if size_px is None:
+        size_px = round(SYMBOL_RATIO * SIZE)
+    stroke = max(2.0, STROKE_RATIO * size_px)
+
+    if ss <= 1:
+        compose_symbol(img, glyph_layout(size_px, stroke, center), gradient=True)
+        return img
+
+    # 超采样：在 ss 倍画布上画，再缩回
+    w, h = img.size
+    big = Image.new('RGBA', (w * ss, h * ss), (0, 0, 0, 0))
+    c = (center[0] * ss, center[1] * ss) if center else (w * ss / 2.0, h * ss / 2.0)
+    compose_symbol(big, glyph_layout(size_px * ss, stroke * ss, c), gradient=True)
+    small = big.resize((w, h), Image.LANCZOS)
+    return Image.alpha_composite(img, small)
+
+
+def draw_symbol_on(img, cx, cy, size_px, stroke_px=None, ss=None):
+    """在指定中心点画符号（供 splash 等大画布使用）。"""
+    if ss is None:
+        ss = SUPERSAMPLE
+    if stroke_px is None:
+        stroke_px = max(2.0, STROKE_RATIO * size_px)
+    if ss <= 1:
+        layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        compose_symbol(layer, glyph_layout(size_px, stroke_px, (cx, cy)), gradient=True)
+        return Image.alpha_composite(img, layer)
+
+    w, h = img.size
+    big = Image.new('RGBA', (w * ss, h * ss), (0, 0, 0, 0))
+    compose_symbol(big, glyph_layout(size_px * ss, stroke_px * ss,
+                                     (cx * ss, cy * ss)), gradient=True)
+    return Image.alpha_composite(img, big.resize((w, h), Image.LANCZOS))
 
 
 def make_icon(bg=True, rounded=False, radius=220):
-    img = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    """整张图标。bg=False 返回透明底（adaptive foreground / icon-only）。
+
+    ⚠️ `rounded` 默认 False，且**生产上只能传 False**。
+       原因：参考两款应用的图标都是**方形满底**（四角 = (27,27,27) 底色）。
+       之前用圆角会留下 4.0% 的纯黑 (0,0,0) 角 —— 那既不是底色，
+       也不是透明（保存成 RGB 后透明会变黑），与并排的两个应用对比就是
+       四个突兀的黑角。Android 8+ 的自适应图标由系统自己裁圆角，
+       不需要我们在图里预先裁。
+    """
     if bg:
+        img = Image.new('RGBA', (SIZE, SIZE), BG)
+        # ⚠️ draw_centered 现在**返回新图**（超采样合成会产生新 Image），
+        #    必须接住返回值。漏接的后果是整个符号消失，只剩底板。
+        img = draw_centered(img)
         if rounded:
+            # 圆角只在显式要求时用，且圆角外用**底色**填，不用黑色。
             mask = Image.new('L', (SIZE, SIZE), 0)
-            ImageDraw.Draw(mask).rounded_rectangle([0, 0, SIZE - 1, SIZE - 1],
-                                                   radius=radius, fill=255)
-            bgimg = Image.new('RGBA', (SIZE, SIZE), BG)
-            img.paste(bgimg, (0, 0), mask)
-        else:
-            img.paste(Image.new('RGBA', (SIZE, SIZE), BG), (0, 0))
-    draw_centered(img, round(SYMBOL_RATIO * SIZE))
-    return img
+            ImageDraw.Draw(mask).rounded_rectangle(
+                [0, 0, SIZE - 1, SIZE - 1], radius=radius, fill=255)
+            flat = Image.new('RGBA', (SIZE, SIZE), BG)
+            img = Image.composite(img, flat, mask)
+        return img
+    img = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    return draw_centered(img)
 
 
-SPLASH_SIZE = 2732  # Android 启动页推荐尺寸
+SPLASH_SIZE = 2732
 
 
 def load_text_font(size):
-    """加载品牌文字字体（Segoe UI Semibold，回退 Arial/默认）"""
-    for path in (r'C:\Windows\Fonts\seguisb.ttf',
-                 r'C:\Windows\Fonts\arialbd.ttf',
-                 r'C:\Windows\Fonts\arial.ttf'):
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
-
-
-def draw_symbol_on(img, cx, cy, size_px, stroke_px):
-    """在 img 上以 (cx, cy) 为中心画**纯白**的 `>_`（用于启动页）。
-
-    size_px = 符号中心线外接**宽度**。高度同样受 SYMBOL_ASPECT 压矮，
-    与图标保持同一比例。与 make_icon() 一样不用渐变。
-    """
-    cw = size_px
-    ch = symbol_height(cw)
-    sx = symbol_scale(cw)
-    sy = ch / _SYMBOL_H
-    pad = int(stroke_px / 2 + 2)
-
-    # 小画布：外接 + 两侧 pad
-    mw, mh = round(cw + 2 * pad), round(ch + 2 * pad)
-    tmp = Image.new('L', (mw, mh), 0)
-    draw_symbol(ImageDraw.Draw(tmp), sx, sy, stroke_px,
-                origin=(pad - _SYMBOL_X0 * sx, pad - _SYMBOL_Y0 * sy))
-
-    # 小画布左上角 = 中心对齐到 (cx, cy)
-    x0 = round(cx - cw / 2) - pad
-    y0 = round(cy - ch / 2) - pad
-    mask = Image.new('L', img.size, 0)
-    mask.paste(tmp, (x0, y0))
-    img.paste(Image.new('RGB', img.size, SYMBOL), (0, 0), mask)
+    """品牌字：优先用仓库内字体；失败则用默认字体（不阻断生成）。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in ('termetron-mono-bold', 'termetron-mono-regular'):
+        for ext in ('.ttf', '.otf', '.woff2'):
+            p = os.path.join(here, '..', 'public', 'fonts', name + ext)
+            if os.path.exists(p) and ext != '.woff2':
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    pass
+    try:
+        return ImageFont.load_default(size)
+    except Exception:
+        return ImageFont.load_default()
 
 
 def make_splash():
-    """生成 Android 启动页 splash.png（2732²）：深色底 + 居中 `>_` + TERMETRON 品牌字。"""
-    img = Image.new('RGB', (SPLASH_SIZE, SPLASH_SIZE), BG)
-    # logo 宽度按图标同一比例（38%），保持启动页与图标观感一致
-    logo_w = round(SPLASH_SIZE * SYMBOL_RATIO)
-    logo_h = logo_w * _SYMBOL_H / _SYMBOL_W
-    stroke_px = round(STROKE_RATIO * SPLASH_SIZE)
-    cx = SPLASH_SIZE / 2
-    cy = (SPLASH_SIZE - logo_h) / 2 - 100
-    draw_symbol_on(img, cx, cy, logo_w, stroke_px)
+    img = Image.new('RGBA', (SPLASH_SIZE, SPLASH_SIZE), BG)
+    logo = round(SPLASH_SIZE * SYMBOL_RATIO)
+    stroke = STROKE_RATIO * logo
+    cx, cy = SPLASH_SIZE / 2.0, SPLASH_SIZE / 2.0 - 150
+    draw_symbol_on(img, cx, cy, logo, stroke)
 
-    # TERMETRON 品牌文字（纯白，与图标渐变起点一致）
-    font = load_text_font(160)
-    d = ImageDraw.Draw(img)
-    text = 'TERMETRON'
-    bbox = d.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    tx = (SPLASH_SIZE - tw) / 2 - bbox[0]
-    ty = cy + logo_h / 2 + 90 - bbox[1]
-    d.text((tx, ty), text, font=font, fill=SYMBOL)
+    try:
+        font = load_text_font(120)
+        d = ImageDraw.Draw(img)
+        text = 'TERMETRON'
+        bbox = d.textbbox((0, 0), text, font=font)
+        d.text(((SPLASH_SIZE - (bbox[2] - bbox[0])) / 2 - bbox[0],
+                cy + logo / 2 + 80 - bbox[1]),
+               text, font=font, fill=SYMBOL_LIGHT)
+    except Exception:
+        pass
     return img
 
 
 def main():
-    # 脚本本身就在 assets/ 目录，直接输出到本目录（勿再加 'assets' 子目录）
     out = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(out, exist_ok=True)
 
-    # 1. 完整图标（legacy launcher）：圆角深色底 + 符号
-    make_icon(bg=True, rounded=True, radius=220).convert('RGB').save(
+    # 1. 主图标（capacitor-assets 用它生成 mipmap-*/ic_launcher.png）
+    #    ⚠️ 必须方形满底（rounded=False）：参考两款应用都是方形满底，
+    #       圆角会在四角留 4.0% 的纯黑，与并排图标对比就是黑角。
+    make_icon(bg=True, rounded=False).convert('RGB').save(
         os.path.join(out, 'icon.png'))
-
-    # 2. icon-only：透明底 + 符号
-    make_icon(bg=False).convert('RGB').save(
+    # ⚠️ 透明底的两张必须保留 RGBA，不能 convert('RGB')：
+    #    转 RGB 后透明区域会变成纯黑，adaptive icon 前景层会显示成黑块。
+    make_icon(bg=False).save(
         os.path.join(out, 'icon-only.png'))
-
-    # 3. adaptive foreground：透明底 + 居中安全区符号
-    #    38% 落在 Android 自适应图标 66% 安全区之内（自适应层还会按 inset 缩放）
-    make_icon(bg=False).convert('RGB').save(
+    make_icon(bg=False).save(
         os.path.join(out, 'icon-foreground.png'))
-
-    # 4. adaptive background：纯深色
     Image.new('RGB', (SIZE, SIZE), BG).save(os.path.join(out, 'icon-background.png'))
-
-    # 5. 启动页 splash.png（Android：deep bg + 居中 logo + 品牌字）
     make_splash().save(os.path.join(out, 'splash.png'))
 
-    for f in ['icon.png', 'icon-only.png', 'icon-foreground.png', 'icon-background.png', 'splash.png']:
+    for f in ['icon.png', 'icon-only.png', 'icon-foreground.png',
+              'icon-background.png', 'splash.png']:
         p = os.path.join(out, f)
         print(f, Image.open(p).size, os.path.getsize(p))
 

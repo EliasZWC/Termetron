@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.8.9
+**Version:** v0.8.10
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -54,6 +54,12 @@ Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
 | `agent.py`         | Agent channel CLI (status/watch/wait — let an AI agent monitor sessions) |
 | `release.py`       | One-click publish: bump version + push -> CI build -> auto Release |
 | `tools/check_palette.py` | Colour audit: fails if any colour is outside the Scholarius/Livolog palette |
+| `tools/check_icons.py` | Icon audit: box size == Scholarius, square, corners are background (not black) |
+| `tools/check_icon_stroke.py` | Stroke/box ratio vs the real reference PNGs (distance-transform skeleton) |
+| `tools/check_icon_inner_stroke.py` | All strokes share one width; direction independent; `_` matches |
+| `tools/check_icon_gradient.py` | Path gradient endpoints, monotonicity, flat `_`, no seams in the round caps |
+| `tools/check_theme_bg.py` | Asserts all 10 background/status-bar spots are `#1B1B1B` |
+| `tools/check_fonts.py` | Fonts byte-identical to Scholarius + `/fonts/` route whitelist |
 | `app/`             | Android APK client (Capacitor WebView wrapper), repo subdir   |
 | `app/assets/`      | App icon sources + `generate-icons.py` (Pillow)              |
 | `vscode/`          | VS Code extension (embeds the termetron web UI, see its README) |
@@ -140,15 +146,42 @@ Force a mode from any browser (useful for preview):
 - Server sends `Cache-Control: no-store` — reloads always get the latest UI.
 - App / favicon icon has built-in padding so the terminal glyph never touches
   the edges.
-- **App icon spec** (measured against Scholarius / Livolog, see
-  `tools/check_icons.py` and `tools/check_icon_inner_stroke.py`):
-  background `#1B1B1B` (identical to both apps), symbol **pure white** `#FFFFFF`
-  (the start colour of their gradients), glyph = just `>` + `_` with **no box**,
-  stroke width `4.67/108` for *every* stroke, symbol width `34%` of the canvas
-  (≈37% including stroke, matching their 35.2% / 36.5%), and squashed to
-  `0.72 ×` the natural height.
+- **App icon spec** — every number below was *measured* from the real
+  Scholarius / Livolog icon PNGs (not from their SVG sources), and is enforced
+  by `tools/check_icons.py`, `tools/check_icon_stroke.py` and
+  `tools/check_icon_gradient.py`:
+
+  | Property | Value | Reference (measured) |
+  |---|---|---|
+  | Background | `#1B1B1B`, **square full-bleed** | both apps = `(27,27,27)`, square |
+  | Brightest | `#FFFFFF` | most frequent foreground level in both |
+  | Darkest | `#6E6E6E` | 2nd most frequent level in both (286 / 359 hits) |
+  | Stroke / box | `0.1112` | Scholarius `0.1149`, Livolog `0.1134` |
+  | Box (square) | `41.4%` of canvas, centred | Scholarius `41.4%`, Livolog `41.6%` |
+  | Round caps | diameter **==** stroke width | — |
+
+  Glyph = `>` on the left, `_` on the right, both occupying the same width.
+
+  - **`>` gradient** runs along the **left edge of the character path**, not the
+    centre line: `#FFFFFF` at the top-left (path start) → `#6E6E6E` at the
+    bottom-left (path end). Progress is per-pixel, computed as the `1/d²`
+    weighted average of its projection onto every centre-line segment — a
+    plain "nearest point" lookup produces a hard colour seam at the knee and
+    patches of the wrong colour inside the round caps.
+  - **`>` lower leg is cut short.** The shape and position are unchanged; the
+    leg simply stops early and keeps its round cap. The original bottom-left
+    corner then becomes an **isolated dot** (diameter == stroke width, solid
+    `#6E6E6E`), separated from the leg's cap by exactly **one stroke width**.
+  - **`_` is flat `#6E6E6E`** — no gradient.
+  - Every stroke is drawn at **4× supersampling** then downscaled (LANCZOS).
+    `ImageDraw.polygon` / `ellipse` have no anti-aliasing at all — without
+    supersampling the diagonal edges step from background straight to full
+    colour with zero transition pixels.
+
   Never draw `>_` with a font — the font's stroke weight is unrelated to the
-  nominal line width.
+  nominal line width. Never compare against a hand-drawn approximation of the
+  reference icons; the earlier "Scholarius = Σ polyline, 38/108" model was
+  invented and wrong (the real icon is a stopwatch).
 
 ## Keyboard shortcuts
 

@@ -37,10 +37,10 @@ def _lum(im: Image.Image, x: int, y: int) -> int:
     return v if isinstance(v, int) else v[0]
 
 
-def vthick(im: Image.Image, x: int) -> int:
+def vthick(im: Image.Image, x: int, thr: int = 250) -> int:
     run = best = 0
     for y in range(im.size[1]):
-        if _lum(im, x, y) >= 250:
+        if _lum(im, x, y) >= thr:
             run += 1
             best = max(best, run)
         else:
@@ -48,10 +48,10 @@ def vthick(im: Image.Image, x: int) -> int:
     return best
 
 
-def hthick(im: Image.Image, y: int) -> int:
+def hthick(im: Image.Image, y: int, thr: int = 250) -> int:
     run = best = 0
     for x in range(im.size[0]):
-        if _lum(im, x, y) >= 250:
+        if _lum(im, x, y) >= thr:
             run += 1
             best = max(best, run)
         else:
@@ -61,7 +61,10 @@ def hthick(im: Image.Image, y: int) -> int:
 
 def main() -> int:
     gi = load_gen()
-    stroke = round(gi.STROKE_RATIO * S)
+    # ⚠️ STROKE_RATIO 现在是「线宽 / 占位边长」，不是「线宽 / 画布」。
+    #    画布上的实际线宽 = STROKE_RATIO * 占位边长。
+    box = gi.SYMBOL_RATIO * S
+    stroke = round(gi.STROKE_RATIO * box)
     ok = True
 
     def check(cond: bool, msg: str) -> None:
@@ -69,7 +72,8 @@ def main() -> int:
         print(("  ✅ " if cond else "  ❌ ") + msg)
         ok &= cond
 
-    print(f"名义线宽 stroke_w = {stroke}px（= 4.67/108，与 Scholarius 相同）\n")
+    print(f"名义线宽 stroke_w = {stroke}px（= 占位 {box:.0f}px 的 {gi.STROKE_RATIO:.3f}，"
+          f"参考 Scholarius 0.1149 / Livolog 0.1134）\n")
 
     print("== 1) PIL 对同一 width：水平线 vs 垂直线 ==")
     m = Image.new("L", (S, S), 0)
@@ -99,14 +103,23 @@ def main() -> int:
     print("\n== 3) 实际图标：`_` 的线宽 ==")
     icon = gi.make_icon(bg=True, rounded=False).convert("RGB")
     W, H = icon.size
+    # ⚠️ 阈值要「比背景亮」，不能用 250：
+    #    `_` 是**最暗色 #6E6E6E(110)**，用 250 会一个像素都量不到。
+    # ⚠️ 还要限定在**右半区**：`>` 的暗部（左下的 #6E6E6E）同样 >= 60，
+    #    不限定就会把 `>` 的斜段当成 `_` 量。
+    thr = 60
+    x_split = int(W * 0.5)
     best_row, best_len = None, 0
     for y in range(int(H * 0.55), H):
-        t = hthick(icon, y)
-        if t > best_len:
-            best_row, best_len = y, t
+        run = best = 0
+        for x in range(x_split, W):
+            run = run + 1 if _lum(icon, x, y) >= thr else 0
+            best = max(best, run)
+        if best > best_len:
+            best_row, best_len = y, best
     segs, run, start = [], 0, 0
-    for x in range(W):
-        if _lum(icon, x, best_row) >= 250:
+    for x in range(x_split, W):
+        if _lum(icon, x, best_row) >= thr:
             if run == 0:
                 start = x
             run += 1
@@ -114,16 +127,22 @@ def main() -> int:
             if run:
                 segs.append((start, run))
             run = 0
+    if run:
+        segs.append((start, run))
     mid = max(segs, key=lambda t: t[1])
     px = mid[0] + mid[1] // 2
-    t = vthick(icon, px)
+    t = vthick(icon, px, thr)
     print(f"  `_` 所在行 y={best_row}，中点列 x={px}，竖直厚度 {t}px")
     check(abs(t - stroke) <= 2, f"`_` 线宽 {t}px = {stroke}px")
 
-    print("\n== 4) 源码事实：所有笔画共用 stroke_w ==")
+    print("\n== 4) 源码事实：所有笔画共用同一个 stroke ==")
     src = (ROOT / "app/assets/generate-icons.py").read_text(encoding="utf-8")
-    check("width=stroke_w" in src and "stroke_w / 2" in src,
-          "折线/下划线用 width=stroke_w，圆头半径用 stroke_w/2（同一来源）")
+    # 新实现用 _thick_polyline（矩形 + 顶点圆），不再用 draw.line(width=...)。
+    # 判据改成：`>` 与 `_` 都调用同一个 _thick_polyline；圆头半径都取 half = stroke/2。
+    same_poly = src.count("_thick_polyline(") >= 3   # 1 处定义 + `>` 与 `_` 各 1 处调用
+    half_used = "half = stroke_w / 2.0" in src
+    check(same_poly and half_used,
+          "`>` 与 `_` 都走 _thick_polyline；圆头/顶点圆半径 = stroke/2（同一来源）")
 
     print("\n" + ("所有笔画同粗" if ok else "笔画粗细不一致"))
     return 0 if ok else 1
