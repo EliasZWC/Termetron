@@ -518,10 +518,34 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #rmask{background:var(--bg)} /* 认证遮罩不透明：挡住背景会话目录，防止输入密码时泄露信息 */
  .modal{background:var(--panel);border:1px solid var(--border);border-radius:8px;width:min(440px,92vw);padding:18px;box-shadow:0 12px 44px rgba(0,0,0,.6)}
  .mtitle{font-size:13px;font-weight:700;color:var(--acc);letter-spacing:.5px;margin-bottom:12px}
- .field{margin-bottom:10px}
- .field label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;letter-spacing:.5px}
- .field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--txt);padding:7px 9px;font-size:12px;outline:none}
- .field input:focus{border-color:var(--acc)}
+ /*
+  ══ 表单样式：直接照搬 Scholarius ══
+
+  Scholarius 的深色主题变量与 Termetron 的**完全相同**，所以是 1:1 映射，
+  不需要重新设计：
+      Scholarius            Termetron
+      --surface    #242424  --panel
+      --outline    #333333  --border
+      --on-surface #ECECEA  --txt
+      --on-surface-variant #9A9A98  --dim
+
+  取值全部来自 Scholarius 的 .detail-input / .detail-field-label：
+      输入框  background:surface  border:1px outline  radius:10px
+              padding:9px 12px  font-size:14px  min-height:38px
+              :focus -> border-color: on-surface-variant（不是强调色）
+      label   15px / 700 / on-surface
+
+  ⚠️ 旧样式是 4px 圆角 + var(--bg) 底 + var(--acc) 焦点边框 + 12px 字号，
+     与 Scholarius 差异明显（圆角、底色、焦点色都不对）。
+  ⚠️ focus 用 --dim 而不是 --acc：Scholarius 的焦点是「边框稍微变亮」，
+     不换色相。用 --acc（近白）会变成一条刺眼的白边。
+ */
+ .field{margin-bottom:14px}
+ .field label{display:block;font-size:15px;font-weight:700;color:var(--txt);margin-bottom:6px;letter-spacing:0}
+ .field input,.field textarea{width:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--txt);padding:9px 12px;font-size:14px;font-family:inherit;outline:none;min-height:38px}
+ .field input::placeholder,.field textarea::placeholder{color:var(--dim);opacity:1}
+ .field input:focus,.field textarea:focus{border-color:var(--dim)}
+ .field textarea{resize:vertical;min-height:76px;line-height:1.5}
  .mmsg{font-size:13px;color:var(--txt);margin:4px 0}
  .srow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border)}
  .srow.cur{color:var(--acc)}
@@ -544,7 +568,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 .btn.back:hover{opacity:.7}
 .btn.back svg{width:26px;height:26px}
 /* 移动端（窄屏）：会话目录页布局，电脑端保持标签栏 */
-body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:var(--acc-soft2)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:var(--acc-soft2);border:1px solid var(--border);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}.modal-new{min-height:320px}  /* 新建会话弹窗固定高度：TERMINAL/AGENT 切换不跳变 */.seg{display:flex;gap:8px;margin:2px 0 6px}.seg-btn{flex:1;padding:6px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;font-size:11px;font-weight:600;letter-spacing:1px}.seg-btn.act{color:var(--acc);border-color:var(--acc);background:var(--acc-soft2)}.field textarea{width:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:4px;color:var(--txt);padding:7px 9px;font-size:12px;outline:none;font-family:inherit;resize:vertical;min-height:72px}.field textarea:focus{border-color:var(--acc)}.sess-item.agent{border:1px solid var(--acc-soft2);background:var(--acc-soft)}.sess-item .si-tag{font-size:9px;letter-spacing:1.5px;color:var(--acc);border:1px solid var(--acc-soft2);border-radius:3px;padding:1px 5px;font-weight:700;vertical-align:middle;margin-left:4px}.tab.agent{color:var(--acc)}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
+body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padding:12px 14px;gap:10px;flex-direction:column}body.mobile .sess-item{text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--txt);cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:6px}body.mobile .sess-item:active{background:var(--acc-soft2)}body.mobile .sess-item .si-line{display:flex;align-items:center;gap:8px;justify-content:space-between}body.mobile .sess-item .si-name{font-weight:700;color:var(--acc);letter-spacing:.5px}body.mobile .sess-item .si-busy{color:var(--acc);font-size:10px;font-weight:700;letter-spacing:1px}body.mobile .sess-item .si-idle{color:var(--dim);font-size:10px}body.mobile .sess-item .si-cmd{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .sess-item.new{justify-content:center;align-items:center;border-style:dashed;color:var(--acc);font-weight:600;letter-spacing:1px}body.mobile .sess-empty{color:var(--dim);text-align:center;padding:40px 0;letter-spacing:2px;font-size:12px}.chat{display:flex;flex-direction:column;gap:10px;padding:6px 2px}.chat-msg{max-width:86%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.chat-user{align-self:flex-end;background:var(--acc-soft2);border:1px solid var(--border);color:var(--txt)}.chat-agent{align-self:flex-start;background:var(--panel);border:1px solid var(--border);color:var(--txt)}.chat-txt{display:block}.chat-meta{font-size:10px;color:var(--dim);margin-top:5px;opacity:.8}.chat-thinking{align-self:flex-start;color:var(--dim);font-style:italic;font-size:12px;padding:4px 2px}.modal-new{min-height:320px}  /* 新建会话弹窗固定高度：TERMINAL/AGENT 切换不跳变 */.seg{display:flex;gap:8px;margin:2px 0 6px}.seg-btn{flex:1;padding:6px;border-radius:5px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;font-size:11px;font-weight:600;letter-spacing:1px}.seg-btn.act{color:var(--acc);border-color:var(--acc);background:var(--acc-soft2)}.sess-item.agent{border:1px solid var(--acc-soft2);background:var(--acc-soft)}.sess-item .si-tag{font-size:9px;letter-spacing:1.5px;color:var(--acc);border:1px solid var(--acc-soft2);border-radius:3px;padding:1px 5px;font-weight:700;vertical-align:middle;margin-left:4px}.tab.agent{color:var(--acc)}body.mobile .fbar .prow{flex-wrap:wrap}body.mobile .fbar .pmeta{flex-wrap:wrap}body.mobile #connbtn{display:none}body.mobile header{background:var(--bar);border-bottom:1px solid var(--border)}body.mobile .fbar #pmeta-ses{flex-direction:column;align-items:stretch;gap:2px}body.mobile .fbar .pm-item{display:inline-flex;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.mobile .fbar #pmeta-ses .menu{position:absolute;right:12px;bottom:6px}
 :root{--fs:13px}
 #out{font-size:var(--fs)}
 .inrow textarea{font-size:var(--fs)}

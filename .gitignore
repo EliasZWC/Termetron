@@ -11,3 +11,6 @@ cloudflared.exe
 
 # 编辑器本地配置（VS Code 窗口配色等），不入库
 .vscode/
+
+# 妫�鏌ヨ剼鏈殑杈撳嚭鐩綍锛堟瘡娆¤繍琛岄噸鏂扮敓鎴愶級
+tools/_icon_compare/

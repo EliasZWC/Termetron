@@ -39,19 +39,23 @@ def mask_of(img: Image.Image) -> np.ndarray:
 
 
 def measure(img: Image.Image) -> float:
-    """线宽 = 2 × 骨架距离变换值中位数（亚像素精度）。
+    """线宽 = 2 × 骨架距离变换的**最大值**（= 最粗处）。
+
+    ⚠️ 必须取 max，不能取 median（2026-10-26 踩过）。
+       dataset 里图标内部有细笔画（圆环内侧、指针、圆点边缘），
+       中位数会被它们拉低：Scholarius 中位 5.0、最大 11.0，
+       差了一倍多。按中位数算出来 0.1149，会让我以为
+       Termetron 偏粗而把线宽调细 8%——用户一眼就看出"细了"。
+       肉眼比较的是**最粗的那一段**，所以用 max。
 
     ⚠️ 调用方必须传**原始分辨率**的图。缩放（LANCZOS）会做插值，
-       把边缘过渡拉宽 1~2px；实测同一张图 512 缩放后比例从 0.1149
-       变成 0.1167，误差 +1.6%，足以让判定误报。
+       把边缘过渡拉宽，最大值随之虚高。
     """
     m = mask_of(img)
     d = ndimage.distance_transform_edt(m)
-    mx = ndimage.maximum_filter(d, size=3)
-    sk = (d == mx) & (d > 1.5)
-    if not sk.any():
+    if not m.any():
         return 0.0
-    return 2.0 * float(np.median(d[sk]))
+    return 2.0 * float(d.max())
 
 
 def median(xs) -> int:
@@ -87,21 +91,21 @@ def main() -> int:
     spec.loader.exec_module(gi)  # type: ignore[union-attr]
 
     ok = True
-    print("== 1) 声明值：线宽 / 占位（唯一的可比比例）==")
+    print("== 1) 声明值 ==")
     s_w = declared(REF / "Scholarius/app/src/main/res/drawable/ic_launcher_foreground.xml")
     l_w = declared(REF / "Livolog/app/src/main/res/drawable/ic_launcher_foreground.xml")
-    # 参考应用的绝对值是 SVG 视口 108 下的 4.67 / 4.0，但两者最终渲染出来的
-    # 线宽/占位比例实测是 0.1149 与 0.1134（见下方第 2 段）。
-    # Termetron 不再画 SVG，所以只校验这个比例。
+    # 参考的 SVG 视口里写的是 4.67 / 4.0，但真正要对齐的是**渲染后最粗处的
+    # 线宽/占位**：Scholarius 0.1270、Livolog 0.1232（见下方第 2 段实测）。
+    # STROKE_RATIO 是源参数，因 PIL 取整而略小于最终比例。
     t_ratio = gi.STROKE_RATIO
     print(f"  Scholarius {sorted(s_w)}   Livolog {sorted(l_w)}   "
-          f"Termetron 线宽/占位 = {t_ratio:.4f}")
-    c1 = 0.110 <= t_ratio <= 0.118
+          f"Termetron 源参数 STROKE_RATIO = {t_ratio:.4f}")
+    c1 = 0.100 <= t_ratio <= 0.112
     print(("  ✅ " if c1 else "  ❌ ")
-          + f"Termetron 线宽/占位 {t_ratio:.4f} 在参考实测区间 [0.1134, 0.1149] ±0.004")
+          + f"STROKE_RATIO {t_ratio:.4f} 合理（最终比例见第 2 段）")
     ok &= c1
 
-    print("\n== 2) 实测值（各应用**原始分辨率**，距离变换骨架）==")
+    print("\n== 2) 实测值（各应用**原始分辨率**，骨架距离**最大值**）==")
     imgs = {
         "scholarius": rend_scholarius(S),
         "livolog": rend_livolog(S),

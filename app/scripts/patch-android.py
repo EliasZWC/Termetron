@@ -111,6 +111,45 @@ def patch_styles() -> None:
     print(f"  styles.xml: status/nav bar -> {STATUS_BAR_COLOR} (matches page bg)")
 
 
+def patch_launcher_background() -> None:
+    """把自适应图标的背景色改回 #1B1B1B。
+
+    ⚠️ 必需：`npx capacitor-assets generate --android` 每次都会重写
+       `values/ic_launcher_background.xml`，默认值是 **#FFFFFF（纯白）**。
+       实测发布版就是这么变白的 —— 桌面图标外圈比 Scholarius / Livolog
+       亮一大截，并排看非常明显。
+
+    同时改两处：
+      1. `values/ic_launcher_background.xml` —— <color name="ic_launcher_background">
+      2. `drawable/ic_launcher_background.xml` —— vector 的 fillColor
+     """
+    # 1) values/ic_launcher_background.xml（color 资源）
+    p = Path("android/app/src/main/res/values/ic_launcher_background.xml")
+    if p.exists():
+        p.write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<resources>\n'
+            f'    <color name="ic_launcher_background">{STATUS_BAR_COLOR}</color>\n'
+            '</resources>\n',
+            encoding="utf-8")
+        print(f"  values/ic_launcher_background.xml: {STATUS_BAR_COLOR}")
+    else:
+        print("  values/ic_launcher_background.xml not found, skip", file=sys.stderr)
+
+    # 2) drawable/ic_launcher_background.xml（vector 填充）
+    p = Path("android/app/src/main/res/drawable/ic_launcher_background.xml")
+    if p.exists():
+        s = p.read_text(encoding="utf-8")
+        s2 = re.sub(r'(android:fillColor=")[^"]*(")', rf'\g<1>{STATUS_BAR_COLOR}\g<2>', s)
+        if s2 != s:
+            p.write_text(s2, encoding="utf-8")
+            print(f"  drawable/ic_launcher_background.xml: {STATUS_BAR_COLOR}")
+        else:
+            print("  drawable/ic_launcher_background.xml: fillColor not found, skip")
+    else:
+        print("  drawable/ic_launcher_background.xml not found, skip", file=sys.stderr)
+
+
 def patch_version_name() -> None:
     """versionName 从 package.json 同步（单一来源：package.json / README **Version:**）。"""
     ver = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
@@ -445,6 +484,7 @@ if __name__ == "__main__":
     patch_build_gradle()
     patch_variables_gradle()
     patch_styles()
+    patch_launcher_background()
     patch_version_name()
     patch_apk_install()
     patch_splash()
