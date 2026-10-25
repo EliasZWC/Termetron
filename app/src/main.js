@@ -7,8 +7,8 @@ import {
 import { App } from '@capacitor/app';
 import { checkForUpdate } from './updater';
 
-// 轻量提示（底部 toast，短暂显示，不阻塞）
-const TMT_TOAST_CSS = '.tmt-toast{position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(13,19,27,.95);border:1px solid #1b2733;color:#c9d1d9;padding:10px 18px;border-radius:8px;font-size:13px;z-index:10000;pointer-events:none;font-family:system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5)}';
+// 轻量提示（底部 toast，短暂显示，不阻塞）—— 中性灰阶，与 Scholarius / Livolog 设计语言一致
+const TMT_TOAST_CSS = '.tmt-toast{position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(36,36,36,.97);border:1px solid #333333;color:#ECECEA;padding:10px 18px;border-radius:8px;font-size:13px;z-index:10000;pointer-events:none;font-family:system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.55)}';
 function tmtToast(msg) {
   if (!document.getElementById('tmt-toast-css')) {
     const s = document.createElement('style'); s.id = 'tmt-toast-css'; s.textContent = TMT_TOAST_CSS; document.head.appendChild(s);
@@ -20,14 +20,14 @@ function tmtToast(msg) {
 
 const urlInput = document.getElementById('url');
 
-// Termetron 风格提示框（替代系统默认 alert）：深色 #0d131b + 紫色 #a78bfa，与 updater 弹窗一致
+// Termetron 风格提示框（替代系统默认 alert）：中性灰阶（面 #242424 + 墨白按钮），与 updater 弹窗一致
 const TMT_CSS = `
-.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
-.tmt-modal{background:#0d131b;border:1px solid #1b2733;border-radius:12px;padding:22px 20px;width:min(320px,88vw);color:#c9d1d9;box-shadow:0 10px 32px rgba(0,0,0,.55);text-align:left}
+.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.66);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+.tmt-modal{background:#242424;border:1px solid #333333;border-radius:12px;padding:22px 20px;width:min(320px,88vw);color:#ECECEA;box-shadow:0 10px 32px rgba(0,0,0,.55);text-align:left}
 .tmt-modal p{margin:0 0 18px;font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}
 .tmt-actions{display:flex;gap:10px;justify-content:flex-end}
-.tmt-btn{padding:9px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:#a78bfa;color:#0a0e14;-webkit-tap-highlight-color:transparent}
-.tmt-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(167,139,250,.3)}
+.tmt-btn{padding:9px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:#F2F2F0;color:#1B1B1B;-webkit-tap-highlight-color:transparent}
+.tmt-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(242,242,240,.3)}
 `;
 function tmtAlert(message) {
   if (!document.getElementById('tmt-css')) {

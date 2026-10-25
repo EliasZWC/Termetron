@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0a0e14">
+  <meta name="theme-color" content="#1B1B1B">
   <title>Termetron</title>
   <style>
     /* 内置等宽字体：DejaVu Sans Mono Bold（Linux 终端默认等宽字体，自由许可证可分发）。
@@ -15,8 +15,10 @@
       font-weight: 700;
       font-display: swap;
     }
-    /* 与电脑端 quant_terminal.py 一致的主题：--bg #0a0e14 / --panel #0d131b / --bar #171e2b / --border #1b2733 / --txt #c9d1d9 / --dim #5a6a7a / --acc #a78bfa */
-    :root { color-scheme: dark; --bg:#0a0e14; --panel:#0d131b; --bar:#171e2b; --border:#1b2733; --txt:#c9d1d9; --dim:#5a6a7a; --acc:#a78bfa; }
+    /* 与 Scholarius / Livolog 同一套中性灰阶设计语言：
+       页面底 #1B1B1B / 卡片面 #242424 / 边框 #333333 / 正文 #ECECEA / 次要文字 #9A9A98 /
+       强调色 = 墨白 #F2F2F0（靠反色块表达主次，不用彩色）。同步见 quant_terminal.py。 */
+    :root { color-scheme: dark; --bg:#1B1B1B; --panel:#242424; --bar:#131313; --border:#333333; --txt:#ECECEA; --dim:#9A9A98; --acc:#F2F2F0; --on-acc:#1B1B1B; --danger:#E06C5E; }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; -webkit-touch-callout: none; }
     body {
       margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -40,15 +42,15 @@
       display: flex; align-items: center; justify-content: center; gap: 8px;
     }
     .btn svg { width: 16px; height: 16px; flex: none; }
-    .primary { background: var(--acc); color: var(--bg); }
+    .primary { background: var(--acc); color: var(--on-acc); }
     .ghost { background: var(--panel); color: var(--txt); border: 1px solid var(--border); }
     .primary:disabled { opacity: .6; cursor: default; }
-    button:focus { outline: none; box-shadow: 0 0 0 2px rgba(167,139,250,.3); }
+    button:focus { outline: none; box-shadow: 0 0 0 2px rgba(242,242,240,.3); }
     .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
     .hint b { color: var(--acc); }
     .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; line-height: 1.6; margin: 0; }
     .ver b { color: var(--acc); }
-    .splash { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-bottom: 6vh; z-index: 99999; animation: ut-splash 2.6s ease forwards; pointer-events: none; }
+    .splash { position: fixed; inset: 0; background: #131313; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-bottom: 6vh; z-index: 99999; animation: ut-splash 2.6s ease forwards; pointer-events: none; }
     @keyframes ut-splash { 0%, 77% { opacity: 1; } 100% { opacity: 0; } }
     .splash svg { width: 108px; height: 108px; color: var(--acc); }
     .splash-brand { color: var(--acc); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 7px; }

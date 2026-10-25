@@ -11,7 +11,7 @@ const config: CapacitorConfig = {
     SplashScreen: {
       launchShowDuration: 0,      // 原生 splash 极短——品牌 splash 由 Web 层 CSS animation 接管（Android 12+ 系统 splash 不受此项控制）
       launchAutoHide: true,
-      backgroundColor: '#0b0f14', // 与 Web splash 深色底一致
+      backgroundColor: '#131313', // 与 Web splash 深色底一致（中性校阶，同 Scholarius / Livolog）
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
       splashFullScreen: true,

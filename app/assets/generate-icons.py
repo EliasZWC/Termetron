@@ -1,10 +1,10 @@
-"""生成 QT App 图标：深色底 + 浅紫色终端标志（与桌面 favicon 一致）"""
+"""生成 Termetron App 图标：深底 + 墨白终端标志（与 Scholarius / Livolog 同一套中性校阶）"""
 import os
 from PIL import Image, ImageDraw, ImageFont
 
 SIZE = 1024
-BG = (11, 15, 20, 255)        # 深色底 #0b0f14
-SYMBOL = (167, 139, 250, 255) # 浅紫色符号 #a78bfa（与 QT --acc 一致）
+BG = (27, 27, 27, 255)        # 深色底 #1B1B1B（与 Scholarius / Livolog 图标底板同色）
+SYMBOL = (242, 242, 240, 255) # 墨白符号 #F2F2F0（= 新 --acc，中性灰阶不用彩色）
 
 # 终端符号在 24 viewBox 里的坐标（「终端窗口 + >_ 字形」：圆角窗口 + 等宽粗体字符 >_，Windows Terminal 式）
 WIN = (1.5, 2, 22.5, 22)      # 终端窗口（圆角描边）
@@ -108,7 +108,7 @@ def make_splash():
     cx = (SPLASH_SIZE - lw) // 2
     cy = (SPLASH_SIZE - lh) // 2 - 140
     img.paste(logo, (cx, cy), logo)
-    # TERMETRON 品牌文字（紫色，与 logo 一致）
+    # TERMETRON 品牌文字（与 logo 同色，中性校阶强调色）
     font = load_text_font(160)
     d = ImageDraw.Draw(img)
     text = 'TERMETRON'

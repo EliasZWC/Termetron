@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.8.7
+**Version:** v0.8.8
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -53,6 +53,7 @@ Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
 | `termetron.py`     | One-shot launcher (`python termetron.py`, opens default browser) |
 | `agent.py`         | Agent channel CLI (status/watch/wait — let an AI agent monitor sessions) |
 | `release.py`       | One-click publish: bump version + push -> CI build -> auto Release |
+| `tools/check_palette.py` | Colour audit: fails if any colour is outside the Scholarius/Livolog palette |
 | `app/`             | Android APK client (Capacitor WebView wrapper), repo subdir   |
 | `app/assets/`      | App icon sources + `generate-icons.py` (Pillow)              |
 | `vscode/`          | VS Code extension (embeds the termetron web UI, see its README) |
@@ -77,9 +78,9 @@ Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
   session directory page → full-screen session view. Device is detected by
   pointer capability, not screen width.
 - **☰ dropdown menu** — MANAGE SESSIONS / MORE SETTINGS (full-screen settings
-  page: font size, theme color, About).
+  page: font size, About).
 - **⋯ session actions** — inside a mobile session view: rename / delete dropdown.
-- **Theme & font** — accent color and output font size persist in `localStorage`.
+- **Font size** — output font size persists in `localStorage`.
 
 ## Responsive UI (desktop vs mobile)
 
@@ -101,14 +102,23 @@ Force a mode from any browser (useful for preview):
 
 - **☰** (top-right) → dropdown:
   - **MANAGE SESSIONS** — list all sessions, delete each, create new
-  - **MORE SETTINGS** — full-screen page: FONT SIZE (`A-`/`A+`), THEME color
-    swatches, ABOUT
+  - **MORE SETTINGS** — full-screen page: FONT SIZE (`A-`/`A+`), ABOUT
 - **⋯** (inside a mobile session view) → dropdown: RENAME SESSION /
   DELETE SESSION (red)
-- Font size & accent color persist in `localStorage` across reloads
+- Font size persists in `localStorage` across reloads
 
 ## UI conventions
 
+- **Colour system = the Scholarius / Livolog neutral palette.** Both of those
+  apps share one monochrome-grey design language, and Termetron uses exactly the
+  same values — page `#1E1E1E`, surface `#242424`, bar `#131313`, raised `#303030`,
+  outline `#333333`, text `#ECECEA`, dim `#9A9A98`, ink accent `#F2F2F0`
+  (emphasis is expressed by inverting to a filled block, never by a hue),
+  danger `#E06C5E`, tab icons `#1B1B1B`.
+  **No colour outside that palette is allowed** — see `tools/check_palette.py`.
+- `python tools/check_palette.py` audits every Termetron source file against the
+  Scholarius + Livolog palettes and fails on any foreign colour. Run it after
+  touching styles.
 - Icon buttons are **pure SVG icons** — no box, border or background; hover
   only changes opacity.
 - Headers: the `TERMETRON` logo uses the brand font (Segoe UI 800 +

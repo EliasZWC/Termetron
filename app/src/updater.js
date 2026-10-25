@@ -25,21 +25,23 @@ function semverLte(a, b) {
 }
 
 // ---- Termetron-styled modal (replaces browser-default confirm/alert) ----
+// 配色 = Scholarius / Livolog 中性灰阶：面 #242424 / 边框 #333333 / 正文 #ECECEA /
+// 次要 #9A9A98 / 强调 = 墨白 #F2F2F0（主按钮反色填充）。避免使用彩色。
 const MODAL_CSS = `
-.ut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
-.ut-modal{background:#0d131b;border:1px solid #1b2733;border-radius:12px;padding:22px 20px;width:min(320px,88vw);color:#c9d1d9;box-shadow:0 10px 32px rgba(0,0,0,.55);text-align:left}
-.ut-modal h3{color:#a78bfa;margin:0 0 10px;font-size:15px;font-weight:700}
+.ut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.66);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+.ut-modal{background:#242424;border:1px solid #333333;border-radius:12px;padding:22px 20px;width:min(320px,88vw);color:#ECECEA;box-shadow:0 10px 32px rgba(0,0,0,.55);text-align:left}
+.ut-modal h3{color:#F2F2F0;margin:0 0 10px;font-size:15px;font-weight:700}
 .ut-modal p{margin:0 0 18px;font-size:13px;line-height:1.6;white-space:pre-line;word-break:break-word}
 .ut-actions{display:flex;gap:10px;justify-content:flex-end}
 .ut-btn{padding:9px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.ut-btn.cancel{background:#171e2b;color:#c9d1d9;border:1px solid #1b2733}
-.ut-btn.ok{background:#a78bfa;color:#0a0e14}
-.ut-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(167,139,250,.3)}
-.ut-pbar{height:6px;background:#171e2b;border-radius:3px;overflow:hidden;margin:2px 0 10px;position:relative}
-.ut-pfill{height:100%;width:0;background:#a78bfa;transition:width .2s ease}
+.ut-btn.cancel{background:#303030;color:#ECECEA;border:1px solid #333333}
+.ut-btn.ok{background:#F2F2F0;color:#1B1B1B}
+.ut-btn:focus{outline:none;box-shadow:0 0 0 2px rgba(242,242,240,.3)}
+.ut-pbar{height:6px;background:#303030;border-radius:3px;overflow:hidden;margin:2px 0 10px;position:relative}
+.ut-pfill{height:100%;width:0;background:#F2F2F0;transition:width .2s ease}
 .ut-pbar.indet .ut-pfill{width:36%;animation:ut-indet 1.4s ease-in-out infinite}
 @keyframes ut-indet{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
-.ut-ppct{color:#5a6a7a;font-size:12px;text-align:center;margin:0}
+.ut-ppct{color:#9A9A98;font-size:12px;text-align:center;margin:0}
 `;
 
 function ensureModalCss() {

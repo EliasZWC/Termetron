@@ -7,7 +7,7 @@
    不被采用），必须注入到根 build.gradle。
 2) minSdkVersion 22 -> 26：osbarcode-android:1.1.x 要求 minSdk >= 26。
 3) 深色状态栏/导航栏：Capacitor 默认浅色主题导致手机状态栏灰色（非全屏观感），
-   注入 --bg #0a0e14 同色，配合 WebView 背景实现全屏。
+   注入 --bar #131313 同色，配合 WebView 背景实现全屏。
 4) versionName 从 package.json 读取（与 lib/termetron/README.md **Version:** 同步，随迭代递增）。
 """
 import json
@@ -15,7 +15,7 @@ import re
 import sys
 from pathlib import Path
 
-STATUS_BAR_COLOR = "#0a0e14"
+STATUS_BAR_COLOR = "#131313"
 
 FEED = ("https://pkgs.dev.azure.com/OutSystemsRD/"
         "9e79bc5b-69b2-4476-9ca5-d67594972a52/"
@@ -274,14 +274,14 @@ def patch_apk_install() -> None:
         print("  MainActivity: registerPlugin(ApkInstallerPlugin.class)")
 
 
-SPLASH_BG = "#0b0f14"
+SPLASH_BG = "#131313"
 
 # Android 12+ 系统 SplashScreen：深色背景 + 透明图标（原生 splash 视觉上“取消”，
 # 由 Web 层 splash 无缝接管；Android 12+ 系统 splash 无法禁用，只能极简化）
 SPLASH_V31 = """<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:windowSplashScreenBackground">#0b0f14</item>
+        <item name="android:windowSplashScreenBackground">#131313</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
@@ -299,7 +299,7 @@ def patch_splash() -> None:
     """原生 splash 极简化（视觉上“取消原生 splash”，品牌画面全部交给 Web 层 CSS animation）：
     1) 写透明图标 drawable（Android 12+ 系统 splash 需要 drawable，透明=不显示图标）；
     2) values-v31/styles.xml 强制 Android 12+ 系统 splash = Theme.SplashScreen + 深色背景 + 透明图标；
-    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> #0b0f14 纯深色（Android <12）。
+    3) values/styles.xml 的 AppTheme.NoActionBarLaunch android:background -> #131313 纯深色（Android <12）。
     不再使用 splash.png / @drawable/splash（避免原生品牌画面与 Web splash 叠加重复）。
     """
     # 1) 透明图标 drawable
@@ -326,12 +326,12 @@ def patch_splash() -> None:
                 # Capacitor styles.xml 用子元素形式：<item name="android:background">value</item>
                 s = s[:i0] + re.sub(
                     r'(<item name="android:background">)[^<]*(</item>)',
-                    r'\g<1>#0b0f14\g<2>', block, count=1) + s[i1:]
+                    r'\g<1>#131313\g<2>', block, count=1) + s[i1:]
             else:
-                inject = '\n        <item name="android:background">#0b0f14</item>'
+                inject = '\n        <item name="android:background">#131313</item>'
                 s = s[:i1] + inject + s[i1:]
             vals.write_text(s, encoding="utf-8")
-            print("  values/styles.xml: launch background -> #0b0f14 (solid)")
+            print("  values/styles.xml: launch background -> #131313 (solid)")
         else:
             print("  values/styles.xml: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
     else:
