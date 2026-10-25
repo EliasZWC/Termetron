@@ -261,31 +261,49 @@ def patch_launcher_background() -> None:
     #           <background android:drawable="@drawable/ic_launcher_background" />
     #           <foreground android:drawable="@drawable/ic_launcher_foreground" />
     #           <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    #
+    #    ⚠️ 但 **foreground 必须指向 @mipmap**，不能指向 @drawable：
+    #       我们无法在这里安全地造出 res/drawable/ic_launcher_foreground.xml ——
+    #       实测手写一个 `<bitmap android:src="@mipmap/...">` 之后，
+    #       aapt 在合并资源时会把 `res/drawable/` 下的这个文件丢掉
+    #       （APK 里只剩 capacitor-assets 自己生成的 `res/drawable-v24/...`），
+    #       于是 adaptive-icon 引用一个不存在的资源 -> **图标整个空白**。
+    #       这是 v0.8.10~v0.8.14「桌面图标依旧是空的」的真因。
+    #       capacitor-assets 已经把前景放在 mipmap-*/ic_launcher_foreground.png，
+    #       直接引用它即可。
     adaptive = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
         '    <background android:drawable="@drawable/ic_launcher_background" />\n'
-        '    <foreground android:drawable="@drawable/ic_launcher_foreground" />\n'
-        '    <monochrome android:drawable="@drawable/ic_launcher_foreground" />\n'
+        '    <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n'
+        '    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />\n'
         '</adaptive-icon>\n'
     )
     for name in ("ic_launcher.xml", "ic_launcher_round.xml"):
         p = Path("android/app/src/main/res/mipmap-anydpi-v26") / name
         if p.exists():
             p.write_text(adaptive, encoding="utf-8")
-            print(f"  mipmap-anydpi-v26/{name}: no inset, @drawable refs (+monochrome)")
+            print(f"  mipmap-anydpi-v26/{name}: no inset, background=@drawable, "
+                  f"foreground=@mipmap")
 
-    # 4) drawable/ic_launcher_foreground.xml —— adaptive-icon 需要 drawable，
-    #    capacitor-assets 只产出 mipmap-*/ic_launcher_foreground.png，这里补个 bitmap 引用。
-    p = Path("android/app/src/main/res/drawable/ic_launcher_foreground.xml")
-    src = Path("android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png")
-    if src.exists():
-        p.write_text(
-            '<?xml version="1.0" encoding="utf-8"?>\n'
-            '<bitmap xmlns:android="http://schemas.android.com/apk/res/android"\n'
-            '    android:src="@mipmap/ic_launcher_foreground" />\n',
-            encoding="utf-8")
-        print("  drawable/ic_launcher_foreground.xml: -> @mipmap/ic_launcher_foreground")
+    # 4) 删掉可能遗留的 drawable*/ic_launcher_foreground.xml
+    #    ⚠️ 不要在这里造这个文件：aapt 合并资源时会把它丢掉（见上面第 3 段），
+    #       而 adaptive-icon 一旦引用它就会变成空白图标。
+    #    ⚠️ **必须连 drawable-v24 一起删**：capacitor-assets 每次都会重新生成
+    #       `res/drawable-v24/ic_launcher_foreground.xml`，那里面是它的**默认模板
+    #       图标**（一个几何折角图形），不是我们的 `>_`。API 24+ 解析
+    #       `@drawable/ic_launcher_foreground` 时会优先选中 v24 版本，
+    #       于是桌面上会出现一个和品牌完全无关的图形 —— 这正是
+    #       「桌面图标依旧没有 / 图标不对」的根因。只删 drawable/ 是不够的。
+    removed = []
+    for res_dir in Path("android/app/src/main/res").glob("drawable*"):
+        stale = res_dir / "ic_launcher_foreground.xml"
+        if stale.exists():
+            stale.unlink()
+            removed.append(res_dir.name)
+    if removed:
+        print("  " + ", ".join(f"{d}/ic_launcher_foreground.xml" for d in removed)
+              + ": 已删除（改用 @mipmap）")
 
     # 5) ic_launcher.png / ic_launcher_round.png —— 补上实底
     #    ⚠️ 这是「桌面图标是空的」的真因：

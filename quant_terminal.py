@@ -457,8 +457,11 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     ⚠️ 不要换回 SVG 图形：那个图形是「带孤立圆点的折线」，在小尺寸下
        圆点会糊成一个点，看不出是字。纯字符最清晰。
     等宽字体保证 `>` 和 `_` 对齐（比例字体下 `_` 会偏移）。 */
- .cur{display:inline-flex;align-items:center;color:var(--acc);line-height:1;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace;font-size:17px;font-weight:700;letter-spacing:0}
- .ttl{font-family:inherit;font-size:15px;font-weight:700;color:var(--acc);letter-spacing:3px}
+ .cur{display:inline-flex;align-items:center;color:var(--acc);line-height:24px;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace;font-size:17px;font-weight:700;letter-spacing:0.5px;white-space:nowrap}
+ /* ⚠️ 字号/字距必须与 Scholarius 的 .page-title 一致：17px / 700 / uppercase
+    / letter-spacing 0.5px / line-height 24px。之前 .ttl 是 15px + 3px 字距，
+    与 `>_` 明显不是一条行内标题。 */
+ .ttl{font-family:inherit;font-size:17px;font-weight:700;color:var(--acc);letter-spacing:0.5px;line-height:24px}
  .client-tag{font-size:11px;color:var(--dim);letter-spacing:1px;align-self:center;margin-left:2px;padding-top:4px}
  #curtitle{font-family:inherit;font-weight:700;letter-spacing:0}
  .tabs{display:flex;align-items:flex-end;gap:10px;background:var(--bar);padding:8px 14px 0;border-bottom:none;overflow-x:auto}
@@ -629,8 +632,12 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 .menu-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:13px 12px;margin-bottom:2px;background:transparent;border:0;border-radius:10px;color:var(--txt);font:inherit;font-size:15px;line-height:1.4;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
 .menu-opt:active{background:var(--raised)}
 .menu-opt .mo-arr{color:var(--dim);font-size:16px}
-/* 设置下拉框（图标下方） */
-#dropdown,#hdropdown{position:absolute;top:calc(100% + 6px);right:12px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:210px;box-shadow:0 12px 36px rgba(0,0,0,.55);z-index:50}
+/* 设置下拉框（图标下方）—— 照搬 Scholarius 的 .sheet：
+   底部抽屉形态（贴底、上方圆角 20px、无边框、向上阴影）。
+   ⚠️ 不要写成带 border 的浮动卡片：Scholarius 的所有选项层
+      （授权确认、选择器、设置面板）都是同一个 .sheet，
+      没有第二个「带边框的浮层」样式。这里跟它统一。 */
+#dropdown,#hdropdown{position:fixed;left:0;right:0;bottom:0;top:auto;background:var(--panel);border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));min-width:0;box-shadow:0 -8px 32px rgba(0,0,0,.28);z-index:70;max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain}
 .dd-item{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:13px 12px;border:0;border-radius:10px;background:transparent;color:var(--txt);font:inherit;font-size:15px;line-height:1.4;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
 .dd-item:active{background:var(--raised)}
 #hd-del{color:var(--danger)}

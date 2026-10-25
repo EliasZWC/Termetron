@@ -41,11 +41,14 @@
     /* 品牌标志：纯 `>_` 字符（用户要求应用内除 Splash 页外都用字符）。
        ⚠️ 不要换回 SVG 折线图形：那个图形带孤立圆点，在 38px 下圆点会糊掉，
           看不出是终端提示符。等宽字体保证 `>` 与 `_` 对齐。 */
-    .logo .mark { font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace; font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: 0; flex: none; }
+    /* ⚠️ 字号必须跟 Scholarius 的 .page-title 一致：17px / 700 / uppercase
+       / letter-spacing 0.5px / line-height 24px。`>_` 与标题同级同号，
+       这样两者才是同一行 header 标题，而不是一个巨大的标记配一行小字。 */
+    .logo .mark { font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace; font-size: 17px; font-weight: 700; line-height: 24px; letter-spacing: 0.5px; white-space: nowrap; flex: none; }
     /* ⚠️ 品牌标题也用等宽字体：Scholarius / Livolog 的 header 标题
        （.page-title 17px/700/uppercase）用的是同一个 family，没有另开一个
        无衬线品牌字体。之前用 'Segoe UI' 800，与两款应用明显不是一套。 */
-    .logo .ttl { font-family: inherit; font-size: 22px; font-weight: 700; letter-spacing: 3px; }
+    .logo .ttl { font-family: inherit; font-size: 17px; font-weight: 700; letter-spacing: 0.5px; line-height: 24px; }
     .sub { color: var(--dim); font-size: 12px; margin: 0 0 28px; }
     /* ══ 表单样式：直接照搬 Scholarius ══
        Scholarius 深色主题的变量与 Termetron 完全相同，所以是 1:1 映射：
