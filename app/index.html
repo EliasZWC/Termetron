@@ -39,7 +39,6 @@
     .card { width: 100%; max-width: 360px; text-align: center; margin-top: -5vh; }
     .logo { display: inline-flex; align-items: center; gap: 14px; color: var(--acc); margin: 0 0 4px; }
     .logo svg { width: 38px; height: 38px; flex: none; }
-    .logo svg * { stroke-width: 2.6; }
     /* ⚠️ 品牌标题也用等宽字体：Scholarius / Livolog 的 header 标题
        （.page-title 17px/700/uppercase）用的是同一个 family，没有另开一个
        无衬线品牌字体。之前用 'Segoe UI' 800，与两款应用明显不是一套。 */
@@ -68,22 +67,27 @@
     @keyframes ut-splash { 0%, 77% { opacity: 1; } 100% { opacity: 0; } }
     .splash svg { width: 108px; height: 108px; color: var(--acc); }
     .splash-brand { color: var(--acc); font-family: inherit; font-size: 24px; font-weight: 700; letter-spacing: 7px; }
-    /* logo 的 >_ 用同一套等宽字体渲染（与正文同源，不再用独立的 TmtMono/DejaVu） */
-    .logo svg text, .splash svg text { font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace; }
+    /* logo 的几何直接内联在 <svg> 里（与图标同一套坐标），不再用 <text> 画字形。 */
     /* 终端标志的渐变：白 → 灰，与 App 图标（generate-icons.py）完全一致。
-       ⚠️ 不要退回 currentColor 纯色：图标是白→灰渐变，网页 logo 纯白会与图标对不上。 */
+       ⚠️ 不要退回 currentColor 纯色：图标是白→灰渐变，网页 logo 纯白会与图标对不上。
+       ⚠️ 这里的几何必须与 generate-icons.py 的输出一一对应（归一化到占位框）：
+            线宽 0.1056、起点(0.053,0.053)、折点(0.447,0.5)、末端(0.193,0.789)
+            圆点(0.053,0.947) r=0.053、下划线 (0.553,0.947)-(0.947,0.947)
+          改图标参数时，这四处 SVG（index.html 两个 + quant_terminal.py 两个）必须同步。
+       ⚠️ 不要退回「外层圆角矩形框 + <text>>_</text>」的旧画法：
+          图标早已去掉外框，而且字体笔画粗细与图标线宽无关。 */
     .tmt-grad-top { stop-color: #FFFFFF; }
     .tmt-grad-bot { stop-color: #6E6E6E; }
   </style>
 </head>
 <body>
   <div id="splash" class="splash">
-    <svg viewBox="0 0 24 24" fill="none" stroke="none"><defs><linearGradient id="tmtg-splash" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="tmt-grad-top"/><stop offset="1" class="tmt-grad-bot"/></linearGradient></defs><rect x="1.5" y="2" width="21" height="20" rx="4" stroke="url(#tmtg-splash)" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="url(#tmtg-splash)">>_</text></svg>
+    <svg viewBox="0 0 100 100" fill="none"><defs><linearGradient id="tmtg-splash" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="tmt-grad-top"/><stop offset="1" class="tmt-grad-bot"/></linearGradient></defs><polyline points="5.28,5.28 44.72,50 19.25,78.88" stroke="url(#tmtg-splash)" stroke-width="10.56" stroke-linecap="round" stroke-linejoin="round"/><line x1="55.28" y1="94.72" x2="94.72" y2="94.72" stroke="#6E6E6E" stroke-width="10.56" stroke-linecap="round"/><circle cx="5.28" cy="94.72" r="5.28" fill="#6E6E6E"/></svg>
     <div class="splash-brand">TERMETRON</div>
   </div>
   <div class="card">
     <p class="logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="none"><defs><linearGradient id="tmtg-logo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="tmt-grad-top"/><stop offset="1" class="tmt-grad-bot"/></linearGradient></defs><rect x="1.5" y="2" width="21" height="20" rx="4" stroke="url(#tmtg-logo)" style="stroke-width:1.6"></rect><text x="3.5" y="13" font-family="monospace" font-size="11.5" font-weight="700" fill="url(#tmtg-logo)">>_</text></svg>
+      <svg viewBox="0 0 100 100" fill="none"><defs><linearGradient id="tmtg-logo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="tmt-grad-top"/><stop offset="1" class="tmt-grad-bot"/></linearGradient></defs><polyline points="5.28,5.28 44.72,50 19.25,78.88" stroke="url(#tmtg-logo)" stroke-width="10.56" stroke-linecap="round" stroke-linejoin="round"/><line x1="55.28" y1="94.72" x2="94.72" y2="94.72" stroke="#6E6E6E" stroke-width="10.56" stroke-linecap="round"/><circle cx="5.28" cy="94.72" r="5.28" fill="#6E6E6E"/></svg>
       <span class="ttl">TERMETRON</span>
     </p>
     <p class="sub">Mobile Client</p>

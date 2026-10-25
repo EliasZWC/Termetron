@@ -603,7 +603,7 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 </style><meta name="theme-color" content="#1B1B1B">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 </head><body>
-<header><span class="cur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="1.5" y="2" width="21" height="20" rx="4" stroke-width="1.6"></rect><path d="M9 8 L14 12 L9 16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14.5 15.5 H19" stroke-width="2" stroke-linecap="round"></path></svg></span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
+<header><span class="cur"><svg viewBox="0 0 100 100" fill="none"><defs><linearGradient id="tmtg-hdr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#6E6E6E"/></linearGradient></defs><polyline points="5.28,5.28 44.72,50 19.25,78.88" stroke="url(#tmtg-hdr)" stroke-width="10.56" stroke-linecap="round" stroke-linejoin="round"/><line x1="55.28" y1="94.72" x2="94.72" y2="94.72" stroke="#6E6E6E" stroke-width="10.56" stroke-linecap="round"/><circle cx="5.28" cy="94.72" r="5.28" fill="#6E6E6E"/></svg></span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
 <div id="dropdown" style="display:none">
   <button class="dd-item" id="dd-sess">MANAGE SESSIONS</button>
   <button class="dd-item" id="dd-more">MORE SETTINGS</button>
@@ -1558,8 +1558,22 @@ async function initAuth() {
 }
 // PWA：图标 + manifest（添加到主屏幕 / 套壳基础）
 function initPWA() {
+  // ⚠️ 必须与 App 图标（app/assets/generate-icons.py）同一套几何：
+  //    占位 41.4%、线宽 0.1056×占位、左上→折点渐变、左下孤立圆点、_ 纯最暗色。
+  //    viewBox 用 0 0 100 100，几何直接沿用归一化坐标，改动时四处 SVG 同步。
   const icon = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#1B1B1B"/><rect x="4" y="5.3" width="56" height="53.3" rx="10.7" fill="none" stroke="#F2F2F0" style="stroke-width:4.3"/><text x="9.3" y="34.7" font-family="monospace" font-size="31" font-weight="700" fill="#F2F2F0">>_</text></svg>');
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+    '<rect width="100" height="100" fill="#1B1B1B"/>' +
+    '<g transform="translate(29.3,29.3) scale(0.414)">' +
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#6E6E6E"/>' +
+    '</linearGradient></defs>' +
+    '<polyline points="5.28,5.28 44.72,50 19.25,78.88" fill="none" stroke="url(#g)" ' +
+    'stroke-width="10.56" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<line x1="55.28" y1="94.72" x2="94.72" y2="94.72" stroke="#6E6E6E" ' +
+    'stroke-width="10.56" stroke-linecap="round"/>' +
+    '<circle cx="5.28" cy="94.72" r="5.28" fill="#6E6E6E"/>' +
+    '</g></svg>');
   const fav = document.createElement('link'); fav.rel = 'icon'; fav.href = icon; document.head.appendChild(fav);
   const man = {name:'Termetron', short_name:'TMT', start_url:'.', display:'standalone',
     background_color:'#1B1B1B', theme_color:'#1B1B1B',

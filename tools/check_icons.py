@@ -80,14 +80,18 @@ def render_livolog(S: int) -> Image.Image:
 
 
 def render_termetron(S: int) -> Image.Image:
-    """直接用生产脚本，保证对比的是真实产物。"""
+    """直接用生产脚本，保证对比的是真实产物。
+
+    ⚠️ `app/assets/icon.png` 现在是**透明底纯符号**（底色交给 capacitor-assets
+       的 --iconBackgroundColor），所以这里必须用 make_icon(bg=True) 合成
+       一张带底色的图来和参考对比，不能直接读 icon.png。
+       用 rounded=True 会引入圆角外的纯黑角，与参考对比失真，所以用 False。
+    """
     gen = ROOT / "app" / "assets" / "generate-icons.py"
     spec = importlib.util.spec_from_file_location("generate_icons", gen)
     gi = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gi)  # type: ignore[union-attr]
 
-    # ⚠️ 必须与生产一致：main() 里是 rounded=False（方形满底）。
-    #    用 True 会引入 4% 的纯黑角，与参考对比失真。
     icon = gi.make_icon(bg=True, rounded=False)
     return icon.convert("RGB").resize((S, S), Image.LANCZOS)
 

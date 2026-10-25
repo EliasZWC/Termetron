@@ -55,7 +55,18 @@ jobs:
 
       - name: Generate app icons
         working-directory: app
-        run: npx capacitor-assets generate --android
+        # ⚠️ --iconBackgroundColor 不能省：assets/icon.png 是**透明底纯符号**，
+        #    capacitor-assets 需要这个参数才知道底板该填什么色。
+        #    若不传，ic_launcher.png 会是透明底（桌面图标没有底板）；
+        #    若 icon.png 自带底色，它会把底色当"待抠除"的底色抠掉 ——
+        #    实测生成出的 ic_launcher.png 96% 是纯透明
+        #    （v0.8.10 / v0.8.11 桌面图标不生效就是这个原因）。
+        run: >
+          npx capacitor-assets generate --android
+          --iconBackgroundColor '#1B1B1B'
+          --iconBackgroundColorDark '#1B1B1B'
+          --splashBackgroundColor '#1B1B1B'
+          --splashBackgroundColorDark '#1B1B1B'
 
       - name: Sync Capacitor
         working-directory: app

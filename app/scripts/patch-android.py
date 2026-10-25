@@ -112,16 +112,18 @@ def patch_styles() -> None:
 
 
 def patch_launcher_background() -> None:
-    """把自适应图标的背景色改回 #1B1B1B。
+    """重写自适应图标配置，使其与 Scholarius / Livolog 一致。
 
-    ⚠️ 必需：`npx capacitor-assets generate --android` 每次都会重写
-       `values/ic_launcher_background.xml`，默认值是 **#FFFFFF（纯白）**。
-       实测发布版就是这么变白的 —— 桌面图标外圈比 Scholarius / Livolog
-       亮一大截，并排看非常明显。
+    ⚠️ 三处都会被 `capacitor-assets generate --android` 改坏，
+       所以每次构建后都必须重写（这就是 v0.8.10 / v0.8.11
+       「桌面图标没改 / 背景色不一样」的真因）：
 
-    同时改两处：
-      1. `values/ic_launcher_background.xml` —— <color name="ic_launcher_background">
-      2. `drawable/ic_launcher_background.xml` —— vector 的 fillColor
+       1. `values/ic_launcher_background.xml` 被写成 **#FFFFFF（纯白）**
+       2. `mipmap-anydpi-v26/ic_launcher.xml` 给 background 加了
+          **inset="16.7%"** —— 背景四边各缩进 1/6，外面那圈没有填充，
+          露出系统底色，看起来就是「图标外围有一圈不同色的边」
+       3. `ic_launcher.png` 只有约 2% 不透明像素（96% 是纯透明），
+          Android 7 及以下会显示成一个几乎空白的图标
      """
     # 1) values/ic_launcher_background.xml（color 资源）
     p = Path("android/app/src/main/res/values/ic_launcher_background.xml")
@@ -148,6 +150,43 @@ def patch_launcher_background() -> None:
             print("  drawable/ic_launcher_background.xml: fillColor not found, skip")
     else:
         print("  drawable/ic_launcher_background.xml not found, skip", file=sys.stderr)
+
+    # 3) mipmap-anydpi-v26/ic_launcher{,_round}.xml
+    #    ⚠️ 这是「背景色不一样」的真因：
+    #       capacitor-assets 生成的是
+    #           <background><inset android:drawable="@mipmap/ic_launcher_background"
+    #                              android:inset="16.7%" /></background>
+    #       背景被 inset 16.7% —— 四边各缩进 1/6，外面那圈没有任何填充，
+    #       露出的就是系统底色。所以图标外围有一圈与 #1B1B1B 不同的边。
+    #       参考两款应用都没有 inset、也不引用 mipmap：
+    #           <background android:drawable="@drawable/ic_launcher_background" />
+    #           <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    #           <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    adaptive = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@drawable/ic_launcher_background" />\n'
+        '    <foreground android:drawable="@drawable/ic_launcher_foreground" />\n'
+        '    <monochrome android:drawable="@drawable/ic_launcher_foreground" />\n'
+        '</adaptive-icon>\n'
+    )
+    for name in ("ic_launcher.xml", "ic_launcher_round.xml"):
+        p = Path("android/app/src/main/res/mipmap-anydpi-v26") / name
+        if p.exists():
+            p.write_text(adaptive, encoding="utf-8")
+            print(f"  mipmap-anydpi-v26/{name}: no inset, @drawable refs (+monochrome)")
+
+    # 4) drawable/ic_launcher_foreground.xml —— adaptive-icon 需要 drawable，
+    #    capacitor-assets 只产出 mipmap-*/ic_launcher_foreground.png，这里补个 bitmap 引用。
+    p = Path("android/app/src/main/res/drawable/ic_launcher_foreground.xml")
+    src = Path("android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png")
+    if src.exists():
+        p.write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<bitmap xmlns:android="http://schemas.android.com/apk/res/android"\n'
+            '    android:src="@mipmap/ic_launcher_foreground" />\n',
+            encoding="utf-8")
+        print("  drawable/ic_launcher_foreground.xml: -> @mipmap/ic_launcher_foreground")
 
 
 def patch_version_name() -> None:
