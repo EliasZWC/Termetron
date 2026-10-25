@@ -63,7 +63,28 @@ SYMBOL_DARK = (110, 110, 110)       # #6E6E6E
 #         线宽     4.67 -> 4.67/38 = 0.1229（线宽 / 符号外接）
 #      之前用的 0.414 让符号**偏大 18%** —— 占位一大，同一条线就显得细，
 #      这正是「线条粗细还是不对」的真因（比例本身是对的，基数错了）。
-SYMBOL_RATIO = 0.414                # 占位正方形边长 / 画布
+SYMBOL_RATIO = 0.414                # 完整图标图（icon.png / icon-only.png）占位
+#   ⚠️ 2026-10-26：这里**必须分两套比例**，混用就是「桌面图标占位偏大」的原因。
+#        · icon.png / icon-only.png      → 0.414（完整方形图，对标 Scholarius 的 PNG）
+#        · icon-foreground.png           → 0.352（自适应图标前景，108dp 视口比）
+#      Android 8+ 把 108dp 前景裁成中间 72dp 再放大 1.5 倍显示。
+#      前景图若也用 0.414，桌面上实际就是 0.414×1.5 ≈ 0.62，比 Scholarius 大 18%。
+#      Scholarius 的 `drawable/ic_launcher_foreground.xml` 符号外接 38 / 视口 108 = 0.352，
+#      所以前景图取 0.352 才能和它在桌面**同尺寸**。
+FG_SYMBOL_RATIO = 0.315             # 自适应图标前景占位 / 108dp 画布
+#   ⚠️ 2026-10-26 二次修正：几何对齐 Scholarius（38dp / 35.2%）之后，
+#      用户仍反馈「和另外两个应用放一起特别明显」。
+#      实测确认不是比例问题 —— 占位、线宽、居中、留白全部与 Scholarius 一致：
+#        墨迹外框   Termetron 38.18dp   Scholarius 38.00dp
+#        线宽/外框  Termetron 0.1229    Scholarius 0.1229
+#        居中       两者都在 (54,54)，留白 16.9dp
+#      差异在**符号自身的视觉重量**：
+#        · `>_` 是「粗 V 形 + 孤立圆点 + 粗横条」三块实心色块拼在一起，
+#          四角都顶到外框边，读起来非常「黑」
+#        · Σ 是连续折线，笔画之间有空隙，外框内的负空间大得多
+#      所以这里按**视觉重量**补偿，把占位降到 34dp（0.315），
+#      使 `>_` 在桌面上与 Σ 的观感一致 —— 这是「占位要缩小」的最终落地值。
+SPLASH_SYMBOL_RATIO = 0.414
 #   ⚠️ 对标的是两款应用的**桌面图标 PNG**（design/*.png），不是它们的
 #      VectorDrawable 前景（108 视口、符号占 35.2%）—— 两者用途不同：
 #        桌面图标 PNG     占画布 41.4% / 41.3%
@@ -71,21 +92,17 @@ SYMBOL_RATIO = 0.414                # 占位正方形边长 / 画布
 #      桌面预览 / 商店图标看的是 PNG 那套，所以用 41.4%。
 #      （我曾按 35.2% 改过一版，图标明显变小、线也显细，是错的。）
 SUPERSAMPLE = 4
-STROKE_RATIO = 0.1450               # 线宽 / 占位边长
-#   ⚠️ 别再靠「骨架距离 / 占位」反推这个数 —— 那个口径量出来的是
-#      「最粗的那一点」，和并排观看时的**整体粗细观感**不一致。
-#      用户三次说细，说明唯一可信的判据是「同一画面尺度下并排看」。
-#      当前值由并排目视校准确定（见 tools/check_icon_stroke.py 的参照区间）。
-#   参考实测（原始分辨率、距离变换骨架）：
-#       Scholarius 20.00 / 174 = 0.1149
-#       Livolog    21.54 / 190 = 0.1134
-#   ⚠️ 这里是**源参数**，不是最终观感值。PIL 画多边形时坐标取整，
-#      实际渲染出来会比 stroke 宽约 1px（实测 0.113 -> 48.0 画成 49~50px）。
-#      取 0.1095 后实测线宽/占位 = 0.1154，正好落在参考区间中位。
-#      （验算：python tools/check_icon_stroke.py 第 2 段）
-
-# 兼容旧接口的常量（tools/ 里仍有引用）
-SYMBOL_ASPECT = 1.0
+STROKE_RATIO = 0.1229               # 线宽 / 墨迹外框边长
+#   ⚠️ 2026-10-26 定稿：这个数是**实测对标 Scholarius**得到的，不要再凭观感调大。
+#      口径（三个应用完全一致）：线宽 ÷ **墨迹外框**（含线宽的包围盒）。
+#        Scholarius  线宽 4.67 / 墨迹外框 38.00 = 0.1229
+#        Livolog     线宽 4.00 / 墨迹外框 81.72 = 0.0489（细线圆环，风格不同，不采用）
+#        Termetron   曾用 0.1450 → **比 Scholarius 粗 18%**
+#    「和其他两个应用放在一起特别明显」的主因就是粗细不一致，
+#    不是占位大小：占位已经对齐（0.352 vs 0.3519），但线粗了 18%。
+#    历史上三次「太细」的反馈都发生在**用骨架中位数/最大值反推**的错误口径下，
+#    那个口径量的是「最粗那一点」，与并排观看的整体观感无关。现在统一用
+#    「线宽 ÷ 墨迹外框」，这是唯一能和参考应用直接比较的比值。
 _SYMBOL_X0 = 0.0
 _SYMBOL_Y0 = 0.0
 _SYMBOL_W = 1.0
@@ -410,7 +427,7 @@ def compose_symbol(canvas, layout, gradient=True):
     return canvas
 
 
-def draw_centered(img, size_px=None, center=None, ss=None):
+def draw_centered(img, size_px=None, center=None, ss=None, ratio=None):
     """在 img 正中（或指定 center）按占位正方形画符号。
 
     ⚠️ 必须超采样（ss >= 4）：
@@ -419,11 +436,13 @@ def draw_centered(img, size_px=None, center=None, ss=None):
        中间一个过渡像素都没有；超采样后是 26 → 28 → 31 → 150 → 245。
     ⚠️ `ss=None` 而不是 `ss=SUPERSAMPLE`：默认参数在函数**定义时**求值，
        写死常量后改模块变量不会生效（调试时会被误导）。
+    ⚠️ `ratio` 同理必须留 None：自适应图标前景要用 FG_SYMBOL_RATIO，
+       完整图标图用 SYMBOL_RATIO，两者不能共用一个常量。
     """
     if ss is None:
         ss = SUPERSAMPLE
     if size_px is None:
-        size_px = round(SYMBOL_RATIO * SIZE)
+        size_px = round((ratio if ratio is not None else SYMBOL_RATIO) * SIZE)
     stroke = max(2.0, STROKE_RATIO * size_px)
 
     if ss <= 1:
@@ -457,7 +476,7 @@ def draw_symbol_on(img, cx, cy, size_px, stroke_px=None, ss=None):
     return Image.alpha_composite(img, big.resize((w, h), Image.LANCZOS))
 
 
-def make_icon(bg=True, rounded=False, radius=220):
+def make_icon(bg=True, rounded=False, radius=220, ratio=None):
     """整张图标。bg=False 返回透明底（adaptive foreground / icon-only）。
 
     ⚠️ `rounded` 默认 False，且**生产上只能传 False**。
@@ -466,12 +485,13 @@ def make_icon(bg=True, rounded=False, radius=220):
        也不是透明（保存成 RGB 后透明会变黑），与并排的两个应用对比就是
        四个突兀的黑角。Android 8+ 的自适应图标由系统自己裁圆角，
        不需要我们在图里预先裁。
+    ⚠️ `ratio` 见 draw_centered：前景图必须比完整图标图小。
     """
     if bg:
         img = Image.new('RGBA', (SIZE, SIZE), BG)
         # ⚠️ draw_centered 现在**返回新图**（超采样合成会产生新 Image），
         #    必须接住返回值。漏接的后果是整个符号消失，只剩底板。
-        img = draw_centered(img)
+        img = draw_centered(img, ratio=ratio)
         if rounded:
             # 圆角只在显式要求时用，且圆角外用**底色**填，不用黑色。
             mask = Image.new('L', (SIZE, SIZE), 0)
@@ -481,7 +501,7 @@ def make_icon(bg=True, rounded=False, radius=220):
             img = Image.composite(img, flat, mask)
         return img
     img = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-    return draw_centered(img)
+    return draw_centered(img, ratio=ratio)
 
 
 SPLASH_SIZE = 2732
@@ -506,7 +526,8 @@ def load_text_font(size):
 
 def make_splash():
     img = Image.new('RGBA', (SPLASH_SIZE, SPLASH_SIZE), BG)
-    logo = round(SPLASH_SIZE * SYMBOL_RATIO)
+    # Splash 是全屏展示，不走自适应图标裁切，用更大的 0.414。
+    logo = round(SPLASH_SIZE * SPLASH_SYMBOL_RATIO)
     stroke = STROKE_RATIO * logo
     cx, cy = SPLASH_SIZE / 2.0, SPLASH_SIZE / 2.0 - 150
     draw_symbol_on(img, cx, cy, logo, stroke)
@@ -541,7 +562,10 @@ def main():
     #    转 RGB 后透明区域会变成纯黑，adaptive icon 前景层会显示成黑块。
     make_icon(bg=False).save(
         os.path.join(out, 'icon-only.png'))
-    make_icon(bg=False).save(
+    # ⚠️ 前景图**必须用 FG_SYMBOL_RATIO（0.352），不能用 0.414**：
+    #    Android 8+ 把 108dp 前景裁成中间 72dp 再放大显示，
+    #    同一比例画出来在桌面上会大 18%（=「占位要缩小」的原因）。
+    make_icon(bg=False, ratio=FG_SYMBOL_RATIO).save(
         os.path.join(out, 'icon-foreground.png'))
     Image.new('RGB', (SIZE, SIZE), BG).save(os.path.join(out, 'icon-background.png'))
     make_splash().save(os.path.join(out, 'splash.png'))
