@@ -66,9 +66,15 @@ def main() -> int:
                         best = c
         return best
 
-    start_c = sample(x0 + 8, y0 + 8)
+    # ⚠️ 终点色要读**末端圆心本身**，不能用 sample()。
+    #    sample() 会在 ±12px 窗口里取最亮像素 —— 线宽 61.5px 时窗口内
+    #    既有末端（最暗 110）也有上方的渐变中段（更亮），于是取到 121。
+    #    终点就在 「末端圆心」 这一点上，直接读它。
+    k = stroke * 0.12
+    start_c = sample(x0 + k, y0 + k)
     knee_c = sample(x1 - stroke * 0.6, y1)
-    end_c = sample(x2 + 8, y2 - 8)
+    ex, ey = int(round(x2)), int(round(y2))
+    end_c = icon.getpixel((ex, ey))[:3] if 0 <= ex < W and 0 <= ey < H else None
     print(f"\n起点色 {start_c}   折点色 {knee_c}   终点色 {end_c}")
 
     check(start_c and start_c[0] >= 248, f"起点接近纯白（实测 {start_c}）")

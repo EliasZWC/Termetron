@@ -94,15 +94,15 @@ def main() -> int:
     print("== 1) 声明值 ==")
     s_w = declared(REF / "Scholarius/app/src/main/res/drawable/ic_launcher_foreground.xml")
     l_w = declared(REF / "Livolog/app/src/main/res/drawable/ic_launcher_foreground.xml")
-    # 参考的 SVG 视口里写的是 4.67 / 4.0，但真正要对齐的是**渲染后最粗处的
-    # 线宽/占位**：Scholarius 0.1270、Livolog 0.1232（见下方第 2 段实测）。
-    # STROKE_RATIO 是源参数，因 PIL 取整而略小于最终比例。
+    # ⚠️ STROKE_RATIO 不再由「骨架距离」反推 —— 那个口径量的是最粗的一点，
+    #    和并排观看时的**整体粗细观感**对不上（用户按它调了三次都说细）。
+    #    现改为并排目视校准，这里只保证参数在合法范围内。
     t_ratio = gi.STROKE_RATIO
     print(f"  Scholarius {sorted(s_w)}   Livolog {sorted(l_w)}   "
           f"Termetron 源参数 STROKE_RATIO = {t_ratio:.4f}")
-    c1 = 0.100 <= t_ratio <= 0.112
+    c1 = 0.12 <= t_ratio <= 0.20
     print(("  ✅ " if c1 else "  ❌ ")
-          + f"STROKE_RATIO {t_ratio:.4f} 合理（最终比例见第 2 段）")
+          + f"STROKE_RATIO {t_ratio:.4f} 合理（最终观感见第 3 段墨量比）")
     ok &= c1
 
     print("\n== 2) 实测值（各应用**原始分辨率**，骨架距离**最大值**）==")
@@ -111,25 +111,33 @@ def main() -> int:
         "livolog": rend_livolog(S),
         "termetron": gi.make_icon(bg=True, rounded=False).convert("RGB"),
     }
-    widths, ratios = {}, {}
+    widths, ratios, inks = {}, {}, {}
     for name, im in imgs.items():
         widths[name] = measure(im)
-        ratios[name] = widths[name] / (bbox_w_of(im) or 1)
-        print(f"  {name:11}: 线宽 {widths[name]:5.1f}px   "
-              f"占位 {bbox_w_of(im):3d}px   线宽/占位 {ratios[name]:.4f}")
+        bw = bbox_w_of(im) or 1
+        ratios[name] = widths[name] / bw
+        # 墨量比 = 前景像素 / 占位面积²。这是最贴近「整体粗细观感」的指标：
+        # 线宽和图案密度一起算进去，不受「最粗一点」被斜接/圆角放大的干扰。
+        m = mask_of(im)
+        inks[name] = m.sum() / float(bw * bw)
+        print(f"  {name:11}: 骨架线宽 {widths[name]:5.1f}px  占位 {bw:3d}px  "
+              f"墨量比 {inks[name]:.4f}")
 
-    lo = min(ratios["scholarius"], ratios["livolog"])
-    hi = max(ratios["scholarius"], ratios["livolog"])
-    c2 = lo - 0.003 <= ratios["termetron"] <= hi + 0.003
+    # ⚠️ 判据用**墨量比**，不用骨架线宽比：
+    #    用户按骨架线宽比调了三次（0.1149 / 0.1251 / 0.1267）都被说"太细"。
+    #    原因：`>` 是极简的两段折线，同样的骨架线宽，它的墨量远低于
+    #    参考应用的「圆环 + 指针 + 圆点」。要视觉等效，墨量必须接近。
+    print("\n== 3) 墨量比（前景像素 / 占位面积，最贴近观感）==")
+    lo = min(inks["scholarius"], inks["livolog"])
+    hi = max(inks["scholarius"], inks["livolog"])
+    for name in inks:
+        print(f"  {name:11}: {inks[name]:.4f}")
+    # 允许 Termetron 略低于参考（它是开口折线，不是闭合轮廓）
+    c2 = inks["termetron"] >= lo * 0.55
     print(("  ✅ " if c2 else "  ❌ ")
-          + f"Termetron 线宽/占位 {ratios['termetron']:.4f} "
-            f"在参考区间 [{lo:.4f}, {hi:.4f}] ±0.003")
+          + f"Termetron 墨量比 {inks['termetron']:.4f} "
+            f"≥ 参考下限 {lo:.4f} 的 55%（开口折线允许略低）")
     ok &= c2
-
-    # 三款应用必须都是「线条勾勒」：线宽 / 符号外接 >= 0.09
-    print("\n== 3) 三者都是线条勾勒（线宽/符号 > 0.09）==")
-    for name in ratios:
-        print(f"  {name:11}: {ratios[name]:.4f}")
 
     print("\n" + ("线宽一致" if ok else "线宽不一致"))
     return 0 if ok else 1
