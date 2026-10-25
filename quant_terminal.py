@@ -453,8 +453,11 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  ::-webkit-scrollbar-thumb:hover{background:var(--dim)}
  ::-webkit-scrollbar-corner{background:transparent}
  header{display:flex;align-items:center;gap:12px;background:var(--bar);border-bottom:none;padding:12px 18px;position:relative}
- .cur{display:inline-flex;align-items:center;color:var(--acc);line-height:1}
- .cur svg{width:20px;height:20px}
+ /* header 的品牌标志：纯 `>_` 字符（用户要求应用内除 Splash 页外都用字符）。
+    ⚠️ 不要换回 SVG 图形：那个图形是「带孤立圆点的折线」，在小尺寸下
+       圆点会糊成一个点，看不出是字。纯字符最清晰。
+    等宽字体保证 `>` 和 `_` 对齐（比例字体下 `_` 会偏移）。 */
+ .cur{display:inline-flex;align-items:center;color:var(--acc);line-height:1;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace;font-size:17px;font-weight:700;letter-spacing:0}
  .ttl{font-family:inherit;font-size:15px;font-weight:700;color:var(--acc);letter-spacing:3px}
  .client-tag{font-size:11px;color:var(--dim);letter-spacing:1px;align-self:center;margin-left:2px;padding-top:4px}
  #curtitle{font-family:inherit;font-weight:700;letter-spacing:0}
@@ -642,7 +645,7 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 </style><meta name="theme-color" content="#1B1B1B">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 </head><body>
-<header><span class="cur"><svg viewBox="0 0 100 100" fill="none"><defs><linearGradient id="tmtg-hdr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#6E6E6E"/></linearGradient></defs><polyline points="7.25,7.25 42.75,50 25.78,70.44" stroke="url(#tmtg-hdr)" stroke-width="14.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="57.25" y1="92.75" x2="92.75" y2="92.75" stroke="#6E6E6E" stroke-width="14.5" stroke-linecap="round"/><circle cx="7.25" cy="92.75" r="7.25" fill="#6E6E6E"/></svg></span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
+<header><span class="cur">>_</span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
 <div id="dropdown" style="display:none">
   <button class="dd-item" id="dd-sess">MANAGE SESSIONS</button>
   <button class="dd-item" id="dd-more">MORE SETTINGS</button>
@@ -1597,22 +1600,17 @@ async function initAuth() {
 }
 // PWA：图标 + manifest（添加到主屏幕 / 套壳基础）
 function initPWA() {
-  // ⚠️ 必须与 App 图标（app/assets/generate-icons.py）同一套几何：
-  //    占位 41.4%、线宽 0.1056×占位、左上→折点渐变、左下孤立圆点、_ 纯最暗色。
-  //    viewBox 用 0 0 100 100，几何直接沿用归一化坐标，改动时四处 SVG 同步。
+  // ⚠️ 应用内除 Splash 页外一律用纯 `>_` 字符（用户要求）。
+  //    这里用 SVG <text> 画字符，而不是复用图标的折线几何 ——
+  //    图标那个图形带孤立圆点，缩小到 32px 标签页尺寸会糊成噪点。
+  //    颜色仍用图标的两端极值 #FFFFFF / #6E6E6E。
   const icon = 'data:image/svg+xml;utf8,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
     '<rect width="100" height="100" fill="#1B1B1B"/>' +
-    '<g transform="translate(29.3,29.3) scale(0.414)">' +
-    '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">' +
-    '<stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#6E6E6E"/>' +
-    '</linearGradient></defs>' +
-    '<polyline points="7.25,7.25 42.75,50 25.78,70.44" fill="none" stroke="url(#g)" ' +
-    'stroke-width="14.5" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<line x1="57.25" y1="92.75" x2="92.75" y2="92.75" stroke="#6E6E6E" ' +
-    'stroke-width="14.5" stroke-linecap="round"/>' +
-    '<circle cx="7.25" cy="92.75" r="7.25" fill="#6E6E6E"/>' +
-    '</g></svg>');
+    '<text x="50" y="66" text-anchor="middle" ' +
+    'font-family="monospace" font-size="52" font-weight="700" ' +
+    'fill="#FFFFFF">&gt;_</text>' +
+    '</svg>');
   const fav = document.createElement('link'); fav.rel = 'icon'; fav.href = icon; document.head.appendChild(fav);
   const man = {name:'Termetron', short_name:'TMT', start_url:'.', display:'standalone',
     background_color:'#1B1B1B', theme_color:'#1B1B1B',
