@@ -4,18 +4,24 @@
 为什么需要它：
     “图标配色不对 / 跟另外两个应用不像”这类问题，看截图只能得出主观结论。
     这个脚本把三款应用**真实生成**的图标渲染到同一尺寸，逐项量出：
-        · 底板色     · 符号渐变端点     · 符号占位比例     · 墨量（符号像素占比）
+        · 底板色     · 符号色（是否纯白）     · 符号占位比例
     然后断言 Termetron 的每一项都落在两款参考应用的区间内。
+
+    ⚠️ 墨量（符号像素占比）**不作为判据**：
+       Termetron 按用户要求去掉了外框，只剩 `>_` 两条笔画；
+       而 Σ 与时钟环都有闭合轮廓，墨量天然高得多。
+       两者对比没有意义（2026-10-26 用户明确“直接不要框了”）。
 
 参考图标的几何来源（硬编码，不是猜的）：
     · Scholarius  Σ 折线：A(70.665,37.335) → B(37.335,37.335) → C(54,54)
                           → D(37.335,70.665) → E(61.325,70.665)，线宽 4.67/108
     · Livolog    时钟环：圆心(54,54)，中线半径 19.67，线宽 4.67/108，缺口 12点~2点
     两者共同规格：底板 #1B1B1B、符号渐变 #FFFFFF → #6E6E6E（顶部白、底部灰）。
+    Termetron：底板 #1B1B1B、符号**纯白**（= 参考渐变起点色）、线宽 4.67/108。
 
 用法（在仓库根目录）：
     python tools/check_icons.py
-退出码：0 = 三项指标都与参考图标签一致；1 = 有不一致项。
+退出码：0 = 底板色/符号色/占位比例都与参考对得上；1 = 有不一致项。
 """
 from __future__ import annotations
 
@@ -148,24 +154,27 @@ def main() -> int:
 
     ref = [rows["scholarius"], rows["livolog"]]
     lo, hi = min(r["bbox_w"] for r in ref), max(r["bbox_w"] for r in ref)
-    cov_lo = min(r["coverage"] for r in ref)
-    cov_hi = max(r["coverage"] for r in ref)
     me = rows["termetron"]
     ok = True
     print()
     checks = [
         (lo - 0.03 <= me["bbox_w"] <= hi + 0.03,
          f"符号宽度 {me['bbox_w']:.1%} 在参考区间 [{lo:.1%}, {hi:.1%}]（容差 3%）"),
-        (me["max"] >= 250, f"渐变起点纯白（实测 {me['max']}）"),
-        (me["min"] <= 115, f"渐变末端接近 #6E6E6E（实测 {me['min']}）"),
+        # Termetron 按用户要求用纯白（不用渐变）；参考应用从纯白起步，所以只要
+        # 最亮值达到纯白即视为同一色系。
+        (me["max"] >= 250, f"符号为纯白（最亮实测 {me['max']}，参考渐变起点也是 255）"),
         (me["bg"] == (27, 27, 27), f"底板 #1B1B1B（实测 {me['bg']}）"),
-        # 墨量：\>_\ 是两个字形，天然比 \Σ\ / 时钟环密一点，允许参考均值的 ±40%
-        (cov_lo * 0.75 <= me["coverage"] <= cov_hi * 1.45,
-         f"墨量 {me['coverage']:.2%} 与参考 {cov_lo:.2%}~{cov_hi:.2%} 同量级"),
     ]
     for cond, msg in checks:
         print(("  ✅ " if cond else "  ❌ ") + msg)
         ok &= cond
+
+    # 墨量只打印、不判定：无外框的两个字形 vs 闭合轮廓，天然不可比
+    cov_lo = min(r["coverage"] for r in ref)
+    cov_hi = max(r["coverage"] for r in ref)
+    print(f"  ℹ️  墨量 Termetron {me['coverage']:.2%} / 参考 {cov_lo:.2%}~{cov_hi:.2%}"
+          "（无外框，不可比，不作判据）")
+
     print("\n" + ("对比通过" if ok else "对比未通过"))
     return 0 if ok else 1
 

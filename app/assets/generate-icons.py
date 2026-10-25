@@ -1,18 +1,23 @@
-"""生成 Termetron App 图标：深底 + 白→灰渐变的终端标志。
+"""生成 Termetron App 图标：深底 + 纯白 `>_` 提示符（无外框）。
 
-═══ 配色对标 Scholarius / Livolog（唯一依据，不要凭感觉调）═══
+═══ 对标 Scholarius / Livolog（唯一依据，不要凭感觉调）═══
     · 底板       #1B1B1B —— 两款应用 ic_launcher_background 都是这个值（已核对 XML）
-    · 符号色     白 → 灰 渐变，**不是纯白**。
-                Scholarius 的 Σ：纯白 → 浅灰 → 中灰 → 深灰 → 最深灰（五个节点逐段渐变）
-                Livolog   的钟环：纯白 / 中灰 / 最深灰（sweep）
-                共同点：起点纯白 #FFFFFF，末端最深的灰 #6E6E6E。
-    · 符号尺度   Scholarius 外接 38/108 = 35.2%，Livolog 圆环直径 44/108 = 40.7%。
-                取 38% 落在两者之间（之前是 58.6%，比两者都大得多 —— 这就是"不像一家"的原因）。
+    · 符号色     纯白 #FFFFFF —— 即两款应用渐变**起点**的颜色。
+                （2026-10-26 用户要求「不要渐变」，因此符号一律纯白。）
+    · 符号宽度   Scholarius 外接 38/108 = 35.2%，Livolog 圆环直径 44/108 = 40.7%。
+                取 38% 落在两者之间。
     · 线宽       两款都是 4.67/108（Livolog 指针 4.0）。取 4.67。
 
-⚠️ 之前犯过的错：符号用纯白 #F2F2F0 且占 58.6%。
-   #F2F2F0 是网页 --acc（UI 强调色），不该拿来画图标符号 ——
-   两款应用的图标符号末端都明显变灰，纯白会显得比它们"更亮、更硬"。
+═══ 造型 ═══
+    只有 `>` 和 `_` 两个字形，都是**描边路径 + 圆头**，线宽统一走 STROKE_RATIO。
+    外侧那圈圆角「终端窗口」框已按用户要求去掉（2026-10-26）。
+
+⚠️ 符号**宽度**固定 38%（占位不变），但**高度**比等比例时更矮 ——
+   用户要求「占位要矮一些」。用 SYMBOL_ASPECT 控制，< 1 就是压矮。
+
+⚠️ 之前犯过的错：
+   · 用 draw.text 画 `>_` —— 笔画粗细由字体决定，与线宽无关，同一符号里两种粗细。
+   · 用 UI 强调色 #F2F2F0 当符号色 —— 那是网页 --acc，不是图标色。
 """
 import os
 from PIL import Image, ImageDraw, ImageFont
@@ -20,18 +25,28 @@ from PIL import Image, ImageDraw, ImageFont
 SIZE = 1024
 BG = (27, 27, 27, 255)        # 底板 #1B1B1B（与 Scholarius / Livolog 一致）
 
-# 符号渐变：白 -> 灰，端点与两款应用完全相同（#FFFFFF -> #6E6E6E）
-SYMBOL_TOP = (255, 255, 255)  # #FFFFFF
-SYMBOL_BOT = (110, 110, 110)  # #6E6E6E
+# 符号颜色：纯白（= 两款应用渐变起点色）。用户 2026-10-26 要求不要渐变。
+SYMBOL = (255, 255, 255)      # #FFFFFF
 
-# 符号占画布比例：Scholarius 35.2% / Livolog 40.7% -> 取中间 38%
-SYMBOL_RATIO = 0.38
+# 符号占画布比例（**中心线**外接宽度）。
+# ⚠️ 2026-10-26 定稿：0.34 -> 加上线宽外缘后约 37%，
+#    与 Scholarius 35.2% / Livolog 36.5% 一致（并排时大小相同）。
+#    之前用 0.38 是「保持加框时的占位」，去掉外框后外缘会到 42%，明显偏宽。
+SYMBOL_RATIO = 0.34
+# 符号高度 / 宽度（等比例 = 1.0）。< 1 就是「占位矮一些」。
+# 用户 2026-10-26：先要「矮一些」，再确认「再矮一些」-> 0.72。
+SYMBOL_ASPECT = 0.72
 STROKE_RATIO = 4.67 / 108.0   # 线宽占画布比例（两款应用同为 4.67/108）
 
-# 终端符号在 24 viewBox 里的坐标（「终端窗口 + >_ 字形」：圆角窗口 + 等宽粗体字符 >_，Windows Terminal 式）
-WIN = (1.5, 2, 22.5, 22)      # 终端窗口（圆角描边）
-TEXT = (3.5, 13)              # >_ 文本基线位置（24 空间，左上角 = 真实终端提示符位置）
-FONT_SIZE = 11.5              # >_ 字号（24 空间，粗体等宽）
+# ── 几何（单位：0..1 的符号局部坐标，再按外接框缩放到目标像素）──
+#    去掉外框后，符号 = `>` + `_` 两个字形。
+#    竖向上 `>` 占满整个高度，`_` 位于底部；横向上 `>` 在左、`_` 在右。
+#
+#    ⚠️ 所有值都是「字形中心线」的坐标，不是外缘 ——
+#       实际渲染时笔画会向外扩 stroke/2，所以包围盒要留出这部分余量，
+#       否则圆头会被裁掉。
+CHEV = (0.02, 0.06, 0.34, 0.50, 0.02, 0.94)   # `>`: 起点x,y / 折点x,y / 终点x,y
+US = (0.52, 0.94, 0.98)                        # `_`: 起点x, y, 终点x
 
 _font_cache = {}
 
@@ -50,89 +65,113 @@ def load_font(size):
     return f
 
 
-def _lerp(a, b, t):
-    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+def draw_symbol(mask_draw, sx, sy, stroke_w, origin=None):
+    """在 L 掩码上画提示符 `>_`（**无外框**）。掩码 255 = 符号，0 = 透明。
 
+    只画形状、不画颜色 —— 上色由 draw_centered() 统一做（当前是纯白）。
 
-def draw_symbol(mask_draw, scale, stroke_w, origin=None):
-    """在 L 掩码上画「终端窗口 + >_」。掩码 255 = 符号，0 = 透明。
+    sx, sy   ：x / y 方向各自的缩放。**必须分开**，
+               「占位矮一些」= sy < sx，不是把整张图垂直压缩（那会把圆头压扁、
+               线宽在水平和竖直方向变得不一样粗）。
+    origin   ：局部坐标 (0,0) 在掩码上的位置（启动页在小画布上绘制时用）。
+               调用方算出 x0 = pad - _SYMBOL_X0*sx，让真实外接框左上角落在 pad 处。
 
-    只画形状、不画颜色 —— 颜色由 draw_centered() 按 y 统一铺一条竖直渐变，
-    贯穿整个符号，与 Scholarius 的弧长渐变同一观感。
+    ⚠️ 2026-10-26：去掉外围的圆角「终端窗口」框（用户要求「直接不要框了」）。
+       现在只剩 `>_` 两个字形。它们各自是**描边路径**、圆头，
+       线宽统一走 stroke_w（4.67/108），与 Scholarius 的 Σ、Livolog 的时钟同一种笔触。
 
-    origin=(x0, y0)：把符号的包围盒左上角对到掩码的这个位置，
-    在小于整张画布的掩码上绘制时用（启动页）。
+    ⚠️ `>_` 必须用路径描边，不能用 draw.text（原来犯过的错）：
+       字形笔画粗细由字体决定，与线宽无关 → 同一个符号里两种粗细。
     """
     ox, oy = origin if origin else (0.0, 0.0)
-    r = max(2, int(scale * 4))
-    mask_draw.rounded_rectangle(
-        [ox + (WIN[0] - WIN[0]) * scale, oy + (WIN[1] - WIN[1]) * scale,
-         ox + (WIN[2] - WIN[0]) * scale, oy + (WIN[3] - WIN[1]) * scale],
-        radius=r, outline=255, width=stroke_w)
-    font = load_font(max(10, int(FONT_SIZE * scale)))
-    mask_draw.text((ox + (TEXT[0] - WIN[0]) * scale, oy + (TEXT[1] - WIN[1]) * scale),
-                   '>_', font=font, fill=255, anchor='ls')
+
+    def cx(u: float) -> float:      # 局部 x -> 掩码坐标
+        return ox + u * sx
+
+    def cy(v: float) -> float:      # 局部 y -> 掩码坐标
+        return oy + v * sy
+
+    def dot(px: float, py: float) -> None:
+        mask_draw.ellipse([px - stroke_w / 2, py - stroke_w / 2,
+                           px + stroke_w / 2, py + stroke_w / 2], fill=255)
+
+    # ① `>`：两段折线，圆头、圆角折点
+    chevron = [(cx(CHEV[0]), cy(CHEV[1])),
+               (cx(CHEV[2]), cy(CHEV[3])),
+               (cx(CHEV[4]), cy(CHEV[5]))]
+    mask_draw.line(chevron, fill=255, width=stroke_w, joint="curve")
+    dot(*chevron[0])
+    dot(*chevron[-1])
+
+    # ② `_`：水平线，两端圆头
+    mask_draw.line([(cx(US[0]), cy(US[1])), (cx(US[2]), cy(US[1]))],
+                   fill=255, width=stroke_w)
+    dot(cx(US[0]), cy(US[1]))
+    dot(cx(US[2]), cy(US[1]))
+
+
+# 符号（`>_` 中心线）在局部坐标里的真实外接框
+_SYMBOL_X0 = min(CHEV[0], CHEV[2], CHEV[4], US[0], US[2])
+_SYMBOL_X1 = max(CHEV[0], CHEV[2], CHEV[4], US[0], US[2])
+_SYMBOL_Y0 = min(CHEV[1], CHEV[3], CHEV[5], US[1])
+_SYMBOL_Y1 = max(CHEV[1], CHEV[3], CHEV[5], US[1])
+_SYMBOL_W = _SYMBOL_X1 - _SYMBOL_X0
+_SYMBOL_H = _SYMBOL_Y1 - _SYMBOL_Y0
 
 
 def symbol_scale(target_w):
-    """符号在 24 空间宽 21 格，缩放到 target_w 像素"""
-    return target_w / 21.0
+    """把符号的**真实外接宽度**缩放到 target_w 像素。
+
+    ⚠️ 必须按真实外接（_SYMBOL_W）归一化，不能按局部坐标的 [0,1] ——
+       几何只占 0.06..0.98，用 0..1 会把符号画小一大截。
+       判据：SYMBOL_RATIO × SIZE 应该正好等于符号外接宽度，
+       这样「去掉外框后占位宽度不变」才成立。
+    """
+    return target_w / _SYMBOL_W
 
 
-def make_vgradient(w, h):
-    """竖直渐变：顶部纯白 #FFFFFF -> 底部最深灰 #6E6E6E。"""
-    grad = Image.new('RGB', (1, max(1, h)))
-    px = grad.load()
-    for y in range(max(1, h)):
-        px[0, y] = _lerp(SYMBOL_TOP, SYMBOL_BOT, y / max(1, h - 1))
-    return grad.resize((max(1, w), max(1, h)), Image.BILINEAR)
+def symbol_height(size_px):
+    """符号外接高度（像素）= 宽度 × 几何纵横比 × SYMBOL_ASPECT。
+
+    SYMBOL_ASPECT < 1 => 比等比例更矮（用户要求「占位要矮一些」）。
+    """
+    return size_px * (_SYMBOL_H / _SYMBOL_W) * SYMBOL_ASPECT
 
 
 def draw_centered(img, size_px):
-    """把白->灰渐变的符号画到主图（先画掩码，再按符号自身高度取色阶）。"""
-    scale = symbol_scale(size_px)
+    """把纯白的 `>_` 居中画到主图。
+
+    size_px = 符号中心线外接**宽度**，= SYMBOL_RATIO × SIZE。
+    高度 = symbol_height(size_px)（受 SYMBOL_ASPECT 控制，比等比例更矮）。
+
+    ⚠️ 2026-10-26：不用渐变，符号一律纯白 #FFFFFF。
+       用户明确说「你别加渐变蒙版了」。纯白也是 Scholarius / Livolog
+       渐变**起点**的颜色，并排看仍属同一色系。
+
+    ⚠️ 中心线之外要留 stroke/2 给描边外缘（圆头向外鼓出），否则会被裁平。
+    """
     stroke_w = max(2, round(STROKE_RATIO * SIZE))
+    sx = symbol_scale(size_px)
+    pad = int(stroke_w / 2 + 2)
 
-    # 符号包围盒（24 空间）：x 1.5..22.5, y 2..22
-    box_w = (WIN[2] - WIN[0]) * scale
-    box_h = (WIN[3] - WIN[1]) * scale
-    ox = (SIZE - box_w) / 2
-    oy = (SIZE - box_h) / 2
+    # 中心线外接尺寸（像素）
+    cw = size_px
+    ch = symbol_height(size_px)
+    # y 方向单独缩放：让几何高度正好等于 ch（否则只有小画布变了、图形没变）
+    sy = ch / _SYMBOL_H
 
-    # 1) 掩码：符号先画在原点，再整体平移到包围盒左上角
-    tmp = Image.new('L', (SIZE, SIZE), 0)
-    draw_symbol(ImageDraw.Draw(tmp), scale, stroke_w)
+    # 小画布：外接 + 两侧 pad
+    mw, mh = round(cw + 2 * pad), round(ch + 2 * pad)
+    tmp = Image.new('L', (mw, mh), 0)
+    draw_symbol(ImageDraw.Draw(tmp), sx, sy, stroke_w,
+                origin=(pad - _SYMBOL_X0 * sx, pad - _SYMBOL_Y0 * sy))
+
+    # 居中贴到整张画布，然后用纯白上色
     mask = Image.new('L', (SIZE, SIZE), 0)
-    mask.paste(tmp, (round(ox), round(oy)))
-
-    # 2) ⚠️ 渐变必须按**符号包围盒**的高度取色阶，不能按整张画布。
-    #    铺满画布时符号只落在渐变中段（实测最亮只到 209 左右），
-    #    顶部根本到不了纯白 —— Scholarius / Livolog 的符号都是"起点纯白"。
-    #
-    #    ⚠️ 起点/终点要对齐**描边中心线**，不是描边外缘：
-    #       描边是 4.67 宽、圆头，若色阶从外缘算起，
-    #       最顶上露出来的只是圆头边缘的半圈（实测最亮约 246，还差一档）。
-    #       把渐变区间收进半个线宽，顶端那条中心线才真正是纯白。
-    half = stroke_w / 2
-    gx0 = round(ox) + round(half)
-    gy0 = round(oy) + round(half)
-    gw = max(1, round(box_w) - 2 * round(half))
-    gh = max(1, round(box_h) - 2 * round(half))
-
-    # 画布尺寸的 RGB 渐变层。渐变区间 = [gy0, gy0+gh)：
-    #   · 区间上方的圆头上半部      -> 纯白（继续用起点色）
-    #   · 区间内                    -> 白 -> 灰 线性
-    #   · 区间下方                  -> 末端灰
-    # 掩码为 0 处不会参与合成，填什么都不影响成品。
-    grad = Image.new('RGB', (SIZE, SIZE), SYMBOL_TOP)
-    band = make_vgradient(gw + 2, gh)          # 左右各留 1px，避免边缘取样越界
-    grad.paste(band, (gx0 - 1, gy0))
-    if gy0 + gh < SIZE:
-        grad.paste(Image.new('RGB', (SIZE, SIZE - (gy0 + gh)), SYMBOL_BOT),
-                   (0, gy0 + gh))
-
-    # 3) 用掩码把渐变裁成符号形状
-    img.paste(grad, (0, 0), mask)
+    ox = round((SIZE - mw) / 2)
+    oy = round((SIZE - mh) / 2)
+    mask.paste(tmp, (ox, oy))
+    img.paste(Image.new('RGB', (SIZE, SIZE), SYMBOL), (0, 0), mask)
 
 
 def make_icon(bg=True, rounded=False, radius=220):
@@ -164,34 +203,37 @@ def load_text_font(size):
 
 
 def draw_symbol_on(img, cx, cy, size_px, stroke_px):
-    """在 img 上以 (cx, cy) 为中心画一个带白->灰渐变的符号（用于启动页）。
+    """在 img 上以 (cx, cy) 为中心画**纯白**的 `>_`（用于启动页）。
 
-    渐变按符号包围盒的高度取色阶，与 make_icon() 的观感一致。
+    size_px = 符号中心线外接**宽度**。高度同样受 SYMBOL_ASPECT 压矮，
+    与图标保持同一比例。与 make_icon() 一样不用渐变。
     """
-    box_w = size_px
-    box_h = size_px * (WIN[3] - WIN[1]) / (WIN[2] - WIN[0])
-    x0, y0 = round(cx - box_w / 2), round(cy - box_h / 2)
+    cw = size_px
+    ch = symbol_height(cw)
+    sx = symbol_scale(cw)
+    sy = ch / _SYMBOL_H
+    pad = int(stroke_px / 2 + 2)
 
-    scale = box_w / (WIN[2] - WIN[0])
-    tmp = Image.new('L', (round(box_w) + 8, round(box_h) + 8), 0)
-    draw_symbol(ImageDraw.Draw(tmp), scale, stroke_px, origin=(WIN[0], WIN[1]))
+    # 小画布：外接 + 两侧 pad
+    mw, mh = round(cw + 2 * pad), round(ch + 2 * pad)
+    tmp = Image.new('L', (mw, mh), 0)
+    draw_symbol(ImageDraw.Draw(tmp), sx, sy, stroke_px,
+                origin=(pad - _SYMBOL_X0 * sx, pad - _SYMBOL_Y0 * sy))
+
+    # 小画布左上角 = 中心对齐到 (cx, cy)
+    x0 = round(cx - cw / 2) - pad
+    y0 = round(cy - ch / 2) - pad
     mask = Image.new('L', img.size, 0)
     mask.paste(tmp, (x0, y0))
-
-    pad = round(stroke_px / 2) + 2
-    gx0, gy0 = x0 - pad, y0 - pad
-    gw, gh = round(box_w) + 2 * pad, round(box_h) + 2 * pad
-    grad = Image.new('RGB', img.size, SYMBOL_BOT)
-    grad.paste(make_vgradient(gw, gh), (gx0, gy0))
-    img.paste(grad, (0, 0), mask)
+    img.paste(Image.new('RGB', img.size, SYMBOL), (0, 0), mask)
 
 
 def make_splash():
-    """生成 Android 启动页 splash.png（2732²）：深色底 + 居中终端 logo + TERMETRON 品牌字。"""
+    """生成 Android 启动页 splash.png（2732²）：深色底 + 居中 `>_` + TERMETRON 品牌字。"""
     img = Image.new('RGB', (SPLASH_SIZE, SPLASH_SIZE), BG)
     # logo 宽度按图标同一比例（38%），保持启动页与图标观感一致
     logo_w = round(SPLASH_SIZE * SYMBOL_RATIO)
-    logo_h = logo_w * (WIN[3] - WIN[1]) / (WIN[2] - WIN[0])
+    logo_h = logo_w * _SYMBOL_H / _SYMBOL_W
     stroke_px = round(STROKE_RATIO * SPLASH_SIZE)
     cx = SPLASH_SIZE / 2
     cy = (SPLASH_SIZE - logo_h) / 2 - 100
@@ -205,7 +247,7 @@ def make_splash():
     tw = bbox[2] - bbox[0]
     tx = (SPLASH_SIZE - tw) / 2 - bbox[0]
     ty = cy + logo_h / 2 + 90 - bbox[1]
-    d.text((tx, ty), text, font=font, fill=SYMBOL_TOP)
+    d.text((tx, ty), text, font=font, fill=SYMBOL)
     return img
 
 

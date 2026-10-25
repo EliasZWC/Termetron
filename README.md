@@ -140,6 +140,15 @@ Force a mode from any browser (useful for preview):
 - Server sends `Cache-Control: no-store` — reloads always get the latest UI.
 - App / favicon icon has built-in padding so the terminal glyph never touches
   the edges.
+- **App icon spec** (measured against Scholarius / Livolog, see
+  `tools/check_icons.py` and `tools/check_icon_inner_stroke.py`):
+  background `#1B1B1B` (identical to both apps), symbol **pure white** `#FFFFFF`
+  (the start colour of their gradients), glyph = just `>` + `_` with **no box**,
+  stroke width `4.67/108` for *every* stroke, symbol width `34%` of the canvas
+  (≈37% including stroke, matching their 35.2% / 36.5%), and squashed to
+  `0.72 ×` the natural height.
+  Never draw `>_` with a font — the font's stroke weight is unrelated to the
+  nominal line width.
 
 ## Keyboard shortcuts
 
