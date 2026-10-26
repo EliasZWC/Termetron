@@ -31,7 +31,7 @@ function semverLte(a, b) {
 //   · 主操作 = --success #7EE2A8，取消 = --dim #9A9A98，危险 = --danger #E06C5E
 // ⚠️ 旧样式是「居中 + 1px 边框 + 12px 圆角 + 实心色块按钮」，与 Scholarius 不一致。
 const MODAL_CSS = `
-.ut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+.ut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
 .ut-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
 .ut-modal h3{color:#F2F2F0;margin:12px 0 8px;font-size:15px;font-weight:700}
 .ut-modal p{margin:0 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}

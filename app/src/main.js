@@ -8,7 +8,7 @@ import { App } from '@capacitor/app';
 import { checkForUpdate } from './updater';
 
 // 轻量提示（底部 toast，短暂显示，不阻塞）—— 中性灰阶，与 Scholarius / Livolog 设计语言一致
-const TMT_TOAST_CSS = '.tmt-toast{position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(36,36,36,.97);border:1px solid #333333;color:#ECECEA;padding:10px 18px;border-radius:8px;font-size:13px;z-index:10000;pointer-events:none;font-family:system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.55)}';
+const TMT_TOAST_CSS = '.tmt-toast{position:fixed;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(36,36,36,.97);border:1px solid #333333;color:#ECECEA;padding:10px 18px;border-radius:8px;font-size:13px;z-index:10000;pointer-events:none;font-family:\'Termetron Mono\',\'Roboto Mono\',\'Droid Sans Mono\',monospace;box-shadow:0 8px 24px rgba(0,0,0,.55)}';
 function tmtToast(msg) {
   if (!document.getElementById('tmt-toast-css')) {
     const s = document.createElement('style'); s.id = 'tmt-toast-css'; s.textContent = TMT_TOAST_CSS; document.head.appendChild(s);
@@ -28,7 +28,7 @@ const urlInput = document.getElementById('url');
 //     按钮：无边框、无底色、纯文字 15px/700/uppercase，主操作用 --success 绿
 // 旧样式是「居中 + 1px 边框 + 12px 圆角 + 实心白底按钮」，风格完全不同。
 const TMT_CSS = `
-.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+.tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
 .tmt-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
 .tmt-modal p{margin:12px 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}
 .tmt-actions{display:flex;align-items:center;gap:12px;justify-content:space-between;padding-top:18px;margin-top:0}
