@@ -35,9 +35,12 @@ const MODAL_CSS = `
 .ut-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
 .ut-modal h3{color:#F2F2F0;margin:12px 0 8px;font-size:15px;font-weight:700}
 .ut-modal p{margin:0 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}
-.ut-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:18px}
-.ut-btn{padding:14px 12px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#9A9A98;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
-.ut-btn:active{opacity:.7}
+.ut-actions{display:flex;align-items:center;gap:12px;justify-content:space-between;padding-top:18px;margin-top:0}
+/* ⚠️ 只有一个按钮时必须居中（Scholarius 的 .setting-action.setting-center）：
+   双按钮 = 取消左 / 确定右；单按钮再靠边就会显得“漏了一个”。 */
+.ut-actions:has(:only-child){justify-content:center}
+.ut-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#9A9A98;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
+.ut-btn:active{opacity:.55}
 .ut-btn.cancel{color:#9A9A98}
 .ut-btn.ok{color:#7EE2A8}
 .ut-btn:focus{outline:none}

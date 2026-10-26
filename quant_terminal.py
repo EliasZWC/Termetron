@@ -609,6 +609,13 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
    `justify-content: space-between` —— **取消靠左、确定靠右**。
    之前写的是 flex-end（两个按钮都挤在右下角），与 Scholarius 明显不同。 */
 .mactions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:18px;margin-top:0}
+/* ⚠️ 只有一个按钮时必须居中（Scholarius 的 .setting-action.setting-center）：
+   双按钮 = 取消左 / 确定右；单按钮再走 space-between 就会贴左边，
+   看着像「右边还该有个按钮但没渲染出来」。
+   ⚠️ 不能用 `:has(:only-child)`：取消键是 `display:none` 隐藏的，
+     它在 DOM 里**仍然是子元素**，:only-child 不会命中 —— 实测单按钮时
+     justify 依然是 space-between、按钮贴左。改用类名标记（openModal 里加）。 */
+.mactions.single{justify-content:center}
  /* ⚠️ 照搬 Scholarius 的 .btn（底部取消/确定）：
     · border:0 + border-radius:0 + background:none → **完全无框**
     · padding:14px 4px（左右只留 4px，不撑开热区，避免无形框感）
@@ -775,13 +782,26 @@ setClientTag();  // 必须在 view 声明后调用（否则 TDZ：Cannot access 
 try{ const f = localStorage.getItem('qt_fs'); if (f) document.documentElement.style.setProperty('--fs', f + 'px'); }catch(e){}
 try{ const t = localStorage.getItem('qt_theme'); if (t) document.documentElement.style.setProperty('--acc', t); }catch(e){}
 async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }
-function openModal(title, body, okText, onOk) {
+function openModal(title, body, okText, onOk, cancelText) {
   document.getElementById('mtitle').textContent = title;
   document.getElementById('mbody').innerHTML = body;
   const ok = document.getElementById('mok');
+  const cancel = document.getElementById('mcancel');
   ok.textContent = okText;
   ok.onclick = async () => { if (await onOk()) closeModal(); };
-  document.getElementById('mcancel').onclick = closeModal;
+  // ⚠️ cancelText === null 表示**只有一个按钮**（纯提示框）：
+  //    此时隐藏取消键，由 .mactions:has(:only-child) 让确定键居中。
+  //    这与 Scholarius 的 showModal({cancelText: null}) 是同一套约定。
+  //    不传 cancelText（undefined）时保持原来的「CANCEL + OK」双按钮。
+  if (cancelText === null) {
+    cancel.style.display = 'none';
+    document.querySelector('#overlay .mactions').classList.add('single');
+  } else {
+    cancel.style.display = '';
+    cancel.textContent = cancelText || 'CANCEL';
+    cancel.onclick = closeModal;
+    document.querySelector('#overlay .mactions').classList.remove('single');
+  }
   document.getElementById('overlay').style.display = 'flex';
   // 键盘优先（终端无鼠标必须可用）：有输入框时聚焦输入框（Enter 确认），
   // 无输入框时聚焦确认按钮（Enter/Space 触发）；Esc 一律关闭（或触发 DENY）。
@@ -792,7 +812,7 @@ function openModal(title, body, okText, onOk) {
   } else {
     ok.focus();
   }
-  document.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); document.getElementById('mcancel').click(); } };
+  document.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); closeModal(); } };
 }
 function modalError(msg) {
   let e = document.getElementById('merr');
@@ -1118,7 +1138,7 @@ function saveHist(name, text) {
   histIdx[name] = h.length;
 }
 // termetron 命令（无鼠标操作）：termetron new / use / del / rename / ls / clear / stop / help
-function showMsg(msg) { openModal('TERMETRON', '<p class="mmsg">' + msg + '</p>', 'OK', () => true); }
+function showMsg(msg) { openModal('TERMETRON', '<p class="mmsg">' + msg + '</p>', 'OK', () => true, null); }
 const HELP_HTML = '<p class="mmsg" style="line-height:1.8;white-space:pre-wrap">' +
   '<b>termetron new &lt;name&gt;</b>          create a session<br>' +
   '<b>termetron use &lt;name&gt;</b>          switch to a session<br>' +
@@ -1168,7 +1188,7 @@ async function handleTmt(text) {
     }
     case 'ls': {
       const lines = Object.keys(sessionsData || {}).map(n => (sessionsData[n].busy ? '[run ] ' : '[idle] ') + n);
-      openModal('SESSIONS', '<p class="mmsg" style="line-height:1.8;white-space:pre-wrap">' + (lines.join('\\n') || '(none)') + '</p>', 'OK', () => true);
+      openModal('SESSIONS', '<p class="mmsg" style="line-height:1.8;white-space:pre-wrap">' + (lines.join('\\n') || '(none)') + '</p>', 'OK', () => true, null);
       return true;
     }
     case 'clear': {
@@ -1180,7 +1200,7 @@ async function handleTmt(text) {
       return true;
     }
     case 'help': {
-      openModal('COMMANDS', HELP_HTML, 'OK', () => true);
+      openModal('COMMANDS', HELP_HTML, 'OK', () => true, null);
       return true;
     }
     case 'remote': {

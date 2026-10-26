@@ -31,9 +31,11 @@ const TMT_CSS = `
 .tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
 .tmt-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
 .tmt-modal p{margin:12px 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}
-.tmt-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:18px}
-.tmt-btn{padding:14px 12px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#7EE2A8;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease}
-.tmt-btn:active{opacity:.7}
+.tmt-actions{display:flex;align-items:center;gap:12px;justify-content:space-between;padding-top:18px;margin-top:0}
+/* 只有一个按钮时居中（与 Scholarius 的 .setting-action.setting-center 一致）。 */
+.tmt-actions:has(:only-child){justify-content:center}
+.tmt-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#7EE2A8;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease}
+.tmt-btn:active{opacity:.55}
 .tmt-btn:focus{outline:none}
 `;
 function tmtAlert(message) {

@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.8.19
+**Version:** v0.8.20
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
