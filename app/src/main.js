@@ -72,7 +72,9 @@ const connBtn = document.getElementById('connect');
 document.getElementById('ver').textContent =
   'Termetron v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1');
 
-// Web 层品牌启动页（100% 生效，不依赖原生 splash）：由 CSS animation（ut-splash 2.6s）驱动显示+淡出
+// Web 层品牌启动页（100% 生效，不依赖原生 splash）：由 CSS animation（ut-splash 3.4s）驱动显示+淡出
+// 图标动画时间轴见 index.html 的 `══ Splash 开场动画 ══` 注释：
+//   `>` 描边 → 尾部圆点浮现 → `_` 描边 → TERMETRON 逐字浮现 → 整体淡出
 // —— animation 从元素首次渲染时刻开始计时（不受 JS/module 执行延迟影响），比 JS 定时器更可靠；
 // animationend 后移除 DOM，setTimeout 兜底（极端情况下 animation 未触发）。
 // 不再调用原生 SplashScreen.show()：原生 splash 与 Web splash 时序竞争会让 Web splash 看起来“没生效”。
@@ -84,7 +86,8 @@ if (splashEl) {
     splashEl.remove();
   } else {
     splashEl.addEventListener('animationend', () => splashEl.remove(), { once: true });
-    setTimeout(() => splashEl.remove(), 3500);
+    // ⚠️ 兜底必须 ≥ ut-splash 的 3.4s，否则动画还没完就被删掉
+    setTimeout(() => splashEl.remove(), 4200);
   }
 }
 
