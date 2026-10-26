@@ -28,7 +28,7 @@
     /* 与 Scholarius / Livolog 同一套中性灰阶设计语言：
        页面底 #1B1B1B / 卡片面 #242424 / 边框 #333333 / 正文 #ECECEA / 次要文字 #9A9A98 /
        强调色 = 墨白 #F2F2F0（靠反色块表达主次，不用彩色）。同步见 quant_terminal.py。 */
-    :root { color-scheme: dark; --bg:#1B1B1B; --panel:#242424; --bar:#131313; --border:#333333; --txt:#ECECEA; --dim:#9A9A98; --acc:#F2F2F0; --on-acc:#1B1B1B; --danger:#E06C5E; }
+    :root { color-scheme: dark; --bg:#1B1B1B; --panel:#242424; --bar:#131313; --border:#333333; --txt:#ECECEA; --dim:#9A9A98; --acc:#F2F2F0; --on-acc:#1B1B1B; --danger:#E06C5E; --success:#7EE2A8; }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; -webkit-touch-callout: none; }
     body {
       margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -37,51 +37,57 @@
       padding: 0 24px;
     }
     .card { width: 100%; max-width: 360px; text-align: center; margin-top: -5vh; }
-    .logo { display: inline-flex; align-items: center; gap: 14px; color: var(--acc); margin: 0 0 4px; }
-    /* 品牌标志：纯 `>_` 字符（用户要求应用内除 Splash 页外都用字符）。
-       ⚠️ 不要换回 SVG 折线图形：那个图形带孤立圆点，在 38px 下圆点会糊掉，
-          看不出是终端提示符。等宽字体保证 `>` 与 `_` 对齐。 */
-    /* ⚠️ 字号必须跟 Scholarius 的 .page-title 一致：17px / 700 / uppercase
-       / letter-spacing 0.5px / line-height 24px。`>_` 与标题同级同号，
-       这样两者才是同一行 header 标题，而不是一个巨大的标记配一行小字。 */
-    .logo .mark { font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace; font-size: 17px; font-weight: 700; line-height: 24px; letter-spacing: 0.5px; white-space: nowrap; flex: none; }
-    /* ⚠️ 品牌标题也用等宽字体：Scholarius / Livolog 的 header 标题
-       （.page-title 17px/700/uppercase）用的是同一个 family，没有另开一个
-       无衬线品牌字体。之前用 'Segoe UI' 800，与两款应用明显不是一套。 */
-    .logo .ttl { font-family: inherit; font-size: 17px; font-weight: 700; letter-spacing: 0.5px; line-height: 24px; }
+    /* 品牌标志：**一整行字符** `>_ TERMETRON`（用户要求）。
+       ⚠️ 不要再拆成两个 span —— 拆开就要靠 gap 拼间距，字号一变、
+          字体一换，`>_` 和标题之间的空隙就和字距对不上。
+          写成一行字符，`>_` 后的空格就是普通字距，永远和标题一致。
+       ⚠️ 用等宽字体：`>` 和 `_` 才对齐；比例字体下 `_` 会偏。
+       ⚠️ 字号对齐 Scholarius 的 .page-title：17px / 700 / 0.5px / line-height 24px。 */
+    .logo {
+      font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace;
+      font-size: 17px; font-weight: 700; letter-spacing: 0.5px; line-height: 24px;
+      color: var(--acc); margin: 0 0 4px; white-space: nowrap;
+    }
     .sub { color: var(--dim); font-size: 12px; margin: 0 0 28px; }
     /* ══ 表单样式：直接照搬 Scholarius ══
-       Scholarius 深色主题的变量与 Termetron 完全相同，所以是 1:1 映射：
-           Scholarius            Termetron
-           --surface    #242424  --panel
-           --outline    #333333  --border
-           --on-surface #ECECEA  --txt
-           --on-surface-variant #9A9A98  --dim
-       取值全部来自 Scholarius 的 .detail-input：
-           background:surface  border:1px outline  radius:10px
-           padding:9px 12px   font-size:14px   min-height:38px
-           :focus -> border-color: on-surface-variant（不是强调色）
-       ⚠️ 旧样式是 radius:8px + focus 用 --acc（近白），与 Scholarius 不一致。
-       ⚠️ focus 用 --dim 而不是 --acc：Scholarius 的焦点是「边框稍微变亮」，
-          不换色相；用 --acc 会变成一条刺眼的白边。 */
+       ⚠️⚠️ Scholarius 的输入框是**行内无框**形态，不是卡片：
+           .setting-action      border:0; background:none; padding:0
+           .detail-inline-input background:transparent; border:0;
+                                border-radius:0; font-size:15px; text-align:right
+       它全站**没有任何带边框/圆角/卡片底的输入框**。
+       之前我写 border:1px + radius:10px + --panel 底，等于凭空造了
+       第三种形态 —— 这正是「表单改的还是不对」的核心。
+
+       ⚠️ 纵向 padding 要小（Scholarius 是 0）：行高不一致会让
+          「标签→输入框」的距离随行高漂移，每项看起来松紧不一。
+       ⚠️ focus 不画边框、不画下划线，只把文字提亮。 */
     input {
-      width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 10px;
-      border: 1px solid var(--border); background: var(--panel); color: var(--txt);
-      font-size: 14px; font-family: inherit; outline: none; min-height: 38px;
-      margin-bottom: 14px;
+      width: 100%; box-sizing: border-box; padding: 2px 0;
+      border: 0; border-radius: 0; background: transparent; color: var(--txt);
+      font-size: 15px; font-family: inherit; outline: none; min-height: 0;
+      margin-bottom: 12px;
     }
-    input::placeholder { color: var(--dim); opacity: 1; }
-    input:focus { border-color: var(--dim); }
+    input::placeholder { color: var(--dim); opacity: 0.55; }
+    input:focus { color: var(--acc); }
+    /* ⚠️ 按钮也照搬 Scholarius 的 .btn：
+       · 主操作（Connect）= .btn-primary → **绿色文字**、无框、无底
+       · 次操作（Scan / Cancel）= .btn-ghost → 灰色文字、无框、无底
+       Scholarius 的登录页就是 `btn btn-ghost` + `btn btn-primary`，
+       没有「填充色块按钮」这种形态。之前的 .primary{background:--acc}
+       是整个 App 里最不像 Scholarius 的地方。 */
     .btn {
-      width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 15px;
-      font-weight: 600; cursor: pointer; margin-bottom: 10px;
+      width: 100%; padding: 14px 4px; border: 0; border-radius: 0; background: none;
+      font: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.6px;
+      text-transform: uppercase; cursor: pointer; margin-bottom: 2px; outline: none;
       display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: opacity 120ms ease, color 160ms ease;
+      -webkit-tap-highlight-color: transparent;
     }
+    .btn:active { opacity: 0.55; }
     .btn svg { width: 16px; height: 16px; flex: none; }
-    .primary { background: var(--acc); color: var(--on-acc); }
-    .ghost { background: var(--panel); color: var(--txt); border: 1px solid var(--border); }
-    .primary:disabled { opacity: .6; cursor: default; }
-    button:focus { outline: none; box-shadow: 0 0 0 2px rgba(242,242,240,.3); }
+    .primary { color: var(--success); }
+    .ghost { color: var(--dim); }
+    .primary:disabled { opacity: .5; cursor: default; }
     .hint { color: var(--dim); font-size: 11px; margin-top: 16px; line-height: 1.6; }
     .hint b { color: var(--acc); }
     .ver { color: var(--dim); font-size: 11px; position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; line-height: 1.6; margin: 0; }
@@ -109,10 +115,7 @@
     <div class="splash-brand">TERMETRON</div>
   </div>
   <div class="card">
-    <p class="logo">
-      <span class="mark">&gt;_</span>
-      <span class="ttl">TERMETRON</span>
-    </p>
+    <p class="logo">&gt;_ TERMETRON</p>
     <p class="sub">Mobile Client</p>
     <input id="url" placeholder="paste tunnel URL from computer" autocomplete="off">
     <button class="btn primary" id="connect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Connect</button>

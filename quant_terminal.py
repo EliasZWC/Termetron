@@ -561,12 +561,24 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   ⚠️ focus 用 --dim 而不是 --acc：Scholarius 的焦点是「边框稍微变亮」，
      不换色相。用 --acc（近白）会变成一条刺眼的白边。
  */
- .field{margin-bottom:14px}
- .field label{display:block;font-size:15px;font-weight:700;color:var(--txt);margin-bottom:6px;letter-spacing:0}
- .field input,.field textarea{width:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--txt);padding:9px 12px;font-size:14px;font-family:inherit;outline:none;min-height:38px}
- .field input::placeholder,.field textarea::placeholder{color:var(--dim);opacity:1}
- .field input:focus,.field textarea:focus{border-color:var(--dim)}
- .field textarea{resize:vertical;min-height:76px;line-height:1.5}
+ .field{margin-bottom:2px}
+ .field label{display:block;font-size:15px;font-weight:700;color:var(--txt);margin-bottom:2px;letter-spacing:0;text-align:left}
+ /* ⚠️⚠️ 输入框**必须无框、透明底、无圆角** —— 这是 Scholarius 的唯一形态：
+    · `.setting-action` 行：`border:0; background:none; padding:0`
+    · `.detail-inline-input`：`background:transparent; border:0;
+      border-radius:0; font-size:15px; text-align:right`
+   Scholarius 全站**没有任何带边框/圆角/卡片底的输入框**。
+   之前我写 `border:1px solid; border-radius:10px; background:--panel`，
+   等于凭空造了第三种形态，与它完全不同。
+   ⚠️ 纵向 padding 必须小（Scholarius 是 0）：行高不一致会让
+      「标签到输入框」的间距随行高漂移，看起来每项松紧不一。 */
+ .field input,.field textarea{width:100%;box-sizing:border-box;background:transparent;border:0;border-radius:0;color:var(--txt);padding:2px 0;font-size:15px;font-family:inherit;outline:none;min-height:0}
+ .field input::placeholder,.field textarea::placeholder{color:var(--dim);opacity:.55}
+ /* focus 也不画边框/下划线（与 Scholarius 一致），只把文字提亮 */
+ .field input:focus,.field textarea:focus{color:var(--acc)}
+ .field textarea{resize:vertical;min-height:56px;line-height:1.5}
+ /* 行分隔：Scholarius 靠行之间的距离分层，不画线；这里只在字段间留 10px */
+ .field + .field{margin-top:10px}
  .mmsg{font-size:13px;color:var(--txt);margin:4px 0}
  .srow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border)}
  .srow.cur{color:var(--acc)}
@@ -593,12 +605,20 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   ⚠️ 主操作不用 --acc（近白）而用 --success（绿）：Scholarius 就是这么分的，
      而且绿色在深底上能一眼看出「这是继续按钮」。
  */
- .mactions{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:18px}
- .mbtn{padding:14px 12px;border:0;border-radius:0;background:none;color:var(--dim);cursor:pointer;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;outline:none;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
- .mbtn:hover{color:var(--acc)}
+ /* ⚠️ 照搬 Scholarius 的 .form-actions：
+   `justify-content: space-between` —— **取消靠左、确定靠右**。
+   之前写的是 flex-end（两个按钮都挤在右下角），与 Scholarius 明显不同。 */
+.mactions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:18px;margin-top:0}
+ /* ⚠️ 照搬 Scholarius 的 .btn（底部取消/确定）：
+    · border:0 + border-radius:0 + background:none → **完全无框**
+    · padding:14px 4px（左右只留 4px，不撑开热区，避免无形框感）
+    · 15px / 700 / uppercase / letter-spacing .6px
+    · :active 用 opacity .55，**不要**用 hover 变色 —— 移动端没有 hover，
+      而且 Scholarius 的 .btn 根本没有 hover 规则。
+    取消 = --dim（≈ Scholarius 的 --nav-inactive），确定 = --success（绿）。 */
+ .mbtn{padding:14px 4px;border:0;border-radius:0;background:none;color:var(--dim);cursor:pointer;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;outline:none;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
+ .mbtn:active{opacity:.55}
  .mbtn.ok{color:var(--success)}
- .mbtn.ok:hover{color:var(--success);opacity:.82}
- .mbtn.cancel{color:var(--dim)}
  .mbtn.del{color:var(--danger)}
  .mbtn.del:hover{color:var(--danger);opacity:.82}
  .merr{color:var(--danger);font-size:12px;margin:8px 0 0;font-weight:600}
