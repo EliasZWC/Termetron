@@ -85,7 +85,18 @@ if (splashEl) {
   if (isBack) {
     splashEl.remove();
   } else {
-    splashEl.addEventListener('animationend', () => splashEl.remove(), { once: true });
+    // ⚠️⚠️ 必须判 `e.target === splashEl`！
+    //     `animationend` 会**从子元素冒泡上来**：splash 里 `>` / 圆点 / `_` /
+    //     9 个字母各自都有动画，任一结束都会触发这个回调。
+    //     实测（v0.8.18 的 bug）：`>` 在 **918ms** 画完就触发第一个
+    //     animationend，splash 被立即 remove() —— 圆点、`_`、品牌字全没出现，
+    //     看着就是「动画没播完就进登录页」。
+    //     真正的整块淡出是 3418ms 的 ut-splash（target 才是 #splash 本身）。
+    //     ⚠️ 不要加 `{ once: true }`：第一个子元素的 animationend 就把监听器
+    //        消耗掉了，真正的 ut-splash 反而收不到（splash 就只能等兜底定时器）。
+    splashEl.addEventListener('animationend', (e) => {
+      if (e.target === splashEl) splashEl.remove();
+    });
     // ⚠️ 兜底必须 ≥ ut-splash 的 3.4s，否则动画还没完就被删掉
     setTimeout(() => splashEl.remove(), 4200);
   }
