@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.9.0
+**Version:** v0.9.1
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -31,6 +31,46 @@ python quant_terminal.py --port 8900
 ```
 
 Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
+
+## Mobile app: connecting over Tailscale
+
+The Android app no longer uses a public tunnel. It connects **directly** to the
+computer's Tailscale IP, so both devices must be signed in to the same tailnet.
+
+On startup the server detects the Tailscale IP and listens on it:
+
+```
+[termetron] Termetron running at http://100.87.96.69:8899  (tailscale)
+[termetron] 手机端在设置里填：100.87.96.69  端口 8899
+```
+
+Then in the app: **Settings → Connection → Tailscale IP**, enter that address
+(ex. `100.87.96.69`), and set the port. Tap **Test connection** to verify.
+
+| flag | meaning |
+| --- | --- |
+| *(none)* | auto-detect Tailscale IP, fall back to `127.0.0.1` |
+| `--host <ip>` | listen on an explicit address |
+| `--local-only` | force `127.0.0.1` even if Tailscale is available |
+| `TERMETRON_TS_IP` | env var override, takes priority over detection |
+
+Detection order: `TERMETRON_TS_IP` → `tailscale ip -4` → scan interfaces for a
+`100.64.0.0/10` (Tailscale CGNAT) address.
+
+### Running the server inside WSL
+
+If Tailscale lives inside WSL (common on Windows), run the server **in WSL**
+too — Windows cannot reach the WSL `tailscale0` interface, so listening on the
+Tailscale IP from Windows would not be reachable from your phone either.
+
+```bash
+# inside WSL
+cd /mnt/e/product/Termetron
+python3 termetron.py --port 8899
+```
+
+WSL's `/mnt/e` mount means the same working tree is used on both sides, so the
+terminal sessions still see your Windows files.
 
 ## Requirements
 

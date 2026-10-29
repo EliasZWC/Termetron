@@ -2074,26 +2074,32 @@ class Handler(BaseHTTPRequestHandler):
         return m.group(1) if m else ""
 
     def _remote(self) -> bool:
-        """是否远程请求（经公网隧道）。cloudflared 转发到本地时源 IP 是 127.0.0.1，
-        但会附加 Cf-Connecting-Ip / X-Forwarded-For 头——用它区分本地/远程。"""
+        """是否来自「非本机回环」的请求。
+
+        ⚠️ 2026-10-30 起不再有公网隧道：连接方式是 **Tailscale 直连**
+           （手机在同一个 tailnet 里，直接访问本机的 Tailscale IP）。
+           保留这个判断仍有意义 —— 它区分「本机浏览器」与「手机访问」，
+           用于 UI 上的客户端标识、以及是否需要额外防护。
+        """
         if self.headers.get("Cf-Connecting-Ip") or self.headers.get("X-Forwarded-For"):
             return True
         ip = self.client_address[0]
         return ip not in ("127.0.0.1", "::1", "localhost")
 
     def _authed(self) -> bool:
-        """本地免认证；远程需 有效一次性密码 + 设备已配对（cookie qt_auth=token:key）。"""
-        if not self._remote():
-            return True
-        if REMOTE.status != "on" or not REMOTE.token:
-            return False
-        cookie = self.headers.get("Cookie") or ""
-        m = re.search(r"qt_auth=([^;]+)", cookie)
-        if m:
-            parts = m.group(1).split(":", 1)
-            if len(parts) == 2 and parts[0] == REMOTE.token and parts[1] in REMOTE.allowed:
-                return True
-        return False
+        """所有请求一律放行。
+
+        ⚠️ 2026-10-30：**应用层认证已移除**。
+        用户选择的方案是「完全去掉密码，只填 Tailscale IP + 端口就连上」。
+        理由：Tailscale 本身已是经过设备认证的加密网络层（WireGuard +
+        tailnet ACL），能连到本机 8899 的只可能是同一 tailnet 内的已授权设备。
+        在它之上再加一次性密码 + 4 位配对码属于重复防护，且让手机端每次
+        重装 App 都要重新配对，体验很差。
+
+        残留的 REMOTE.token / REMOTE.allowed 只服务于 **桌面端**的旧 remote
+        面板（本机浏览器里看二维码/状态），不影响手机连接。
+        """
+        return True
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         # CORS 预检：App（Capacitor WebView）跨域 fetch 带非 safelisted 请求头

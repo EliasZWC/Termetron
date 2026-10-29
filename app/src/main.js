@@ -361,8 +361,13 @@ async function openSession(name) {
 async function pullOutput() {
   if (!currentSession || currentPage !== 'terminal') return;
   try {
-    const text = await api(`/api/output/${encodeURIComponent(currentSession)}`);
-    if (typeof text === 'string' && termOut.textContent !== text) {
+    const data = await api(`/api/output/${encodeURIComponent(currentSession)}`);
+    // ⚠️ /api/output/<name> 返回的是 **JSON 对象**，不是纯文本：
+    //    { lines: [...], progress, done, busy, script, cmd, updated }
+    //    （Session 与 AgentSession 共用这个形状）。
+    //    早期我按字符串处理会导致 `[object Object]`，这里显式取 lines。
+    const text = Array.isArray(data?.lines) ? data.lines.join('\n') : String(data ?? '');
+    if (termOut.textContent !== text) {
       const atBottom =
         termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
       termOut.textContent = text;
