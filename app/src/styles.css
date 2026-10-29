@@ -94,15 +94,28 @@ html, body {
   overflow: hidden;
 }
 
+/* ⚠️ 安全区（状态栏 / 挖孔 / 手势条）必须加在**最外层容器**上，
+   不要分别加在顶栏和导航栏上 —— 这是 Livolog 的做法：
+       #app { padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); }
+       .page-header { height: 56px; padding: 0 16px; }   ← 不含安全区
+       .bottom-nav  { padding: 8px 4px; }                ← 不含安全区
+   我一开始把 padding-top 加在 .topbar 上，结果顶栏实际高度变成
+   「56 + 状态栏」，比 Livolog 高一截，状态栏背景色也和内容区错位。
+   放在外层后：状态栏区域由 #app 的底色填充，顶栏就是纯净的 56px。 */
 body {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  height: 100dvh;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
   background: var(--bg);
   color: var(--on-surface);
   /* ⚠️ 唯一字体。不要加 system-ui 兜底链外的其它族名。 */
   font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace;
   font-size: 15px;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ── 顶栏：照 Livolog/Scholarius 的 .page-header ────────────────────────
@@ -116,12 +129,13 @@ body {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: center;
   height: 56px;
   padding: 0 16px;
-  padding-top: var(--safe-top);
   background: transparent;
-  /* ⚠️ 不要加 border-bottom：两个参考应用的 page-header 都是
-     `border-bottom: 0px`，靠留白和内容分层，不画线。 */
+  /* ⚠️ 不要在这里加 padding-top: var(--safe-top)：安全区已由 body 处理，
+     再加一次会让顶栏变成 56 + 状态栏高（实测比 Livolog 高出一截）。
+     也不要加 border-bottom：两个参考应用的 page-header 都是 0px。 */
 }
 /* 主页面标题：17px / 700 / uppercase / **居中**（.page-title 规范） */
 .topbar-title {
@@ -164,7 +178,9 @@ body {
 .fab {
   position: fixed;
   right: 16px;
-  bottom: calc(64px + 18px + var(--safe-bottom));
+  /* 64 = 导航栏高度（8 + 48 + 8），再留 18px；底部安全区由 body 处理，
+     这里**不要**再叠 var(--safe-bottom) —— 否则 FAB 会被顶高一整条手势条。 */
+  bottom: calc(64px + 18px);
   z-index: 20;
   display: grid;
   place-items: center;
@@ -301,7 +317,8 @@ body {
   align-items: stretch;
   background: var(--nav-bg);
   padding: 8px 4px;
-  padding-bottom: calc(8px + var(--safe-bottom));
+  /* ⚠️ 不叠 --safe-bottom：已由 body 的 padding-bottom 让开手势条。
+     叠两次会让导航栏底下多出一条空白（实测 64px 变 64+34px）。 */
 }
 .nav-item {
   flex: 1 1 0;
@@ -380,8 +397,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 底部安全区由 body 处理，这里只留自身的 10px */
   padding: 10px 16px;
-  padding-bottom: calc(10px + var(--safe-bottom));
   border-top: 1px solid var(--outline);
   background: var(--surface);
 }

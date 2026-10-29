@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.9.1
+**Version:** v0.10.0
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -15,22 +15,53 @@ Latin **Term** (terminal) and **Metron** (measure).
 
 ## Quick start
 
+### As a Linux command
+
 ```bash
-# from inside this folder (`cd lib/termetron`)
-python termetron.py                     # starts the server, opens the default browser
-
-# start without auto-opening a browser
-python termetron.py --no-open
-
-# custom port
-python termetron.py --port 9000
-
-# or run the raw server directly (default session `shell` auto-created)
-python quant_terminal.py                # default port 8899
-python quant_terminal.py --port 8900
+./termetron                 # auto-detect Tailscale IP and listen there
+./termetron --port 9000
+./termetron --local-only    # 127.0.0.1 only
+./termetron --host <ip>
 ```
 
-Open the UI at **http://127.0.0.1:8899** (auto-opened unless `--open none`).
+Install it globally:
+
+```bash
+sudo ln -s "$PWD/termetron" /usr/local/bin/termetron
+```
+
+### Run as a systemd service (recommended)
+
+Persistent across reboots, auto-restarts on crash:
+
+```bash
+./deploy/install-service.sh              # install + start
+sudo journalctl -u termetron -f          # follow logs
+sudo systemctl restart termetron
+./deploy/install-service.sh --uninstall  # remove
+```
+
+> WSL needs systemd enabled — `/etc/wsl.conf` must contain
+> `[boot]` / `systemd=true`, then run `wsl --shutdown`.
+
+### Desktop launcher
+
+```bash
+python termetron.py                     # port 8900, opens the browser
+python termetron.py --no-open
+```
+
+Open the UI at **http://127.0.0.1:8899** (the service) or **:8900** (launcher).
+
+## Session persistence
+
+Sessions survive server restarts and crashes. Output is appended to
+`~/.local/state/termetron/sessions/<name>.jsonl` (override with
+`TERMETRON_STATE_DIR`), and restored on startup — the UI shows the previous
+output above a `↑ 以上为上次会话的输出（已恢复）` marker.
+
+Verified: `kill -9` the server, restart, and the session (including its output)
+is still there.
 
 ## Mobile app: connecting over Tailscale
 

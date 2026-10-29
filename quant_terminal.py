@@ -28,6 +28,44 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# 会话输出持久化（见 tools/session_log.py）。
+# ⚠️ 用 try/except 而不是硬导入：发布包里可能没有 tools/（namespace package
+#    在某些打包方式下会丢）。持久化是"加分项"，缺了也要能正常跑。
+try:
+    from tools.session_log import SessionLog as _SessionLog, remove_session as _remove_session_file
+except Exception:  # noqa: BLE001
+    try:
+        _os_dir = os.path.dirname(os.path.abspath(__file__))
+        if _os_dir not in sys.path:
+            sys.path.insert(0, _os_dir)
+        sys.path.insert(0, os.path.join(_os_dir, 'tools'))
+        from session_log import SessionLog as _SessionLog, remove_session as _remove_session_file
+    except Exception:  # noqa: BLE001
+        class _SessionLog:  # type: ignore[no-redef]
+            """持久化不可用时的空实现（接口保持兼容）。"""
+
+            def __init__(self, name: str, directory: str | None = None):
+                self.path = ""
+
+            def append(self, lines, *, force: bool = False) -> None:
+                return
+
+            def flush(self) -> None:
+                return
+
+            def load(self, limit: int = 600) -> list:
+                return []
+
+            def truncate(self) -> None:
+                return
+
+            def compact(self, keep: int = 600) -> None:
+                return
+
+        def _remove_session_file(name: str) -> None:  # type: ignore[misc]
+            return
+
+
 _TQDM_RE = re.compile(r"^(.*?)[:]?\s*(\d+)%\|.*?\|\s*(\d+)/(\d+)")
 
 # ANSI 转义序列（光标移动/清行等）：剥离，避免污染 lines 与 tqdm 解析
@@ -120,11 +158,48 @@ def _shell_cmd() -> list[str]:
     return ["/bin/sh"]
 
 
+class _PersistentLines(list):
+    """自动把 append 的内容同步到磁盘日志的 list。
+
+    为什么用子类而不是在每个 append 点手动同步：
+        `Session.lines.append(...)` 在代码里有 **十几处**（banner、命令回显、
+        tqdm 进度、脚本结束提示……），逐处插同步必然漏。
+        换成 list 子类后，`self.lines` 的所有用法（append / clear / 切片 /
+        len / 迭代）都不变，只有 append 会被额外记录。
+
+    ⚠️ 只重写 append 和 clear：其它变更操作（`lines[0] = x`、`del lines[:]`）
+       在本项目里不存在；将来若引入，需要在对应方法里补同步。
+    """
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log):
+        super().__init__()
+        self._log = log
+
+    def append(self, item) -> None:  # type: ignore[override]
+        super().append(item)
+        try:
+            self._log.append([item])
+        except Exception:  # noqa: BLE001
+            # 持久化永远不能影响主流程
+            pass
+
+    def clear(self) -> None:
+        super().clear()
+        try:
+            self._log.truncate()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class Session:
-    def __init__(self, name: str, cmd: str | None = None):
+    def __init__(self, name: str, cmd: str | None = None, *, restore: bool = True):
         self.name = name
         self.cmd = cmd or "(interactive shell)"
-        self.lines: list[str] = []
+        # 磁盘日志：每个会话一个 JSONL，进程重启后能读回最后 600 行
+        self._log = _SessionLog(name)
+        self.lines = _PersistentLines(self._log)
         self.pending: str | None = None
         self.prog: dict | None = None
         self.done = False
@@ -134,9 +209,27 @@ class Session:
         self._tqdm_t0: float | None = None  # 本进程 tqdm 起始时间（用于 ETA 估算）
         self.updated = time.time()
         self.script: dict | None = _script_from_cmd(cmd)
+
+        # ── 恢复上次的输出 ──────────────────────────────────────────────
+        # ⚠️ 必须在 _spawn() **之前**读回：新进程启动后马上会有输出，
+        #    如果先 spawn 再 load，历史会被追加到新输出后面（顺序错乱）。
+        # ⚠️ 只恢复「没有指定 cmd」的交互式会话。带 cmd 的会话是"重新跑一个
+        #    脚本"，用户期望看到的是这次的输出，不是上次的。
+        restored: list[str] = []
+        if restore and not cmd:
+            try:
+                restored = self._log.load()
+            except Exception:  # noqa: BLE001
+                restored = []
+
         self._spawn()
         if cmd:
             self.send(cmd)
+        elif restored:
+            # 直接塞进 list（绕过 append），避免把恢复的内容又写回磁盘
+            list.extend(self.lines, restored)
+            list.append(self.lines, "[termetron] ↑ 以上为上次会话的输出（已恢复）")
+            self._log.append(["[termetron] ↑ 以上为上次会话的输出（已恢复）"], force=True)
         # 会话开启输出：终端风格欢迎横幅（纯文本 `***` 分隔，醒目且不依赖 CSS 样式）
         self.lines.append("*" * 44)
         self.lines.append(
@@ -220,7 +313,7 @@ class Session:
                 self._maybe_clear_busy()
 
     def _maybe_clear_busy(self) -> None:
-        """提示符出现后延迟判定空闲（命令回显 `X:\...>` 会先经过提示符形态）。
+        r"""提示符出现后延迟判定空闲（命令回显 `X:\...>` 会先经过提示符形态）。
 
         若 0.4s 后 pending 仍是同一段提示符（没有命令字符追加），才认为空闲；
         否则说明是 `提示符+命令` 回显行，保持 busy。
@@ -1015,9 +1108,9 @@ function renderOutput(lines) {
       if (inT) { html += '</table></div>'; inT = false; }
       // termetron 提示符行：`name $ cmd`（如 `fin $ python ...`）或旧格式 `$ cmd`，
       // `name $` / `$` 用主题色（.d），命令保持文本色
-      const pm = raw.match(/^(\$) (.*)$/) || raw.match(/^(.+? \$) (.*)$/);
+      const pm = raw.match(/^(\\$) (.*)$/) || raw.match(/^(.+? \\$) (.*)$/);
       if (pm) {
-        const nm = pm[1].replace(/\s+\$$/, '').trim();
+        const nm = pm[1].replace(/\\s+\\$$/, '').trim();
         const valid = pm[1] === '$' || (sessionsData && nm in sessionsData);
         if (valid) html += '<div class="ol"><span class="d">' + esc(pm[1]) + '</span> ' + esc(pm[2]) + '</div>';
         else html += '<div class="ol">' + esc(raw) + '</div>';
@@ -1149,7 +1242,7 @@ const HELP_HTML = '<p class="mmsg" style="line-height:1.8;white-space:pre-wrap">
   '<b>termetron stop</b>                interrupt current process<br>' +
   '<b>termetron help</b>                show this help</p>';
 async function handleTmt(text) {
-  const parts = text.trim().split(/\s+/);
+  const parts = text.trim().split(/\\s+/);
   const c = (parts[0] === 'termetron' && parts[1]) ? parts[1].toLowerCase() : null;
   const a = parts.slice(2);
   const focus = () => document.getElementById('in').focus();
@@ -1394,7 +1487,7 @@ function renderSessList(names) {
     it.innerHTML = '<span class="si-line"><span class="si-name">' + esc(n) + (isAgent ? ' <span class="si-tag">AGENT</span>' : '') + '</span>' +
       (isAgent ? (s.busy ? '<span class="si-busy">thinking</span>' : '<span class="si-idle">chat</span>') :
         (s.busy ? '<span class="si-busy">running</span>' : '<span class="si-idle">idle</span>')) + '</span>' +
-      '<span class="si-cmd">' + esc(isAgent ? ((s.system_prompt || 'agent chat').replace(/\s+/g, ' ').slice(0, 42)) : (s.cmd || '')) + '</span>';
+      '<span class="si-cmd">' + esc(isAgent ? ((s.system_prompt || 'agent chat').replace(/\\s+/g, ' ').slice(0, 42)) : (s.cmd || '')) + '</span>';
     it.onclick = () => openSession(n);
     host.appendChild(it);
   });
@@ -1627,7 +1720,7 @@ async function initAuth() {
   }, 3000);
   const conn = () => {
     const saved = localStorage.getItem('qt_dk') || '';
-    const key = /^\d{4}$/.test(saved) ? saved : String(Math.floor(1000 + Math.random() * 9000));
+    const key = /^\\d{4}$/.test(saved) ? saved : String(Math.floor(1000 + Math.random() * 9000));
     localStorage.setItem('qt_dk', key);
     api('/api/remote/auth', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token: tok.value.trim(), device_key: key})})
       .then(r => {
@@ -1778,7 +1871,7 @@ function showPairRequest() {
       const input = document.getElementById('rpairin');
       const err = document.getElementById('rpairerr');
       const code = (input ? input.value : '').trim();
-      if (!/^\d{4}$/.test(code)) {
+      if (!/^\\d{4}$/.test(code)) {
         err.style.display = 'block'; err.textContent = 'Enter the 4-digit code shown on the phone.';
         return false;
       }
@@ -2410,7 +2503,29 @@ def main() -> None:
             host = "127.0.0.1"
             why = "no tailscale IP found"
 
-    # 启动即建一个默认交互 shell 会话，打开浏览器就有可用的终端
+    # ── 启动时恢复会话 ──────────────────────────────────────────────
+    # ⚠️ 必须**先把磁盘上所有有日志的会话都重建出来**，再建默认 shell。
+    #    只建 shell 是不够的：`Session.__init__` 只有在会话被创建时才会去
+    #    load 日志，进程崩溃后那些没被重建的会话，日志文件还在但永远读不回来
+    #    （实测：persist-test 的 jsonl 有 361 字节，重启后 API 里根本看不到它）。
+    try:
+        from tools.session_log import list_session_names as _list_names
+    except Exception:  # noqa: BLE001
+        try:
+            from session_log import list_session_names as _list_names  # type: ignore
+        except Exception:  # noqa: BLE001
+            _list_names = lambda: []  # type: ignore
+
+    restored_info = []
+    for name in _list_names():
+        if name in SESSIONS:
+            continue
+        try:
+            SESSIONS[name] = Session(name, None)
+            restored_info.append(name)
+        except Exception as e:  # noqa: BLE001
+            print(f"[termetron] warn: 恢复会话 '{name}' 失败: {e}")
+
     if not SESSIONS:
         try:
             SESSIONS["shell"] = Session("shell", None)
@@ -2418,6 +2533,11 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[termetron] warn: cannot create default session: {e}")
     # agent 聊天会话由用户通过“新建会话 → agent 类型 → 填表单”创建（不预置）
+
+    if restored_info:
+        print(f"[termetron] 已从磁盘恢复 {len(restored_info)} 个会话："
+              + ", ".join(restored_info[:8])
+              + ("..." if len(restored_info) > 8 else ""))
 
     srv = ThreadingHTTPServer((host, args.port), Handler)
     print(f"Termetron running at http://{host}:{args.port}  ({why})")

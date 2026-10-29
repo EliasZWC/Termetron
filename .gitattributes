@@ -1,0 +1,5 @@
+# 强制 shell 脚本 / systemd unit 用 LF（Windows 上检出时不能带 CRLF，
+# 否则 WSL/Linux 里执行会报 "/usr/bin/env: 'sh\r': No such file or directory"）
+termetron text eol=lf
+*.sh text eol=lf
+*.service text eol=lf

@@ -1,0 +1,38 @@
+[Unit]
+Description=Termetron - web terminal server (Tailscale direct)
+Documentation=https://github.com/EliasZWC/Termetron
+# Tailscale 要在网络里可用之后才启动；不强依赖 tailscaled.service，
+# 因为有些系统用 tailscaled 的其它 unit 名（如 tailscaled.service vs tailscaled）。
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ⚠️ 改这三处路径为你自己的位置：
+#     WorkingDirectory = 仓库所在目录
+#     ExecStart        = 上面的 ./termetron
+WorkingDirectory=/mnt/e/product/Termetron
+ExecStart=/mnt/e/product/Termetron/termetron --port 8899
+
+# 崩溃自动重启（这是「持久性」的关键：进程被 OOM killer 杀掉也能自己回来）
+Restart=always
+RestartSec=3
+# 无限重启保护：1 小时内最多重启 50 次，超过就停（防止配置错误时空转）
+StartLimitIntervalSec=3600
+StartLimitBurst=50
+
+# 收到 SIGTERM 时给会话进程留时间正常退出
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# 会话日志目录（tools/session_log.py 的默认位置，这里显式指定便于排查）
+Environment=TERMETRON_STATE_DIR=%h/.local/state/termetron
+# 确保 Python 输出实时刷到 journal（否则日志会延迟出现）
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

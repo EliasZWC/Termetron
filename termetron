@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+# Termetron —— 以 Linux 命令方式启动
+#
+# 用法：
+#   ./termetron                 # 自动检测 Tailscale IP 并监听
+#   ./termetron --port 9000
+#   ./termetron --local-only    # 只监听 127.0.0.1
+#   ./termetron --host 0.0.0.0
+#
+# 安装成全局命令（任选其一）：
+#   sudo ln -s "$PWD/termetron" /usr/local/bin/termetron
+#   # 或者
+#   sudo cp termetron /usr/local/bin/ && sudo chmod +x /usr/local/bin/termetron
+#
+# ⚠️ 为什么用 sh 包装而不是直接跑 python：
+#    · 手机端要填的 IP 需要打印出来，包装脚本能顺手做这件事
+#    · 需要处理「在 WSL 里但 Tailscale 在 host」这种常见错配
+#    · 用户希望像普通命令一样用（termetron 而不是 python3 termetron.py）
+
+set -e
+
+# 解析脚本真实路径（支持通过软链接调用）
+SELF="$0"
+while [ -L "$SELF" ]; do
+    LINK=$(readlink "$SELF")
+    case "$LINK" in
+        /*) SELF="$LINK" ;;
+        *) SELF="$(dirname "$SELF")/$LINK" ;;
+    esac
+done
+DIR=$(cd "$(dirname "$SELF")" && pwd)
+
+# 选 Python：优先 python3（Linux/WSL），回退 python（部分发行版/Windows Git Bash）
+PY=""
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        # 必须 3.8+（用了 `str | None` 的写法需要 3.10+，这里只挡掉 python2）
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' 2>/dev/null; then
+            PY="$candidate"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PY" ]; then
+    echo "[termetron] 错误：找不到 Python 3" >&2
+    echo "[termetron]   Debian/Ubuntu: sudo apt install python3" >&2
+    echo "[termetron]   Arch:          sudo pacman -S python" >&2
+    exit 1
+fi
+
+# 提前检查 Tailscale，给出可操作的提示（服务端自己也会检测，这里只是提前告知）
+if [ -z "${TERMETRON_TS_IP:-}" ] && ! command -v tailscale >/dev/null 2>&1; then
+    echo "[termetron] 提示：未找到 tailscale 命令。" >&2
+    echo "[termetron]   如果 Tailscale 装在 Windows 而这里跑在 WSL，" >&2
+    echo "[termetron]   手机将无法直接连到 WSL —— 请在 WSL 里也装 Tailscale。" >&2
+fi
+
+cd "$DIR"
+# ⚠️ 直接调 quant_terminal.py，不经过 termetron.py：
+#    termetron.py 是**桌面启动器**（默认端口 8900、自动开浏览器、
+#    还会把 --port 吃掉再转发），用在命令行场景会得到意外行为。
+#    quant_terminal.py 才是真正的服务端（默认端口 8899、监听 Tailscale IP）。
+exec "$PY" quant_terminal.py "$@"
