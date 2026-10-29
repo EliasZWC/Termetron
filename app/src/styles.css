@@ -1,0 +1,454 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Termetron Mobile — 样式严格对齐 Livolog / Scholarius
+   ---------------------------------------------------------------------
+   颜色变量与 Scholarius 完全相同（深色主题 1:1 映射）：
+       Scholarius              Termetron
+       --surface    #242424    --panel
+       --outline    #333333    --border
+       --on-surface #ECECEA    --txt
+       --on-surface-variant #9A9A98  --dim
+   ⚠️ 字体：全站唯一字体是更纱黑体 'Termetron Mono'（@font-face 在下方）。
+      不要在任何地方写 system-ui / sans-serif —— 见 tools/check_fonts_all.py。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ⚠️ 字体路径用**相对**（../fonts/），不用 /fonts/：
+   vite.config.ts 的 base 是 './'，绝对路径在 Android WebView 里
+   会解析到 https://localhost/fonts/ —— 而实际文件在 assets/public/fonts。
+   症状是「Windows 浏览器里字体正常，装到手机变成系统字体」。
+   Vite 构建时会把 src/styles.css 搬到 www/assets/，所以 ../fonts/ = www/fonts/。 */
+@font-face {
+  font-family: 'Termetron Mono';
+  src: url('../fonts/termetron-mono-regular.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Termetron Mono';
+  src: url('../fonts/termetron-mono-bold.woff2') format('woff2');
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ⚠️⚠️ 这些值全部来自**实测渲染**（Playwright 读 getComputedStyle），
+   不是从 CSS 里抄片段。Scholarius 与 Livolog 的 :root 完全一致：
+       --bg            #1E1E1E   ← 不是 #1B1B1B！那是 splash 的底色
+       --surface       #242424
+       --surface-raised #303030
+       --nav-bg        #131313
+       --outline       #333333
+       --on-surface    #ECECEA
+       --on-surface-variant #9A9A98
+       --nav-active    #F2F2F0
+       --nav-inactive  #7E7E7C   ← 不是 #9A9A98
+       --danger        #E06C5E   (Scholarius) / #FF8A80 (Livolog)
+       --success       #7EE2A8
+   tools/check_palette.py 会拒绝任何不在参考应用调色板里的颜色。 */
+:root {
+  color-scheme: light dark;
+  --bg: #1E1E1E;
+  --surface: #242424;
+  --surface-raised: #303030;
+  --nav-bg: #131313;
+  --outline: #333333;
+  --on-surface: #ECECEA;
+  --on-surface-variant: #9A9A98;
+  --accent: #F2F2F0;
+  --success: #7EE2A8;
+  --danger: #E06C5E;
+  --nav-active: #F2F2F0;
+  --nav-inactive: #7E7E7C;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --fs: 13px;
+}
+
+/* 浅色主题：取自 Livolog 的 :root[data-theme="light"] */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #EFEFED;
+  --surface: #FCFCFB;
+  --surface-raised: #E6E6E4;
+  --nav-bg: #FCFCFB;
+  --outline: #E1E1DE;
+  --on-surface: #1B1B1B;
+  --on-surface-variant: #6E6E6E;
+  --accent: #1B1B1B;
+  --nav-active: #1B1B1B;
+  --nav-inactive: #8C8C8A;
+  --danger: #C6211A;
+  --success: #15803D;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent !important; }
+/* ⚠️ `[hidden]` 的 UA 默认是 `display:none`，但一旦元素本身有
+   `display: grid/flex` 之类的规则，就会把 UA 样式盖掉 —— 于是
+   `el.hidden = true` 完全没效果（实测：设置页那个 + 按钮明明 hidden=true 却仍在显示）。
+   用 !important 强制它真的消失。 */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--on-surface);
+  /* ⚠️ 唯一字体。不要加 system-ui 兜底链外的其它族名。 */
+  font-family: 'Termetron Mono', 'Roboto Mono', 'Droid Sans Mono', monospace;
+  font-size: 15px;
+  -webkit-touch-callout: none;
+}
+
+/* ── 顶栏：照 Livolog/Scholarius 的 .page-header ────────────────────────
+   实测：背景**透明**（不是 --nav-bg）、高 56px、padding 0 16px、
+         **无底部分隔线**、display flex + align-items center。
+   ⚠️ Livolog 的 .page-title 是 **text-align:center**（截图里 TIME 居中），
+      不是左对齐。三格布局：左占位 / 中间标题 / 右侧按钮，两侧等宽
+      才能让标题落在真正的中轴上。
+   ---------------------------------------------------------------------- */
+.topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 16px;
+  padding-top: var(--safe-top);
+  background: transparent;
+  /* ⚠️ 不要加 border-bottom：两个参考应用的 page-header 都是
+     `border-bottom: 0px`，靠留白和内容分层，不画线。 */
+}
+/* 主页面标题：17px / 700 / uppercase / **居中**（.page-title 规范） */
+.topbar-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 24px;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--on-surface);
+}
+/* 左侧占位：与右侧按钮等宽，保证标题真正居中 */
+.topbar-slot {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+}
+.topbar-btn {
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--on-surface);
+  cursor: pointer;
+}
+.topbar-btn:active { opacity: 0.55; }
+.topbar-btn svg { width: 24px; height: 24px; fill: currentColor; }
+
+/* ── FAB：照 Livolog 的 .fab ────────────────────────────────────────────
+   实测 Livolog：白色（--fab-bg = --nav-active）圆底 + 黑色图标（--fab-fg = --bg），
+   直径 56px，固定在导航栏上方 18px、右侧 16px。
+   ---------------------------------------------------------------------- */
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(64px + 18px + var(--safe-bottom));
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--nav-active);
+  color: var(--bg);
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.fab:active { transform: scale(0.94); opacity: 0.85; }
+.fab svg { width: 24px; height: 24px; fill: currentColor; }
+
+/* ── 内容区 ───────────────────────────────────────────────────────────── */
+#content {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.page { padding: 4px 0 24px; }
+.page[hidden] { display: none; }
+
+/* ── 设置页：严格照 Livolog ──────────────────────────────────────────────
+   .setting-group         padding: 4px 0
+   .setting-group-title   padding: 14px 36px 6px; 12px/600/0.8px/uppercase
+   .setting-list          margin: 0 16px; surface; radius 16px; overflow hidden
+   .setting-item          flex; space-between; gap 16px; min-height 56px;
+                          padding 6px 20px; border-bottom outline
+   .setting-label         15px / 700 / on-surface   （左）
+   .setting-value         15px / on-surface-variant （右，max 50%）
+   ---------------------------------------------------------------------- */
+.setting-group { padding: 4px 0; }
+.setting-group-title {
+  margin: 0;
+  /* 左内边距 = 卡片外边距(16) + 行内边距(20)，保证分区标题与设置项名称左对齐 */
+  padding: 14px 36px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+.setting-list {
+  list-style: none;
+  margin: 0 16px;
+  padding: 0;
+  background: var(--surface);
+  border-radius: 16px;
+  /* ⚠️ 不要加 border-top：圆角卡片顶上一条直线会横切圆角，看着像残线 */
+  overflow: hidden;
+}
+.setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 6px 20px;
+  /* ⚠️ 分隔线颜色实测是 **--bg（#1E1E1E）**，不是 --outline：
+     Scholarius 的 .setting-item border-bottom 计算值是 rgb(30,30,30)，
+     也就是和页面底色相同 —— 靠「比卡片暗一档」形成细线，
+     而不是用 #333 那种明显的灰色线。用 --outline 会显得分割过重。 */
+  border-bottom: 1px solid var(--bg);
+}
+.setting-item:last-child { border-bottom: 0; }
+.setting-item:has(.setting-action:active) { background: var(--surface-raised); }
+
+.setting-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+.setting-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setting-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  /* button 的 UA 默认是居中，不改的话名称看起来就不是左对齐的 */
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.setting-action:active { transform: scale(0.985); opacity: 0.6; }
+.setting-action .icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--on-surface-variant);
+}
+.setting-action .icon svg { width: 20px; height: 20px; fill: currentColor; }
+
+/* ── 底部导航：严格照 Livolog ────────────────────────────────────────────
+   .bottom-nav   flex; nav-bg; padding 8px 4px; +safe-bottom
+   .nav-item     1fr; column; center; gap 3px; min-height 48px;
+                 color nav-inactive；.is-active → nav-active
+   .nav-icon     24px；两个 svg 叠放，is-active 时切到实心
+   .nav-label    12px / 500
+   ---------------------------------------------------------------------- */
+.bottom-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  background: var(--nav-bg);
+  padding: 8px 4px;
+  padding-bottom: calc(8px + var(--safe-bottom));
+}
+.nav-item {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 48px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--nav-inactive);
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.nav-item.is-active { color: var(--nav-active); }
+.nav-item:active { opacity: 0.55; }
+.nav-icon { display: grid; place-items: center; }
+.nav-icon svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  grid-area: 1 / 1;
+}
+/* ⚠️ 必须比 `.nav-icon svg` 更强或写在它后面：
+   两条同优先级(0,1,1)靠书写顺序决胜，放前面会被 display:block 盖掉，
+   于是两个图标同时显示（Livolog 里实测踩过）。这里用 (0,2,0) 双保险。 */
+.nav-icon .nav-icon-filled { display: none; }
+.nav-item.is-active .nav-icon-outlined { display: none; }
+.nav-item.is-active .nav-icon-filled { display: block; }
+.nav-label {
+  max-width: 100%;
+  font-size: 12px;
+  /* ⚠️ 实测 Livolog 的 .nav-label 是 font-weight **600**（不是 500），
+     letter-spacing 0.2px，line-height 16px。 */
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 空状态 ───────────────────────────────────────────────────────────── */
+.empty { padding: 64px 32px; text-align: center; }
+.empty-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--on-surface); }
+.empty-hint { margin: 0; font-size: 13px; line-height: 1.6; color: var(--on-surface-variant); }
+
+/* ── 终端页 ───────────────────────────────────────────────────────────── */
+#page-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+#page-terminal[hidden] { display: none; }
+.term-out {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px;
+  font-size: var(--fs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-variant-ligatures: none;
+}
+.term-input-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  padding-bottom: calc(10px + var(--safe-bottom));
+  border-top: 1px solid var(--outline);
+  background: var(--surface);
+}
+.term-prompt { flex: none; font-size: var(--fs); color: var(--accent); }
+.term-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: var(--fs);
+  outline: none;
+}
+.term-input::placeholder { color: var(--on-surface-variant); opacity: 0.55; }
+
+/* ── Splash 开场动画 ────────────────────────────────────────────────────
+   时间轴（总 3.4s）：
+     0.05–0.90s  `>` 沿路径描边
+     0.85–1.13s  尾部圆点浮现
+     1.10–1.55s  `_` 从左到右描边
+     1.60–2.10s  TERMETRON 逐字浮现
+     2.90–3.40s  整体淡出
+   ⚠️ 用 stroke-dasharray 画路径，不用 clip：clip 会把
+      stroke-linecap:round 的圆头切成平头，动画中间很难看。
+   ⚠️ pathLength="1" 归一化，CSS 里只需写 1，改几何不用同步数字。
+   ⚠️ keyframes 必须同时写 from 和 to：只写 to 时部分 WebView 不对
+      SVG 的 stroke-dashoffset 建立插值基准（实测 currentTime 恒为 0）。
+   ---------------------------------------------------------------------- */
+.splash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding-bottom: 6vh;
+  background: var(--bg);
+  z-index: 99999;
+  pointer-events: none;
+  animation: ut-splash 3.4s ease forwards;
+}
+@keyframes ut-splash { 0%, 85.3% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+.splash svg { width: 108px; height: 108px; color: var(--accent); overflow: visible; }
+@keyframes sp-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.sp-chev { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sp-draw 0.85s cubic-bezier(.4,0,.2,1) 0.05s forwards; }
+@keyframes sp-pop { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
+.sp-dot { opacity: 0; transform: scale(0); transform-origin: 7.25px 92.75px; animation: sp-pop 0.28s cubic-bezier(.34,1.56,.64,1) 0.85s forwards; }
+.sp-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sp-draw 0.45s cubic-bezier(.4,0,.2,1) 1.10s forwards; }
+.splash-brand {
+  display: flex;
+  color: var(--accent);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 7px;
+}
+@keyframes sp-char { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.splash-brand span { opacity: 0; transform: translateY(6px); animation: sp-char 0.34s ease-out forwards; }
+.tmt-grad-top { stop-color: #FFFFFF; }
+.tmt-grad-bot { stop-color: #6E6E6E; }
+
+/* ⚠️ 尊重系统「减少动态效果」：直接显示终态，只保留淡出 */
+@media (prefers-reduced-motion: reduce) {
+  .sp-chev, .sp-line { stroke-dashoffset: 0; animation: none; }
+  .sp-dot { opacity: 1; transform: none; animation: none; }
+  .splash-brand span { opacity: 1; transform: none; animation: none; }
+  .splash { animation: ut-splash 2.0s ease forwards; }
+}

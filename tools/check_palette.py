@@ -49,6 +49,7 @@ REF_GLOBS = [
 TARGET_GLOBS = [
     "quant_terminal.py",
     "app/index.html",
+    "app/src/styles.css",
     "app/src/main.js",
     "app/src/updater.js",
     "app/devtest/update-test.html",

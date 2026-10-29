@@ -442,7 +442,7 @@ _INDEX = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   --bg 页面底（比栏更深）/ --panel 卡片与输入框 / --bar 顶栏与底栏 / --border 分隔线 /
   --txt 正文 / --dim 次要文字 / --acc 强调色 = 与正文同色的墨黑，靠反色块表达主次。
  */
- :root{--bg:#1B1B1B;--panel:#242424;--bar:#131313;--raised:#303030;--border:#333333;--txt:#ECECEA;--dim:#9A9A98;--acc:#F2F2F0;--danger:#E06C5E;--success:#7EE2A8;--on-acc:#1B1B1B;--acc-soft:rgba(242,242,240,.10);--acc-soft2:rgba(242,242,240,.16)}
+ :root{--bg:#1E1E1E;--panel:#242424;--bar:#131313;--raised:#303030;--border:#333333;--txt:#ECECEA;--dim:#9A9A98;--acc:#F2F2F0;--danger:#E06C5E;--success:#7EE2A8;--on-acc:#1B1B1B;--acc-soft:rgba(242,242,240,.10);--acc-soft2:rgba(242,242,240,.16)}
  *{box-sizing:border-box;font-family:'Termetron Mono','Roboto Mono','Noto Sans Mono','Droid Sans Mono',Menlo,Monaco,'Courier New',monospace;-webkit-tap-highlight-color:transparent!important;-webkit-touch-callout:none}
  *:focus{outline:none}
  button:focus{box-shadow:0 0 0 2px var(--acc-soft2)}
@@ -676,7 +676,7 @@ body.mobile .tabs{display:none}body.mobile #sesslist{flex:1;overflow-y:auto;padd
 .fp-back svg{width:24px;height:24px}
 .fp-title{font-family:inherit;font-size:15px;font-weight:700;letter-spacing:0;color:var(--acc)}
 .fp-body{flex:1;overflow-y:auto;padding:18px}
-</style><meta name="theme-color" content="#1B1B1B">
+</style><meta name="theme-color" content="#1E1E1E">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 </head><body>
 <header><span class="cur">>_</span><button class="btn back" id="backbtn" style="display:none" title="all sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="ttl" id="brand">TERMETRON</span><span class="client-tag" id="clienttag"></span><span class="ttl" id="curtitle" style="display:none"></span><span class="hbtns"><button class="btn hm" id="hmbtn" style="display:none" title="session actions"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button><button class="btn hm" id="connbtn" title="connect (termetron remote on)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button><button class="btn set" id="setbtn" title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button></span>
@@ -1660,7 +1660,7 @@ function initPWA() {
     '</svg>');
   const fav = document.createElement('link'); fav.rel = 'icon'; fav.href = icon; document.head.appendChild(fav);
   const man = {name:'Termetron', short_name:'TMT', start_url:'.', display:'standalone',
-    background_color:'#1B1B1B', theme_color:'#1B1B1B',
+    background_color:'#1E1E1E', theme_color:'#1E1E1E',
     icons:[{src:icon, sizes:'any', type:'image/svg+xml'}]};
   const blob = new Blob([JSON.stringify(man)], {type:'application/manifest+json'});
   const l = document.createElement('link'); l.rel = 'manifest'; l.href = URL.createObjectURL(blob);
@@ -2364,10 +2364,45 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     ap = argparse.ArgumentParser(description="Termetron local web UI")
     ap.add_argument("--port", type=int, default=8899)
-    ap.add_argument("--host", default="127.0.0.1")
+    # ⚠️ 默认 host 改由 Tailscale 决定（见下）。--host 保留为显式覆盖，
+    #    本地开发/无 Tailscale 时仍可用 127.0.0.1。
+    ap.add_argument("--host", default=None,
+                    help="监听地址；默认自动使用 Tailscale IP，检测不到则 127.0.0.1")
+    ap.add_argument("--local-only", action="store_true",
+                    help="强制只监听 127.0.0.1（即使检测到 Tailscale IP）")
     args = ap.parse_args()
     global _LOCAL_PORT
     _LOCAL_PORT = args.port
+
+    # 监听地址：显式 --host > --local-only > Tailscale IP > 127.0.0.1
+    if args.host:
+        host = args.host
+        why = "explicit --host"
+    elif args.local_only:
+        host = "127.0.0.1"
+        why = "--local-only"
+    else:
+        try:
+            from tools.ts_ip import detect_tailscale_ip
+            ts_ip = detect_tailscale_ip()
+        except Exception:  # noqa: BLE001
+            # ⚠️ 发布包可能不含 tools/（namespace package 在某些打包方式下会丢），
+            #    所以这里再试一次同目录直接导入，最后才放弃。
+            try:
+                import os as _os
+                import sys as _sys
+                _sys.path.insert(0, _os.path.join(
+                    _os.path.dirname(_os.path.abspath(__file__)), 'tools'))
+                from ts_ip import detect_tailscale_ip  # type: ignore
+                ts_ip = detect_tailscale_ip()
+            except Exception:  # noqa: BLE001
+                ts_ip = None
+        if ts_ip:
+            host = ts_ip
+            why = "tailscale"
+        else:
+            host = "127.0.0.1"
+            why = "no tailscale IP found"
 
     # 启动即建一个默认交互 shell 会话，打开浏览器就有可用的终端
     if not SESSIONS:
@@ -2378,8 +2413,13 @@ def main() -> None:
             print(f"[termetron] warn: cannot create default session: {e}")
     # agent 聊天会话由用户通过“新建会话 → agent 类型 → 填表单”创建（不预置）
 
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Termetron running at http://{args.host}:{args.port}")
+    srv = ThreadingHTTPServer((host, args.port), Handler)
+    print(f"Termetron running at http://{host}:{args.port}  ({why})")
+    if why == "tailscale":
+        print(f"[termetron] 手机端在设置里填：{host}  端口 {args.port}")
+    elif why != "explicit --host":
+        print("[termetron] 未检测到 Tailscale IP —— 手机端无法连接。")
+        print("[termetron] 请先安装并登录 Tailscale，或用 --host <ip> 指定监听地址。")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

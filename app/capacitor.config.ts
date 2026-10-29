@@ -5,13 +5,16 @@ const config: CapacitorConfig = {
   appName: 'Termetron',
   webDir: 'www',
   android: {
-    allowMixedContent: true   // 允许 http(s) 混合内容（隧道为 https，一般不需；保险起见）
+    // Tailscale 直连用的是明文 http（tailnet 内部已加密），必须允许混合内容
+    allowMixedContent: true,
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 0,      // 原生 splash 极短——品牌 splash 由 Web 层 CSS animation 接管（Android 12+ 系统 splash 不受此项控制）
+      // 原生 splash 极短 —— 品牌 splash 由 Web 层 CSS animation 接管
+      // （Android 12+ 系统 splash 不受此项控制）
+      launchShowDuration: 0,
       launchAutoHide: true,
-      backgroundColor: '#1B1B1B', // 与 Web splash / 页面底色 / 状态栏一致（#1B1B1B），避免启动闪一下深色再变浅
+      backgroundColor: '#1B1B1B',
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
       splashFullScreen: true,
@@ -20,10 +23,12 @@ const config: CapacitorConfig = {
   },
   server: {
     androidScheme: 'https',
-    // 允许在 WebView 内导航：隧道域（trycloudflare）+ 本地服务器（localhost，供认证失败后返回连接登录页）。
-    // 缺 localhost 时，从隧道域导航回 https://localhost/ 会被当外部链接交给系统浏览器 → Back 无效。
-    allowNavigation: ['*.trycloudflare.com', 'localhost']
-  }
+    // ⚠️ allowNavigation 只影响**顶层页面跳转**，不限制 fetch/XHR。
+    //    本应用连电脑走的是 fetch（WebView 内 AJAX），所以不需要放行
+    //    任意 Tailscale IP —— 而且 Capacitor 也不支持通配符 IP 段。
+    //    保留 localhost 仅为将来调试方便。
+    allowNavigation: ['localhost'],
+  },
 };
 
 export default config;

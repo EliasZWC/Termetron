@@ -28,7 +28,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FONTS = ROOT / "app" / "public" / "fonts"
-HTML = ROOT / "app" / "index.html"
+# ⚠️ @font-face 已从 app/index.html 移到 app/src/styles.css
+#    （样式抽成独立文件，便于 Vite 打包成 www/assets/*.css）
+CSS = ROOT / "app" / "src" / "styles.css"
 CAP = ROOT / "app" / "capacitor.config.ts"
 QT = ROOT / "quant_terminal.py"
 REF = Path("E:/product/Scholarius/app/src/main/assets/www/fonts")
@@ -52,14 +54,22 @@ for local, ref in [("termetron-mono-regular.woff2", "scholarius-mono-regular.wof
         rh = hashlib.sha256(rp.read_bytes()).hexdigest()
         check(lh == rh, f"{local} 与 Scholarius {ref} 内容一致（{lh[:12]}）")
 
-print("\n== 2) index.html 的 @font-face 引用 ==")
-html = HTML.read_text(encoding="utf-8")
-urls = re.findall(r"url\('(/fonts/[^']+)'\)", html)
+print("\n== 2) styles.css 的 @font-face 引用 ==")
+css = CSS.read_text(encoding="utf-8")
+urls = re.findall(r"url\('([^']*fonts/[^']+)'\)", css)
 print(f"  引用：{urls}")
 for u in urls:
     fname = u.rsplit("/", 1)[-1]
     check((FONTS / fname).is_file(), f"{u} 对应的文件存在")
-check(len(urls) == 2, "两个 @font-face 都用绝对路径 /fonts/")
+
+# ⚠️ 必须用**相对**路径 ../fonts/：
+#    vite.config.ts 的 base 是 './'，构建后 styles.css 落在 www/assets/，
+#    ../fonts/ 正好解析到 www/fonts/（public/fonts 被 Vite 拷过去）。
+#    写成 /fonts/ 时 Android WebView 里会解析到 https://localhost/fonts/，
+#    部分设备路径不成立 → 字体静默回退成系统字体（Windows 浏览器里看不出来）。
+check(len(urls) == 2, "两个 @font-face 都被找到")
+check(all(u.startswith("../fonts/") for u in urls),
+      "两个 @font-face 都用相对路径 ../fonts/（配合 base: './'）")
 
 print("\n== 3) Capacitor origin ==")
 cap = CAP.read_text(encoding="utf-8")
