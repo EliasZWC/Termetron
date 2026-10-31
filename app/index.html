@@ -40,7 +40,7 @@
       <div class="term-out" id="term-out"></div>
       <form class="term-input-row" id="term-form">
         <span class="term-prompt" id="term-prompt">$</span>
-        <input class="term-input" id="term-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="run a command">
+        <input class="term-input" id="term-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Run a command">
       </form>
     </section>
 
@@ -61,10 +61,18 @@
             </button>
           </li>
           <li class="setting-item">
-            <button class="setting-action" type="button" id="setting-fontsize" aria-haspopup="menu" aria-expanded="false">
-              <span class="setting-label">Font size</span>
-              <span class="setting-value" id="setting-fontsize-value">—</span>
-            </button>
+            <!-- 字号：照 Scholarius 阅读视图的 .reader-size-controls
+                 ─ 减 / input[type=number] / 加；不用选项列表 -->
+            <span class="setting-label">Font Size</span>
+            <span class="size-controls">
+              <button class="icon-button size-btn" type="button" id="fontsize-down" aria-label="Decrease font size">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13H5v-2h14v2z"/></svg>
+              </button>
+              <input class="size-input" type="number" id="fontsize-input" inputmode="numeric" min="11" max="24" step="1" aria-label="Font size">
+              <button class="icon-button size-btn" type="button" id="fontsize-up" aria-label="Increase font size">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+              </button>
+            </span>
           </li>
         </ul>
       </section>
@@ -86,7 +94,7 @@
           </li>
           <li class="setting-item">
             <button class="setting-action" type="button" id="setting-test">
-              <span class="setting-label">Test connection</span>
+              <span class="setting-label">Test Connection</span>
               <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></span>
             </button>
           </li>
@@ -103,7 +111,7 @@
           <li class="setting-item">
             <button class="setting-action" type="button" id="setting-contact">
               <span class="setting-label">Contact</span>
-              <span class="setting-value" id="setting-contact-value">GitHub</span>
+              <span class="setting-value" id="setting-contact-value">eliaschang@163.com</span>
             </button>
           </li>
         </ul>

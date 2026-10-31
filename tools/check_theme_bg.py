@@ -17,11 +17,16 @@ A 组（页面底色 = #1E1E1E）：
       2. app/src/styles.css       App 页面 --bg
       3. quant_terminal.py        <meta name="theme-color">
       4. app/index.html           <meta name="theme-color">
+      5. app/scripts/patch-android.py  STATUS_BAR_COLOR  ← 状态栏必须同页面底色
 B 组（图标/启动页底色 = #1B1B1B）：
-      5. app/scripts/patch-android.py  STATUS_BAR_COLOR
-      6. app/scripts/patch-android.py  SPLASH_BG
-      7. app/scripts/patch-android.py  windowSplashScreenBackground
-      8. app/capacitor.config.ts       SplashScreen.backgroundColor
+      6. app/scripts/patch-android.py  ICON_BG_COLOR
+      7. app/scripts/patch-android.py  SPLASH_BG
+      8. app/scripts/patch-android.py  windowSplashScreenBackground
+      9. app/capacitor.config.ts       SplashScreen.backgroundColor
+
+⚠️ 2026-10-31 再次修正：STATUS_BAR_COLOR 原先被归到 B 组（期望 #1B1B1B），
+    这就是「状态栏与内容区色差」反复出现的原因 —— 断言自己就在验错误的值。
+    状态栏紧贴页面，必须与 --bg 同色；图标底板是另一回事（用户看不到接缝）。
 """
 from __future__ import annotations
 
@@ -53,8 +58,12 @@ m = re.search(r"--bg:\s*(#[0-9A-Fa-f]{6})", css)
 check("app/src/styles.css --bg", m.group(1) if m else None)
 
 patch = (ROOT / "app" / "scripts" / "patch-android.py").read_text(encoding="utf-8")
+# 状态栏紧贴页面 → 必须与 --bg 同色（A 组）
 m = re.search(r'^STATUS_BAR_COLOR = "(#[0-9A-Fa-f]{6})"', patch, re.M)
-check("patch STATUS_BAR_COLOR", m.group(1) if m else None, EXPECTED_ICON)
+check("patch STATUS_BAR_COLOR", m.group(1) if m else None)
+# 图标底板 → B 组
+m = re.search(r'^ICON_BG_COLOR = "(#[0-9A-Fa-f]{6})"', patch, re.M)
+check("patch ICON_BG_COLOR", m.group(1) if m else None, EXPECTED_ICON)
 m = re.search(r'^SPLASH_BG = "(#[0-9A-Fa-f]{6})"', patch, re.M)
 check("patch SPLASH_BG", m.group(1) if m else None, EXPECTED_ICON)
 m = re.search(r"windowSplashScreenBackground\">(#[0-9A-Fa-f]{6})<", patch)

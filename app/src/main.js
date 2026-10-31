@@ -62,6 +62,9 @@ function tmtToast(msg) {
 }
 
 // ── 弹窗（照 Scholarius 的 .sheet 抽屉）─────────────────────────────────
+// 弹窗 / 菜单的样式。**必须在这里写全**——不能用 app/src/styles.css，
+// 因为这段在 quant_terminal.py 的内联页面里也复用不到（那边是另一套 DOM），
+// 而且参考应用 Livolog 的 .menu 也是运行时注入的。
 const TMT_CSS = `
 .tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
 .tmt-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
@@ -75,6 +78,14 @@ const TMT_CSS = `
 .tmt-btn.cancel{color:#9A9A98}
 .tmt-input{width:100%;box-sizing:border-box;padding:2px 0;border:0;border-radius:0;background:transparent;color:#ECECEA;font:inherit;font-size:15px;outline:none}
 .tmt-input::placeholder{color:#9A9A98;opacity:.55}
+/* ── 下拉菜单：逐项照 Livolog 的 .menu / .menu-item 实测值 ────────────
+   Livolog 实测：背景 #242424、圆角 12px、边框 1px #333333、
+   padding 6px、min-width 160px、阴影 0 8px 24px rgba(0,0,0,.22)、
+   项 padding 10px 14px / 14px 字号、选中项只加粗到 600 不改色。 */
+.tmt-menu{position:fixed;z-index:10000;min-width:160px;max-height:min(60vh,320px);overflow-y:auto;box-sizing:border-box;padding:6px;background:#242424;border:1px solid #333333;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22);font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
+.tmt-menu-item{display:block;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:#ECECEA;font:inherit;font-size:14px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-menu-item:active{background:#303030}
+.tmt-menu-item.is-selected{font-weight:600}
 `;
 
 function ensureModalCss() {
@@ -140,6 +151,20 @@ function tmtPrompt({ title, message, input, okText = 'OK', cancelText = null }) 
     document.addEventListener('keydown', kd);
     ok.onclick = accept;
     if (cancel) cancel.onclick = () => finish(hasInput ? null : false);
+
+    // ⚠️ 点表单外区域 = 取消。用 pointerdown 的**捕获**阶段：
+    //    这样在 mousedown → mouseup → click 序列里先一步判定，
+    //    且点 modal 内部不会误关（contains 检查）。
+    //    挂载延后一拍，避免触发本弹窗的那次 pointerdown 立刻把它关掉。
+    const onOutside = (ev) => {
+      const modal = overlay.querySelector('.tmt-modal');
+      if (modal && modal.contains(ev.target)) return;
+      finish(hasInput ? null : false);
+    };
+    setTimeout(() => {
+      overlay.addEventListener('pointerdown', onOutside);
+    }, 0);
+
     if (inp) inp.focus(); else ok.focus();
   });
 }
@@ -319,7 +344,7 @@ addBtn.addEventListener('click', async () => {
     return;
   }
   const name = await tmtPrompt({
-    title: 'New session',
+    title: 'New Session',
     message: 'Name for the new terminal session',
     input: { placeholder: 'session name' },
     okText: 'CREATE',
@@ -407,7 +432,11 @@ const THEMES = [
   { id: 'dark', name: 'Dark' },
   { id: 'light', name: 'Light' },
 ];
-const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18];
+// 字号范围：照 Scholarius 阅读视图（min 12 / max 40），
+// 这里收窄到 11–24 —— 终端等宽字更大就撑破行宽了。
+const FONT_MIN = 11;
+const FONT_MAX = 24;
+const CONTACT_EMAIL = 'eliaschang@163.com';
 
 function err(msg) {
   // 统一在设置页给出反馈，不用弹窗打断
@@ -432,7 +461,7 @@ function renderSettings() {
     (LANGS.find((l) => l.id === settings.language) || LANGS[0]).name;
   document.getElementById('setting-theme-value').textContent =
     (THEMES.find((t) => t.id === settings.theme) || THEMES[0]).name;
-  document.getElementById('setting-fontsize-value').textContent = `${settings.fontSize}px`;
+  renderFontSize();
   document.getElementById('setting-tsip-value').textContent = settings.tsIp || 'not set';
   document.getElementById('setting-port-value').textContent = String(settings.port);
   document.getElementById('setting-version').textContent =
@@ -441,42 +470,141 @@ function renderSettings() {
   applyFontSize();
 }
 
-// 通用「选项列表」弹窗：照 Scholarius 的 .sheet-picker-list
-function pickOption(title, options, currentId) {
+// 字号行：只同步 input 的值与按钮可用性，**不要在输入时重渲染整页**
+// （重渲染会把 focus 弄丢，正在输入的手机键盘会收起）
+function renderFontSize() {
+  const inp = document.getElementById('fontsize-input');
+  const down = document.getElementById('fontsize-down');
+  const up = document.getElementById('fontsize-up');
+  if (!inp) return;
+  if (document.activeElement !== inp) inp.value = String(settings.fontSize);
+  down.disabled = settings.fontSize <= FONT_MIN;
+  up.disabled = settings.fontSize >= FONT_MAX;
+}
+
+function setFontSize(n, { rerender = true } = {}) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return;
+  const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, v));
+  settings.fontSize = clamped;
+  saveSettings();
+  applyFontSize();
+  renderFontSize();
+  if (rerender && document.activeElement !== document.getElementById('fontsize-input')) {
+    const inp = document.getElementById('fontsize-input');
+    if (inp) inp.value = String(clamped);
+  }
+}
+
+// 通用「下拉选项」菜单：照 Livolog 的 .menu / .menu-item。
+// ⚠️ 与旧实现（底部 sheet 弹窗）的区别：这是**锚定在触发按钮上的浮动菜单**，
+//    不遮罩全屏，点外面任意位置即关闭。Livolog 的 Language / Theme 就是这种。
+// 返回选中的 id；点外部或按 Esc 返回 null。
+function pickOption(title, options, currentId, anchorEl) {
   return new Promise((resolve) => {
     ensureModalCss();
-    const overlay = document.createElement('div');
-    overlay.className = 'tmt-overlay';
-    const items = options.map((o, i) =>
-      `<button class="tmt-opt" data-i="${i}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:13px 12px;border:0;border-radius:10px;background:transparent;color:${o.id === currentId ? '#7EE2A8' : '#ECECEA'};font:inherit;font-size:15px;line-height:1.4;text-align:left;cursor:pointer">${o.name}</button>`
-    ).join('');
-    overlay.innerHTML =
-      `<div class="tmt-modal"><h3 style="margin:12px 0 8px">${title}</h3>` +
-      `<div style="max-height:52vh;overflow-y:auto;margin:0 -8px">${items}</div>` +
-      '<div class="tmt-actions"><button class="tmt-btn cancel">CANCEL</button></div></div>';
-    document.body.appendChild(overlay);
-    const finish = (v) => { overlay.remove(); resolve(v); };
-    overlay.querySelectorAll('.tmt-opt').forEach((btn) => {
-      btn.onclick = () => finish(options[Number(btn.dataset.i)].id);
+
+    const menu = document.createElement('div');
+    menu.className = 'tmt-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', title || '');
+    menu.innerHTML = options
+      .map((o, i) =>
+        `<button type="button" role="menuitem" class="tmt-menu-item${o.id === currentId ? ' is-selected' : ''}" data-i="${i}">${o.name}</button>`)
+      .join('');
+    document.body.appendChild(menu);
+
+    // 定位：优先对齐触发按钮的左缘，下方；下方空间不够则翻到上方。
+    const anchor = anchorEl || null;
+    const place = () => {
+      const r = anchor.getBoundingClientRect();
+      const mw = menu.offsetWidth;
+      const mh = menu.offsetHeight;
+      let left = r.left;
+      if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+      let top = r.bottom + 6;
+      if (top + mh > window.innerHeight - 8) {
+        const upTop = r.top - mh - 6;
+        top = upTop >= 8 ? upTop : Math.max(8, window.innerHeight - mh - 8);
+      }
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    };
+    if (anchor) place();
+
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener('pointerdown', onOutside, true);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', place);
+      menu.remove();
+      if (anchor) anchor.setAttribute('aria-expanded', 'false');
+      resolve(val);
+    };
+
+    // ⚠️ 用捕获阶段 + pointerdown：菜单项自己的 click 还在冒泡途中，
+    //    若用冒泡阶段的 document click，点菜单项会先被当成「外部点击」关掉。
+    const onOutside = (e) => {
+      if (menu.contains(e.target)) return;
+      if (anchor && anchor.contains(e.target)) return;
+      finish(null);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
+    };
+
+    menu.querySelectorAll('.tmt-menu-item').forEach((btn) => {
+      btn.addEventListener('click', () => finish(options[Number(btn.dataset.i)].id));
     });
-    overlay.querySelector('.tmt-btn.cancel').onclick = () => finish(null);
+    if (anchor) anchor.setAttribute('aria-expanded', 'true');
+
+    // 延后一拍再挂监听：触发菜单的那次 pointerdown/click 还没结束
+    setTimeout(() => {
+      document.addEventListener('pointerdown', onOutside, true);
+      document.addEventListener('keydown', onKey, true);
+      window.addEventListener('resize', place);
+    }, 0);
   });
 }
 
-document.getElementById('setting-language').addEventListener('click', async () => {
-  const id = await pickOption('Language', LANGS, settings.language);
+document.getElementById('setting-language').addEventListener('click', async (e) => {
+  const id = await pickOption('Language', LANGS, settings.language, e.currentTarget);
   if (id) { settings.language = id; saveSettings(); renderSettings(); }
 });
 
-document.getElementById('setting-theme').addEventListener('click', async () => {
-  const id = await pickOption('Theme', THEMES, settings.theme);
+document.getElementById('setting-theme').addEventListener('click', async (e) => {
+  const id = await pickOption('Theme', THEMES, settings.theme, e.currentTarget);
   if (id) { settings.theme = id; saveSettings(); renderSettings(); }
 });
 
-document.getElementById('setting-fontsize').addEventListener('click', async () => {
-  const opts = FONT_SIZES.map((n) => ({ id: n, name: `${n}px` }));
-  const id = await pickOption('Font size', opts, settings.fontSize);
-  if (id) { settings.fontSize = Number(id); saveSettings(); renderSettings(); }
+// ── 字号：减 / 输入 / 加（Scholarius 阅读视图的交互）────────────────────
+// 输入框用 `input` 事件实时跟手；`change`/`blur` 时归一到合法范围，
+// 用户输入 999 或清空都会被拉回 [FONT_MIN, FONT_MAX]。
+document.getElementById('fontsize-down').addEventListener('click', () => {
+  setFontSize(settings.fontSize - 1);
+});
+document.getElementById('fontsize-up').addEventListener('click', () => {
+  setFontSize(settings.fontSize + 1);
+});
+const fontSizeInput = document.getElementById('fontsize-input');
+fontSizeInput.addEventListener('input', () => {
+  const raw = fontSizeInput.value.trim();
+  if (raw === '') return;              // 允许清空后重新输入，不要跳回旧值
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return;
+  if (n < FONT_MIN || n > FONT_MAX) return;  // 超范围先不动，交给 blur 归一
+  setFontSize(n);
+});
+fontSizeInput.addEventListener('change', () => {
+  const n = Number(fontSizeInput.value.trim());
+  setFontSize(Number.isFinite(n) && n > 0 ? n : settings.fontSize);
+  fontSizeInput.value = String(settings.fontSize);
+});
+fontSizeInput.addEventListener('blur', () => {
+  if (fontSizeInput.value.trim() === '') setFontSize(settings.fontSize);
+  fontSizeInput.value = String(settings.fontSize);
 });
 
 document.getElementById('setting-tsip').addEventListener('click', async () => {
@@ -521,11 +649,12 @@ document.getElementById('setting-test').addEventListener('click', async () => {
 });
 
 document.getElementById('setting-contact').addEventListener('click', () => {
-  const url = 'https://github.com/EliasZWC/Termetron';
+  // 照 Livolog / Scholarius 的做法：Contact 显示邮箱，点击直接发信
+  const url = `mailto:${CONTACT_EMAIL}`;
   if (window.Capacitor?.Plugins?.Browser) {
     window.Capacitor.Plugins.Browser.open({ url });
   } else {
-    window.open(url, '_blank');
+    window.location.href = url;
   }
 });
 

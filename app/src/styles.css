@@ -313,6 +313,62 @@ body {
 }
 .setting-action .icon svg { width: 20px; height: 20px; fill: currentColor; }
 
+/* ── 字号控件：照 Scholarius 阅读视图的 .reader-size-controls ────────────
+   Scholarius 实测：容器 gap 4px；减/加按钮 32×32、圆角 50%、
+   无边框无背景、图标色 --on-surface-variant；
+   input 60×28、14px 字号、居中、边框 1px #333333、圆角 8px、
+   无背景、padding 0 6px、font-variant-numeric: tabular-nums。
+   ⚠️ 用 input[type=number] + inputmode=numeric：移动端直接弹数字键盘，
+   且浏览器自动过滤非数字（Scholarius 的注释里也写了这条）。
+   ---------------------------------------------------------------------- */
+.size-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.size-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 120ms ease;
+}
+.size-btn:active { opacity: 0.55; }
+.size-btn svg { width: 22px; height: 22px; fill: currentColor; }
+.size-btn:disabled { opacity: 0.32; pointer-events: none; }
+.size-input {
+  width: 60px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+  /* 去掉 type=number 的上下箭头（桌面端可见，移动端不显示） */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.size-input::-webkit-outer-spin-button,
+.size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.size-input:focus { border-color: var(--on-surface-variant); }
+
 /* ── 底部导航：严格照 Livolog ────────────────────────────────────────────
    .bottom-nav   flex; nav-bg; padding 8px 4px; +safe-bottom
    .nav-item     1fr; column; center; gap 3px; min-height 48px;
@@ -349,7 +405,16 @@ body {
 }
 .nav-item.is-active { color: var(--nav-active); }
 .nav-item:active { opacity: 0.55; }
-.nav-icon { display: grid; place-items: center; }
+/* ⚠️ .nav-icon 必须显式给 24x24：它是 grid 容器、内部两个 svg 用
+   grid-area:1/1 叠放。不给尺寸时 grid 轨道由子项决定，而两个子项
+   又被 display:none/block 轮流隐藏 —— 实测量出来 svg 宽高都是 **0**，
+   图标完全不显示（Livolog 的 .nav-icon 写了 width/height: 24px）。 */
+.nav-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
 .nav-icon svg {
   display: block;
   width: 24px;
@@ -366,9 +431,9 @@ body {
 .nav-label {
   max-width: 100%;
   font-size: 12px;
-  /* ⚠️ 实测 Livolog 的 .nav-label 是 font-weight **600**（不是 500），
-     letter-spacing 0.2px，line-height 16px。 */
-  font-weight: 600;
+  /* ⚠️ 实测 Livolog 的 .nav-label：font-weight **500**、line-height 16px。
+     早期版本我记成了 600，导致文字比参考应用粗一档（并排观感发胖）。 */
+  font-weight: 500;
   line-height: 16px;
   letter-spacing: 0.2px;
   white-space: nowrap;

@@ -17,10 +17,14 @@ import sys
 import zlib
 from pathlib import Path
 
-# ⚠️ 必须等于网页**页面底色**（--bg #1B1B1B），不是顶栏色（--bar #131313）。
-# 状态栏比页面深一档会在顶部形成一条明显色阶接缝（用户 v0.8.10 反馈的那个色差）。
-STATUS_BAR_COLOR = "#1B1B1B"
-BG_RGB = (0x1B, 0x1B, 0x1B)
+# ⚠️ 两个色**必须分开**，不能共用：
+#   · STATUS_BAR_COLOR 用于状态栏/导航栏，必须等于网页**页面底色** --bg (#1E1E1E)。
+#     差一档就会在顶部形成肉眼可见的色阶接缝（用户 v0.8.10 / v0.10.2 两次反馈）。
+#   · ICON_BG_COLOR 用于自适应图标底板，是参考应用的 #1B1B1B（比页面底色深一点）。
+# 历史 bug：两者共用一个 #1B1B1B 常量，页面底色改成 #1E1E1E 后状态栏就没跟着改。
+STATUS_BAR_COLOR = "#1E1E1E"
+ICON_BG_COLOR = "#1B1B1B"
+ICON_BG_RGB = (0x1B, 0x1B, 0x1B)
 
 FEED = ("https://pkgs.dev.azure.com/OutSystemsRD/"
         "9e79bc5b-69b2-4476-9ca5-d67594972a52/"
@@ -106,16 +110,16 @@ def _png_write(path: Path, w: int, h: int, rgb: bytearray) -> None:
 
 
 def _composite_on_bg(src: Path, dst: Path) -> None:
-    """把带 alpha 的前景图合成到 #1B1B1B 实底上，输出不透明 PNG。"""
+    """把带 alpha 的前景图合成到图标底板色上，输出不透明 PNG。"""
     w, h, ch, px = _png_read(src)
     out = bytearray(w * h * 3)
     for i in range(w * h):
         if ch == 4:
             r, g, b, a = px[i * 4], px[i * 4 + 1], px[i * 4 + 2], px[i * 4 + 3]
             # alpha 混合到实底
-            out[i * 3] = (r * a + BG_RGB[0] * (255 - a)) // 255
-            out[i * 3 + 1] = (g * a + BG_RGB[1] * (255 - a)) // 255
-            out[i * 3 + 2] = (b * a + BG_RGB[2] * (255 - a)) // 255
+            out[i * 3] = (r * a + ICON_BG_RGB[0] * (255 - a)) // 255
+            out[i * 3 + 1] = (g * a + ICON_BG_RGB[1] * (255 - a)) // 255
+            out[i * 3 + 2] = (b * a + ICON_BG_RGB[2] * (255 - a)) // 255
         else:
             out[i * 3], out[i * 3 + 1], out[i * 3 + 2] = px[i * 3], px[i * 3 + 1], px[i * 3 + 2]
     _png_write(dst, w, h, out)
@@ -179,7 +183,8 @@ def patch_styles() -> None:
        用户反馈（v0.8.10）：「状态栏背景的颜色和状态栏下面的颜色不一样，有色差」。
        根因：当时用 --bar #131313（顶栏色），而页面底是 #1B1B1B，
        状态栏与页面之间出现一条明显色阶 —— 界面里最显眼的接缝。
-       判据：状态栏 = 页面底色（#1B1B1B），与内容区无缝；
+       v0.10.2 又犯一次：页面底改成了 #1E1E1E，状态栏常量还停在 #1B1B1B。
+       判据：状态栏 = 页面底色（#1E1E1E），与内容区无缝；
              顶栏/标签栏比它更深（#131313），靠亮度差自然分层。
     """
     p = Path("android/app/src/main/res/values/styles.xml")
@@ -228,10 +233,10 @@ def patch_launcher_background() -> None:
         p.write_text(
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<resources>\n'
-            f'    <color name="ic_launcher_background">{STATUS_BAR_COLOR}</color>\n'
+            f'    <color name="ic_launcher_background">{ICON_BG_COLOR}</color>\n'
             '</resources>\n',
             encoding="utf-8")
-        print(f"  values/ic_launcher_background.xml: {STATUS_BAR_COLOR}")
+        print(f"  values/ic_launcher_background.xml: {ICON_BG_COLOR}")
     else:
         print("  values/ic_launcher_background.xml not found, skip", file=sys.stderr)
 
@@ -254,12 +259,12 @@ def patch_launcher_background() -> None:
         '    android:viewportWidth="108"\n'
         '    android:viewportHeight="108">\n'
         '    <path\n'
-        f'        android:fillColor="{STATUS_BAR_COLOR}"\n'
+        f'        android:fillColor="{ICON_BG_COLOR}"\n'
         '        android:pathData="M0,0h108v108h-108z" />\n'
         '</vector>\n',
         encoding="utf-8",
     )
-    print(f"  drawable/ic_launcher_background.xml: 覆写为纯色 {STATUS_BAR_COLOR}")
+    print(f"  drawable/ic_launcher_background.xml: 覆写为纯色 {ICON_BG_COLOR}")
 
     # 3) mipmap-anydpi-v26/ic_launcher{,_round}.xml
     #    ⚠️ 这是「背景色不一样」的真因：
