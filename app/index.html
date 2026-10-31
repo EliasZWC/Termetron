@@ -14,19 +14,17 @@
     <div class="splash-brand"><span style="animation-delay:1.60s">T</span><span style="animation-delay:1.65s">E</span><span style="animation-delay:1.70s">R</span><span style="animation-delay:1.75s">M</span><span style="animation-delay:1.80s">E</span><span style="animation-delay:1.85s">T</span><span style="animation-delay:1.90s">R</span><span style="animation-delay:1.95s">O</span><span style="animation-delay:2.00s">N</span></div>
   </div>
 
-  <!-- ══ 顶栏：三格布局（左返回 / 中标题 / 右占位），标题靠 text-align:center ══ -->
+  <!-- ══ 顶栏：标题绝对居中，左右两侧各自放图标按钮（不会被对方挤偏）══ -->
   <header class="topbar">
     <button class="topbar-btn" type="button" id="btn-back" aria-label="Back" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
     <h1 class="topbar-title" id="topbar-title">Sessions</h1>
-    <span class="topbar-slot" id="topbar-slot" aria-hidden="true" hidden></span>
+    <!-- ══ 右侧格：新建会话（照 Scholarius 的 .page-header .icon-button）══ -->
+    <button class="topbar-icon-btn" type="button" id="btn-add" aria-label="New session" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    </button>
   </header>
-
-  <!-- ══ FAB：新建会话（照 Livolog 的 .fab）══ -->
-  <button class="fab" type="button" id="btn-add" aria-label="New session" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-  </button>
 
   <!-- ══ 内容区 ══ -->
   <main id="content">

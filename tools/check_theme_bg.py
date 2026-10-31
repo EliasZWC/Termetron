@@ -71,7 +71,10 @@ m = re.search(r"background_color:'(#[0-9A-Fa-f]{6})', theme_color:'(#[0-9A-Fa-f]
 check("quant_terminal.py  PWA background/theme", m.group(1) if m else None)
 if m:
     check("quant_terminal.py  PWA theme_color", m.group(2))
-m = re.search(r'<meta name="theme-color" content="(#[0-9A-Fa-f]{6})"', html)
+
+# 移动端自有入口也要有 theme-color，否则 WebView 顶条与页面底色不一致
+index_html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+m = re.search(r'<meta name="theme-color" content="(#[0-9A-Fa-f]{6})"', index_html)
 check("app/index.html    theme-color", m.group(1) if m else None)
 
 print()

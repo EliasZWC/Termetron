@@ -129,7 +129,11 @@ body {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  position: relative;
+  /* 标题是 absolute，已脱离文档流；剩下的两个按钮要一左一右，
+     所以返回键 margin-right:auto 把新建按钮顶到最右。
+     只靠 space-between 不行 —— 隐藏的按钮仍占位，间距会算错。 */
   height: 56px;
   padding: 0 16px;
   background: transparent;
@@ -137,10 +141,18 @@ body {
      再加一次会让顶栏变成 56 + 状态栏高（实测比 Livolog 高出一截）。
      也不要加 border-bottom：两个参考应用的 page-header 都是 0px。 */
 }
-/* 主页面标题：17px / 700 / uppercase / **居中**（.page-title 规范） */
+/* 主页面标题：17px / 700 / uppercase / **绝对居中**
+   实测踩过：用 flex:1 + text-align:center 时，左无返回键、右有新建按钮
+   → 标题左边缘被推左，中心偏 -15.9px。绝对居中不受两侧内容影响。 */
 .topbar-title {
-  flex: 1 1 auto;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   margin: 0;
+  max-width: calc(100% - 120px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -149,14 +161,10 @@ body {
   text-align: center;
   color: var(--on-surface);
 }
-/* 左侧占位：与右侧按钮等宽，保证标题真正居中 */
-.topbar-slot {
-  flex: 0 0 40px;
-  width: 40px;
-  height: 40px;
-}
+/* 左侧返回按钮：与右侧图标按钮等宽，保证标题真正居中 */
 .topbar-btn {
   flex: 0 0 40px;
+  margin-right: auto;
   display: grid;
   place-items: center;
   width: 40px;
@@ -171,32 +179,33 @@ body {
 .topbar-btn:active { opacity: 0.55; }
 .topbar-btn svg { width: 24px; height: 24px; fill: currentColor; }
 
-/* ── FAB：照 Livolog 的 .fab ────────────────────────────────────────────
-   实测 Livolog：白色（--fab-bg = --nav-active）圆底 + 黑色图标（--fab-fg = --bg），
-   直径 56px，固定在导航栏上方 18px、右侧 16px。
+/* 右侧图标按钮：照 Scholarius 的 .icon-button
+   实测 Scholarius 标题栏加号：40×40、圆角 50%、背景透明、
+   图标 #9A9A98（--on-surface-variant）实心 Material path 22px，
+   且 margin-right: -8px —— 外壳 padding 是 0 8px，负边距把图标
+   光学对齐到内边距线，而不是额外缩进 8px。
    ---------------------------------------------------------------------- */
-.fab {
-  position: fixed;
-  right: 16px;
-  /* 64 = 导航栏高度（8 + 48 + 8），再留 18px；底部安全区由 body 处理，
-     这里**不要**再叠 var(--safe-bottom) —— 否则 FAB 会被顶高一整条手势条。 */
-  bottom: calc(64px + 18px);
-  z-index: 20;
+.topbar-icon-btn {
+  flex: 0 0 40px;
+  /* 标题 absolute 已脱离文档流，剩下两个按钮要靠自己的 auto 边距分开。
+     返回键用 margin-right:auto，本按钮用 margin-left:auto —— 两个都给，
+     任一被 hidden 时另一个都能把对方推到正确一侧。 */
+  margin-left: auto;
+  margin-right: -8px;
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--nav-active);
-  color: var(--bg);
+  background: none;
+  color: var(--on-surface-variant);
   cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-  transition: transform 120ms ease, opacity 120ms ease;
 }
-.fab:active { transform: scale(0.94); opacity: 0.85; }
-.fab svg { width: 24px; height: 24px; fill: currentColor; }
+.topbar-icon-btn:active { opacity: 0.55; }
+/* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号 */
+.topbar-icon-btn svg { width: 22px; height: 22px; fill: currentColor; }
 
 /* ── 内容区 ───────────────────────────────────────────────────────────── */
 #content {

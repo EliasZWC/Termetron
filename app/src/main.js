@@ -217,17 +217,13 @@ function showPage(name) {
   }
   // 终端页顶部显示会话名，其它显示固定标题
   titleEl.textContent = name === 'terminal' ? (currentSession || 'Terminal') : def.title;
-  // FAB 只在会话列表出现（照 Livolog：FAB 是「新建」动作，属于列表页）
+  // Scholarius 式：新建按钮是标题栏右侧的图标按钮（而非 Livolog 的悬浮 FAB）
   addBtn.hidden = !def.showAdd;
-  // 终端页左上角显示返回键；同时右侧补一个等宽占位，标题才真居中。
-  // ⚠️ 非终端页**不要**任何占位：那时左右都空，标题靠 text-align:center
-  //    自然就居中；多放一个左侧占位会把它挤偏 20px
-  //    （实测踩过：标题中心 238 vs 视口中心 218）。
+  // 终端页左上角显示返回键。非终端页左右都空，标题靠 text-align:center
+  // 自然居中 —— 别多放占位，否则标题会被挤偏 20px。
   const isTerminal = name === 'terminal';
   const backBtn = document.getElementById('btn-back');
-  const slot = document.getElementById('topbar-slot');
   if (backBtn) backBtn.hidden = !isTerminal;
-  if (slot) slot.hidden = !isTerminal;
 
   // tab 高亮：终端页归属 Sessions 这个 tab
   document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -555,7 +551,32 @@ applyTheme();
 applyFontSize();
 showPage('sessions');
 
-// 有连接时才后台查更新，避免无网络时反复弹错
-setTimeout(() => {
-  if (hasConnection()) checkForUpdate().catch(() => {});
-}, 2500);
+// ══════════════════════════════════════════════════════════════════════
+// 自动更新
+// ══════════════════════════════════════════════════════════════════════
+// ⚠️⚠️ 更新检查**不能**依赖 hasConnection()。
+//     hasConnection() 判断的是「有没有填 Tailscale IP」，而升级检查访问的是
+//     **GitHub Releases**，两者毫无关系。
+//     重构时我把它包在 `if (hasConnection())` 里，后果是：
+//       · 首次安装（还没填 IP）→ 永远不检查更新
+//       · 填了 IP 但电脑关机 → 也不检查
+//     等于自动更新能力基本废掉。
+//     旧版就是无条件在启动 1.5s 后检查一次、回到前台再检查。
+
+/** 检查更新；失败静默（离线/被墙/GitHub 抽风都不该打扰用户）。 */
+function runUpdateCheck() {
+  checkForUpdate().catch(() => {});
+}
+
+// 1) 冷启动：等品牌动画播完再查，避免启动瞬间抢带宽
+setTimeout(runUpdateCheck, 1500);
+
+// 2) 回到前台时再查一次 —— 手机上的 App 很少真正"重启"，
+//    大部分时间是从后台切回来。不监听这个事件的话，用户可能几天都收不到更新。
+//    updater.js 内部有 30s 的防抖，重复触发无害。
+App.addListener('appStateChange', ({ isActive }) => {
+  if (isActive) runUpdateCheck();
+});
+
+// 3) 网络恢复时也查一次（例如从飞行模式切回来）
+window.addEventListener('online', runUpdateCheck);
