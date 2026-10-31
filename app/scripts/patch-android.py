@@ -636,6 +636,19 @@ def patch_splash() -> None:
     v31.parent.mkdir(parents=True, exist_ok=True)
     v31.write_text(SPLASH_V31, encoding="utf-8")
     print("  values-v31/styles.xml: Android 12+ splash (dark bg + transparent icon)")
+    # ⚠️ 2b) **必须**再写一份 values-night-v31。
+    #    Android 的资源限定符是**互斥择优**而非"叠加"：设备处于夜间模式时，
+    #    系统只在 values-night 里找 `AppTheme.NoActionBarLaunch`。如果那里
+    #    找到了一个（哪怕只是 values-night/styles.xml 里那份旧的），就
+    #    **完全不会**去看 values-v31 —— 于是 Android 12+ 的三个 splash 属性
+    #    （windowSplashScreenBackground / AnimatedIcon / IconBackgroundColor）
+    #    全部丢失，父主题 Theme.SplashScreen 回落到**默认应用图标**。
+    #    真机表现：夜间模式下启动先闪一下"安卓默认启动页"。
+    #    这就是 v0.10.7 加了 windowBackground 仍没修掉的原因 —— 加错了目录。
+    v31n = Path("android/app/src/main/res/values-night-v31/styles.xml")
+    v31n.parent.mkdir(parents=True, exist_ok=True)
+    v31n.write_text(SPLASH_V31, encoding="utf-8")
+    print("  values-night-v31/styles.xml: same (fixes default icon in dark mode)")
     # 3) Android <12：launch 主题背景纯深色。
     # ⚠️ 必须用 **android:windowBackground** 而不是 android:background：
     #    - `android:background` 是 View 级属性，对**窗口**本身不生效；
@@ -645,44 +658,55 @@ def patch_splash() -> None:
     #    "原生启动页（白屏）又出现了"的根因之一。
     #    两个都写：windowBackground 兜住窗口绘制期，background 兜住
     #    contentView 挂载后的短暂空窗。
-    vals = Path("android/app/src/main/res/values/styles.xml")
-    if vals.exists():
-        s = vals.read_text(encoding="utf-8")
+    _apply_launch_bg()
+    print("  values/ + values-night/ styles.xml: launch windowBackground -> #1B1B1B")
+
+
+def _apply_launch_bg() -> None:
+    """把 AppTheme.NoActionBarLaunch 的背景/状态栏压成启动页深色。
+
+    ⚠️ 必须对 **values 和 values-night 两份都做**：夜间模式下系统只读
+       values-night/styles.xml，漏掉那份等于什么都没改。
+    """
+    import re
+
+    def set_item(xml_block: str, name: str, value: str) -> str:
+        """设置/新增一个 <item>，新增时保持 8 空格缩进和独立成行。"""
+        pat = rf'(<item name="{re.escape(name)}">)[^<]*(</item>)'
+        if re.search(pat, xml_block):
+            return re.sub(pat, rf'\g<1>{value}\g<2>', xml_block, count=1)
+        # 插到最后一个 </item> 之后，而不是拼在块尾（否则会和
+        # 后面的 </style> 挤在同一行，读起来像残行）
+        last = xml_block.rfind("</item>")
+        if last >= 0:
+            insert_at = last + len("</item>")
+            return (xml_block[:insert_at]
+                    + f'\n        <item name="{name}">{value}</item>'
+                    + xml_block[insert_at:])
+        return xml_block + f'\n        <item name="{name}">{value}</item>'
+
+    for rel in ("android/app/src/main/res/values/styles.xml",
+                "android/app/src/main/res/values-night/styles.xml"):
+        path = Path(rel)
+        if not path.exists():
+            print(f"  {rel} not found, skip launch bg", file=sys.stderr)
+            continue
+        s = path.read_text(encoding="utf-8")
         mark = '<style name="AppTheme.NoActionBarLaunch"'
-        if mark in s:
-            i0 = s.index(mark)
-            i1 = s.index("</style>", i0)
-            block = s[i0:i1]
-            import re
-
-            def set_item(xml_block: str, name: str, value: str) -> str:
-                """设置/新增一个 <item>，新增时保持 8 空格缩进和独立成行。"""
-                pat = rf'(<item name="{re.escape(name)}">)[^<]*(</item>)'
-                if re.search(pat, xml_block):
-                    return re.sub(pat, rf'\g<1>{value}\g<2>', xml_block, count=1)
-                # 插到最后一个 </item> 之后，而不是拼在块尾（否则会和
-                # 后面的 </style> 挤在同一行，读起来像残行）
-                last = xml_block.rfind("</item>")
-                if last >= 0:
-                    insert_at = last + len("</item>")
-                    return (xml_block[:insert_at]
-                            + f'\n        <item name="{name}">{value}</item>'
-                            + xml_block[insert_at:])
-                return xml_block + f'\n        <item name="{name}">{value}</item>'
-
-            block = set_item(block, "android:windowBackground", "#1B1B1B")
-            block = set_item(block, "android:background", "#1B1B1B")
-            # 启动期间的状态栏也压成同一深色（避免顶部亮带）
-            block = set_item(block, "android:statusBarColor", "#1B1B1B")
-            block = set_item(block, "android:navigationBarColor", "#1B1B1B")
-            block = set_item(block, "android:windowLightStatusBar", "false")
-            s = s[:i0] + block + s[i1:]
-            vals.write_text(s, encoding="utf-8")
-            print("  values/styles.xml: launch windowBackground -> #1B1B1B (solid)")
-        else:
-            print("  values/styles.xml: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
-    else:
-        print("  values/styles.xml not found, skip", file=sys.stderr)
+        if mark not in s:
+            print(f"  {rel}: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
+            continue
+        i0 = s.index(mark)
+        i1 = s.index("</style>", i0)
+        block = s[i0:i1]
+        block = set_item(block, "android:windowBackground", "#1B1B1B")
+        block = set_item(block, "android:background", "#1B1B1B")
+        # 启动期间的状态栏也压成同一深色（避免顶部亮带）
+        block = set_item(block, "android:statusBarColor", "#1B1B1B")
+        block = set_item(block, "android:navigationBarColor", "#1B1B1B")
+        block = set_item(block, "android:windowLightStatusBar", "false")
+        s = s[:i0] + block + s[i1:]
+        path.write_text(s, encoding="utf-8")
 
 
 

@@ -366,8 +366,13 @@ App.addListener('backButton', ({ canGoBack }) => {
 // 会话页
 // ═══════════════════════════════════════════════════════════════════════
 
-const sessionList = document.getElementById('session-list');
-const sessionsEmpty = document.getElementById('sessions-empty');
+// ⚠️ 用**惰性获取**而不是模块级常量：
+//    `const el = document.getElementById(...)` 在模块顶层执行，一旦脚本
+//    的执行时机早于 DOM 解析（打包顺序、WebView 的 module 加载差异），
+//    拿到的是 null，之后所有 `el.hidden = ...` 都静默失效 —— 表现就是
+//    "空状态永远不出现，也没有任何报错"。每次取反而更稳。
+const sessionListEl = () => document.getElementById('session-list');
+const sessionsEmptyEl = () => document.getElementById('sessions-empty');
 
 // 会话行：名称在上、绝对路径在下（同一列），状态固定在右侧
 //   <li class="session-row">
@@ -414,50 +419,58 @@ function sessionRow(name, info) {
 }
 
 async function refreshSessions() {
-  // 统一的空状态渲染：任何分支都走这里，保证「没有列表内容」时
-  // 一定有提示文字，而不是一片空白。
-  // ⚠️ 元素可能在 DOM 里被移除（极端情况下），所以两处都做存在性判断。
-  const showEmpty = (titleKey, hintKey, vars) => {
-    sessionList.innerHTML = '';
-    if (!sessionsEmpty) return;
-    sessionsEmpty.hidden = false;
-    const t = sessionsEmpty.querySelector('.empty-title');
-    const h = sessionsEmpty.querySelector('.empty-hint');
-    if (t) t.textContent = i18n(titleKey);
-    if (h) h.textContent = hintKey ? i18n(hintKey, vars) : '';
+  // 空状态只有**一种**：没有会话就显示「暂无会话」。
+  // ⚠️ 不再按「未配置 IP / 连不上 / 无会话」分三种文案 —— 用户的判断很简单：
+  //    列表空着就该有提示。分三种反而在"配置了但后端返回空"时漏掉提示
+  //    （v0.10.7 的真机 bug 就出在这）。
+  //    连接相关的提示交给「连接」按钮和设置页，不在列表区表达。
+  const showEmpty = () => {
+    const list = sessionListEl();
+    const empty = sessionsEmptyEl();
+    if (list) list.innerHTML = '';
+    if (!empty) {
+      console.warn('[termetron] #sessions-empty not found in DOM');
+      return;
+    }
+    empty.hidden = false;
+    const t = empty.querySelector('.empty-title');
+    const h = empty.querySelector('.empty-hint');
+    if (t) t.textContent = i18n('empty.noSessions');
+    if (h) h.textContent = i18n('empty.noSessionsHint');
   };
 
+  // 没配置连接：仍然列不出会话 → 同样是"无会话"空状态。
   if (!hasConnection()) {
-    showEmpty('empty.notConnected', 'empty.notConnectedHint');
+    showEmpty();
     return;
   }
   try {
     const data = await api('/api/sessions');
-    sessionList.innerHTML = '';
+    const list = sessionListEl();
+    const empty = sessionsEmptyEl();
+    if (list) list.innerHTML = '';
     const names = Object.keys(data || {});
     if (!names.length) {
-      showEmpty('empty.noSessions', 'empty.noSessionsHint');
+      showEmpty();
       return;
     }
-    sessionsEmpty.hidden = true;
-    // ⚠️ 单行渲染失败不能拖垮整个列表 —— 一个坏数据（比如后端返回了
-    //    非对象值）会导致 forEach 抛错，然后整个列表空白、连空状态都
-    //    不显示。这正是"会话页没有空状态提示"的一种成因。
+    if (empty) empty.hidden = true;
+    // 单行渲染失败不拖垮整个列表：一行坏掉时其余照常显示，
+    // 全部失败才回落到空状态。
     let ok = 0;
     for (const n of names) {
       try {
-        sessionList.appendChild(sessionRow(n, data[n]));
+        list?.appendChild(sessionRow(n, data[n]));
         ok += 1;
       } catch (err) {
         console.warn('[termetron] failed to render session', n, err);
       }
     }
-    if (!ok) showEmpty('empty.noSessions', 'empty.noSessionsHint');
+    if (!ok) showEmpty();
   } catch (err) {
+    // 连不上时列表里本来也没有会话 → 依然是空状态。
     console.warn('[termetron] refreshSessions failed', err);
-    // 连不上 → 显示"无法连接"，而不是留白
-    showEmpty('empty.unreachable', 'empty.unreachableHint',
-      { ip: settings.tsIp, port: settings.port });
+    showEmpty();
   }
 }
 
@@ -942,12 +955,63 @@ function blendOverlay(hex, alpha) {
   return `#${mix(r)}${mix(g)}${mix(b)}`.toUpperCase();
 }
 
-/** 弹窗数量变化时调用：0 → 有 或 有 → 0，都要重算状态栏。 */
-function notifyOverlayChange() {
-  const prev = openOverlays;
-  openOverlays = document.querySelectorAll('.tmt-overlay, .ut-overlay').length;
-  if ((prev === 0) !== (openOverlays === 0)) syncNativeBars();
+// ⚠️ overlay:false 是**一次性全局设置**，必须在启动时设，不能每次
+//    syncNativeBars 都重设 —— 实测在 Android 上重复调用
+//    setOverlaysWebView 会让状态栏重新覆盖 WebView，随后 setBackgroundColor
+//    就被遮住看不见了（表现：弹窗打开后状态栏颜色没变）。
+let statusBarReady = false;
+
+async function initNativeBars() {
+  const isAndroid = globalThis.Capacitor?.getPlatform?.() === 'android';
+  try {
+    if (isAndroid) {
+      // 让 WebView 从状态栏下方开始（不覆盖），这样状态栏颜色才看得见
+      await StatusBar.setOverlaysWebView({ overlay: false });
+    }
+    statusBarReady = true;
+  } catch {
+    /* 浏览器预览 / 插件不可用时忽略 */
+  }
 }
+
+// ⚠️ 并发保护：syncNativeBars 会被连续调用（弹窗开 + 关、主题切换等），
+//    多个 await 交错执行时后发的可能先完成，状态栏就停在错误的颜色上。
+//    用一个递增序号只应用最后一次的结果。
+let barSeq = 0;
+
+async function syncNativeBars() {
+  // 优先级：启动页 > 弹窗遮罩 > 主题
+  //   · 启动期间：跟启动页固定底色（深色）
+  //   · 有弹窗时：跟遮罩混合后的色，这样状态栏与页面“一起变暗”
+  //   · 否则：跟当前主题
+  let cfg;
+  if (splashActive) {
+    cfg = { bar: SPLASH_BG, style: Style.Dark };        // 深底 → 浅色图标
+  } else if (openOverlays > 0) {
+    const base = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
+    cfg = { bar: blendOverlay(base.bar, OVERLAY_ALPHA), style: base.style };
+  } else {
+    cfg = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
+  }
+  const mySeq = ++barSeq;
+  try {
+    if (!statusBarReady) await initNativeBars();
+    if (mySeq !== barSeq) return;      // 已有更新的请求，放弃这次
+    await StatusBar.setBackgroundColor({ color: cfg.bar });
+    await StatusBar.setStyle({ style: cfg.style });
+  } catch {
+    /* 浏览器预览 / 插件不可用时忽略：页面内主题已由 data-theme 控制 */
+  }
+}
+
+/** 弹窗数量变化时调用：无条件重算（内容层数变化也要跟上）。 */
+function notifyOverlayChange() {
+  openOverlays = document.querySelectorAll('.tmt-overlay, .ut-overlay').length;
+  syncNativeBars();
+}
+
+// updater.js 的弹窗（升级提示）自己创建 overlay，通过事件通知过来。
+document.addEventListener('termetron:overlays-changed', notifyOverlayChange);
 
 // updater.js 的弹窗（升级提示）自己创建 overlay，通过事件通知过来。
 // 不直接 import 它的函数 —— 两模块互相 import 会形成循环依赖。
@@ -988,33 +1052,6 @@ const THEME_NATIVE = {
   dark:  { bar: '#1E1E1E', style: Style.Dark  },  // 深色底 → 浅色图标
   light: { bar: '#EFEFED', style: Style.Light },  // 浅色底 → 深色图标
 };
-
-async function syncNativeBars() {
-  // 优先级：启动页 > 弹窗遮罩 > 主题
-  //   · 启动期间：跟启动页固定底色（深色）
-  //   · 有弹窗时：跟遮罩混合后的色，这样状态栏与页面“一起变暗”
-  //   · 否则：跟当前主题
-  let cfg;
-  if (splashActive) {
-    cfg = { bar: SPLASH_BG, style: Style.Dark };        // 深底 → 浅色图标
-  } else if (openOverlays > 0) {
-    const base = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
-    cfg = { bar: blendOverlay(base.bar, OVERLAY_ALPHA), style: base.style };
-  } else {
-    cfg = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
-  }
-  try {
-    await StatusBar.setBackgroundColor({ color: cfg.bar });
-    await StatusBar.setStyle({ style: cfg.style });
-    // Android 上还要单独管导航栏（手势条区域）
-    if (globalThis.Capacitor?.getPlatform?.() === 'android') {
-      await StatusBar.setOverlaysWebView({ overlay: false });
-      await StatusBar.setBackgroundColor({ color: cfg.bar });
-    }
-  } catch {
-    /* 浏览器预览 / 插件不可用时忽略：页面内主题已由 data-theme 控制 */
-  }
-}
 
 function applyFontSize() {
   document.documentElement.style.setProperty('--fs', `${settings.fontSize}px`);

@@ -50,8 +50,7 @@ const I18N = {
     // ⚠️ 名词统一用**单数**（Session 而不是 Sessions）：底部 tab 是分类名，
     //    标题栏是页面名，两者都取单数；复述"多个"的场景交给列表本身表达。
     'empty.noSessions': 'No session',
-    'empty.noSessionsHint':
-      "Add your computer's Tailscale IP in Settings, then tap + to start a session.",
+    'empty.noSessionsHint': 'Tap + in the top right to start one.',
     'empty.notConnected': 'Not connected',
     'empty.notConnectedHint':
       "Set your computer's Tailscale IP in Settings to start.",
@@ -144,7 +143,7 @@ const I18N = {
     'theme.light': '浅色',
 
     'empty.noSessions': '暂无会话',
-    'empty.noSessionsHint': '在设置里填入电脑的 Tailscale IP，然后点 + 新建会话。',
+    'empty.noSessionsHint': '点右上角的 + 新建一个会话。',
     'empty.notConnected': '未连接',
     'empty.notConnectedHint': '在设置里填入电脑的 Tailscale IP 以开始使用。',
     'empty.unreachable': '无法连接到电脑',
