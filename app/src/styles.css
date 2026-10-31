@@ -199,11 +199,6 @@ body {
    ---------------------------------------------------------------------- */
 .topbar-icon-btn {
   flex: 0 0 40px;
-  /* 标题 absolute 已脱离文档流，剩下两个按钮要靠自己的 auto 边距分开。
-     返回键用 margin-right:auto，本按钮用 margin-left:auto —— 两个都给，
-     任一被 hidden 时另一个都能把对方推到正确一侧。 */
-  margin-left: auto;
-  margin-right: -8px;
   display: grid;
   place-items: center;
   width: 40px;
@@ -214,6 +209,18 @@ body {
   background: none;
   color: var(--on-surface-variant);
   cursor: pointer;
+}
+/* ⚠️ auto 边距**必须放在修饰类上**，不能写在基类：
+   基类同时带 margin-left:auto，左侧按钮也会被推向右边
+   （实测连接图标 left=128.6 而不是 16）。 */
+.topbar-icon-btn.is-leading {
+  margin-right: auto;
+  margin-left: 0;
+}
+.topbar-icon-btn.is-trailing {
+  margin-left: auto;
+  /* 外壳 padding 是 16px，负边距把图标光学对齐到内边距线 */
+  margin-right: -8px;
 }
 .topbar-icon-btn:active { opacity: 0.55; }
 /* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号 */

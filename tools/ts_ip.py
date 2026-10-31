@@ -94,5 +94,5 @@ if __name__ == "__main__":
     if ip:
         print(ip)
     else:
-        print("[termetron] 未检测到 Tailscale IP", file=sys.stderr)
+        print("[termetron] no Tailscale IP detected", file=sys.stderr)
         raise SystemExit(1)

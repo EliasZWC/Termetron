@@ -11,7 +11,9 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { App } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
 import { checkForUpdate } from './updater';
+import { i18n, setLang, applyI18n, localizeServerLines, getLang } from './i18n';
 
 // ── 设置持久化 ──────────────────────────────────────────────────────────
 const STORE_KEY = 'termetron.settings.v1';
@@ -105,6 +107,18 @@ const TMT_CSS = `
 .tmt-size-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;margin-top:-6.5px;border:0;border-radius:50%;background:#F2F2F0;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .tmt-size-range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:#F2F2F0;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .tmt-size-hint{margin:8px 0 0;font-size:12px;color:#9A9A98;text-align:center}
+/* ── 连接表单 ─────────────────────────────────────────────────────────── */
+.tmt-field{display:block;margin:0 0 14px}
+.tmt-field-label{display:block;margin:0 0 4px;font-size:12px;letter-spacing:.4px;color:#9A9A98}
+.tmt-field .tmt-input{border-bottom:1px solid #333333;padding:4px 0}
+.tmt-field .tmt-input:focus{border-bottom-color:#9A9A98}
+.tmt-conn-status{margin:4px 0 0;font-size:13px;line-height:1.5;white-space:pre-line;word-break:break-word}
+.tmt-conn-status[data-kind="good"]{color:#7EE2A8}
+.tmt-conn-status[data-kind="bad"]{color:#E06C5E}
+.tmt-conn-status[data-kind="idle"]{color:#9A9A98}
+.tmt-conn-test{display:block;width:100%;margin:14px 0 0;padding:11px 0;border:1px solid #333333;border-radius:10px;background:transparent;color:#ECECEA;font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-conn-test:active{background:#303030}
+.tmt-conn-test:disabled{opacity:.45;pointer-events:none}
 `;
 
 function ensureModalCss() {
@@ -121,13 +135,17 @@ function ensureModalCss() {
  * @param {{title?:string, message?:string, body?:string,
  *          input?:{placeholder?:string,value?:string,type?:string},
  *          okText?:string, cancelText?:string|null,
- *          setup?:(bodyEl:HTMLElement)=>void}} opts
+ *          setup?:(bodyEl:HTMLElement)=>void,
+ *          onAccept?:(bodyEl:HTMLElement|null)=>boolean|void}} opts
  * @returns {Promise<string|boolean|null>} 输入框弹窗返回字符串；其它返回 true/false
  *
  * `body` 是一段自定义 HTML，插在消息下面、按钮上面；`setup` 在挂载后调用，
  * 用于绑事件、拿引用。字号表单（滑块 + 加减 + 输入）就走这条路。
+ *
+ * `onAccept` 在点 OK 时调用，**返回 false 则不关闭**（表单校验失败时用）。
  */
-function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = null, setup }) {
+function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = null,
+                     setup, onAccept }) {
   ensureModalCss();
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -150,7 +168,10 @@ function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = nu
     const bodyEl = overlay.querySelector('.tmt-body');
     if (bodyEl && body) bodyEl.innerHTML = body;
     const inp = overlay.querySelector('.tmt-input');
-    if (inp) {
+    // ⚠️ 只有传了 input（简易单行输入）才处理；用 body 自定义表单时
+    //    input 是 undefined，这里若不加判空会直接崩
+    //    `Cannot read properties of undefined (reading 'type')`。
+    if (inp && input) {
       inp.type = input.type || 'text';
       inp.placeholder = input.placeholder || '';
       inp.value = input.value ?? '';
@@ -170,7 +191,11 @@ function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = nu
       document.removeEventListener('keydown', kd);
       resolve(val);
     };
-    const accept = () => finish(hasInput ? inp.value.trim() : true);
+    const accept = () => {
+      // 自定义校验：返回 false 则不关闭弹窗
+      if (typeof onAccept === 'function' && onAccept(bodyEl) === false) return;
+      finish(hasInput ? inp.value.trim() : true);
+    };
     const kd = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); finish(hasInput ? null : false); }
       else if (e.key === 'Enter') { e.preventDefault(); accept(); }
@@ -240,9 +265,9 @@ async function api(path, opts = {}) {
 // ═══════════════════════════════════════════════════════════════════════
 
 const PAGES = {
-  sessions: { el: 'page-sessions', tab: 'tab-sessions', title: 'Sessions', showAdd: true },
-  setting: { el: 'page-setting', tab: 'tab-setting', title: 'Settings', showAdd: false },
-  terminal: { el: 'page-terminal', tab: 'tab-sessions', title: '', showAdd: false },
+  sessions: { el: 'page-sessions', tab: 'tab-sessions', titleKey: 'page.sessions', showAdd: true },
+  setting: { el: 'page-setting', tab: 'tab-setting', titleKey: 'page.settings', showAdd: false },
+  terminal: { el: 'page-terminal', tab: 'tab-sessions', titleKey: 'page.terminal', showAdd: false },
 };
 
 let currentPage = 'sessions';
@@ -271,14 +296,20 @@ function showPage(name) {
     if (node) node.hidden = key !== name;
   }
   // 终端页顶部显示会话名，其它显示固定标题
-  titleEl.textContent = name === 'terminal' ? (currentSession || 'Terminal') : def.title;
+  titleEl.textContent =
+    name === 'terminal'
+      ? (currentSession || i18n('page.terminal'))
+      : i18n(def.titleKey);
   // Scholarius 式：新建按钮是标题栏右侧的图标按钮（而非 Livolog 的悬浮 FAB）
   addBtn.hidden = !def.showAdd;
-  // 终端页左上角显示返回键。非终端页左右都空，标题靠 text-align:center
-  // 自然居中 —— 别多放占位，否则标题会被挤偏 20px。
+  // 左格：会话页显示「连接」图标，终端页显示「返回」，设置页两者都不显示。
+  // 两者占据同一个左侧位置（返回键在 DOM 里紧跟连接键，同一时刻只显示一个），
+  // 因此标题的绝对居中不受影响。
   const isTerminal = name === 'terminal';
   const backBtn = document.getElementById('btn-back');
+  const connBtn = document.getElementById('btn-conn');
   if (backBtn) backBtn.hidden = !isTerminal;
+  if (connBtn) connBtn.hidden = name !== 'sessions';
 
   // tab 高亮：终端页归属 Sessions 这个 tab
   document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -328,7 +359,7 @@ function sessionRow(name, info) {
 
   const value = document.createElement('span');
   value.className = 'setting-value';
-  value.textContent = info && info.busy ? 'running' : 'idle';
+  value.textContent = i18n(info && info.busy ? 'session.running' : 'session.idle');
 
   btn.append(label, value);
   btn.addEventListener('click', () => openSession(name));
@@ -340,9 +371,9 @@ async function refreshSessions() {
   if (!hasConnection()) {
     sessionList.innerHTML = '';
     sessionsEmpty.hidden = false;
-    sessionsEmpty.querySelector('.empty-title').textContent = 'Not connected';
+    sessionsEmpty.querySelector('.empty-title').textContent = i18n('empty.notConnected');
     sessionsEmpty.querySelector('.empty-hint').textContent =
-      'Set your computer\'s Tailscale IP in Settings to start.';
+      i18n('empty.notConnectedHint');
     return;
   }
   try {
@@ -351,9 +382,9 @@ async function refreshSessions() {
     const names = Object.keys(data || {});
     if (!names.length) {
       sessionsEmpty.hidden = false;
-      sessionsEmpty.querySelector('.empty-title').textContent = 'No sessions';
+      sessionsEmpty.querySelector('.empty-title').textContent = i18n('empty.noSessions');
       sessionsEmpty.querySelector('.empty-hint').textContent =
-        'Tap + to create a session on your computer.';
+        i18n('empty.noSessionsHint');
       return;
     }
     sessionsEmpty.hidden = true;
@@ -361,24 +392,24 @@ async function refreshSessions() {
   } catch (err) {
     sessionList.innerHTML = '';
     sessionsEmpty.hidden = false;
-    sessionsEmpty.querySelector('.empty-title').textContent = 'Cannot reach computer';
+    sessionsEmpty.querySelector('.empty-title').textContent = i18n('empty.unreachable');
     sessionsEmpty.querySelector('.empty-hint').textContent =
-      `Check that Termetron is running on ${settings.tsIp}:${settings.port} and Tailscale is connected.`;
+      i18n('empty.unreachableHint', { ip: settings.tsIp, port: settings.port });
   }
 }
 
 // 新建会话
 addBtn.addEventListener('click', async () => {
   if (!hasConnection()) {
-    tmtAlert('Set your computer\'s Tailscale IP in Settings first.');
+    tmtAlert(i18n('session.errNoConnection'));
     return;
   }
   const name = await tmtPrompt({
-    title: 'New Session',
-    message: 'Name for the new terminal session',
-    input: { placeholder: 'session name' },
-    okText: 'CREATE',
-    cancelText: 'CANCEL',
+    title: i18n('session.new'),
+    message: i18n('session.nameHint'),
+    input: { placeholder: i18n('session.namePlaceholder') },
+    okText: i18n('action.create'),
+    cancelText: i18n('action.cancel'),
   });
   if (!name) return;
   try {
@@ -388,7 +419,7 @@ addBtn.addEventListener('click', async () => {
     });
     await refreshSessions();
   } catch (err) {
-    tmtAlert(`Could not create session:\n${err.message}`);
+    tmtAlert(i18n('session.errCreate', { err: err.message }));
   }
 });
 
@@ -417,7 +448,9 @@ async function pullOutput() {
     //    { lines: [...], progress, done, busy, script, cmd, updated }
     //    （Session 与 AgentSession 共用这个形状）。
     //    早期我按字符串处理会导致 `[object Object]`，这里显式取 lines。
-    const text = Array.isArray(data?.lines) ? data.lines.join('\n') : String(data ?? '');
+    const raw = Array.isArray(data?.lines) ? data.lines : [String(data ?? '')];
+    // 服务端发的是中立标记（如 [termetron:restored]），在这里按语言渲染
+    const text = localizeServerLines(raw).join('\n');
     if (termOut.textContent !== text) {
       const atBottom =
         termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
@@ -441,7 +474,7 @@ termForm.addEventListener('submit', async (e) => {
     });
     setTimeout(pullOutput, 120);
   } catch (err) {
-    tmtAlert(`Send failed:\n${err.message}`);
+    tmtAlert(i18n('session.errSend', { err: err.message }));
   }
 });
 
@@ -462,6 +495,10 @@ const THEMES = [
   { id: 'dark', name: 'Dark' },
   { id: 'light', name: 'Light' },
 ];
+
+// ── 服务端中立标记 → 本地化文案：见 i18n.js 的 localizeServerLines ──────
+// （此处保留说明，实现已移到 i18n 模块，供 pullOutput 直接使用）
+
 // 字号范围：照 Scholarius 阅读视图（min 12 / max 40），
 // 这里收窄到 11–24 —— 终端等宽字更大就撑破行宽了。
 const FONT_MIN = 11;
@@ -480,6 +517,33 @@ function applyTheme() {
   //      参考应用调色板中的浅色值，被 check_palette 抓到）
   //    · 参考应用（Livolog / Scholarius）也是这个做法
   document.documentElement.setAttribute('data-theme', settings.theme);
+  syncNativeBars();
+}
+
+// ── 原生状态栏 / 导航栏跟随主题 ──────────────────────────────────────
+// ⚠️ 这是 v0.10.4 修的 bug：状态栏色原写在 Android 资源里（固定 #1E1E1E，
+//    且 windowLightStatusBar=false），App 内切到日间主题后，页面变白了、
+//    状态栏仍是夜间黑，顶部一条明显色阶。
+//    修法：构建时注入**两套资源**（values / values-night）保证启动瞬间就对，
+//    运行时再由这里用 StatusBar 插件按当前主题实时切换（含图标深浅）。
+const THEME_NATIVE = {
+  dark:  { bar: '#1E1E1E', style: Style.Dark  },  // 深色底 → 浅色图标
+  light: { bar: '#EFEFED', style: Style.Light },  // 浅色底 → 深色图标
+};
+
+async function syncNativeBars() {
+  const cfg = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
+  try {
+    await StatusBar.setBackgroundColor({ color: cfg.bar });
+    await StatusBar.setStyle({ style: cfg.style });
+    // Android 上还要单独管导航栏（手势条区域）
+    if (globalThis.Capacitor?.getPlatform?.() === 'android') {
+      await StatusBar.setOverlaysWebView({ overlay: false });
+      await StatusBar.setBackgroundColor({ color: cfg.bar });
+    }
+  } catch {
+    /* 浏览器预览 / 插件不可用时忽略：页面内主题已由 data-theme 控制 */
+  }
 }
 
 function applyFontSize() {
@@ -490,12 +554,26 @@ function renderSettings() {
   document.getElementById('setting-language-value').textContent =
     (LANGS.find((l) => l.id === settings.language) || LANGS[0]).name;
   document.getElementById('setting-theme-value').textContent =
-    (THEMES.find((t) => t.id === settings.theme) || THEMES[0]).name;
+    i18n('theme.' + settings.theme);
   renderFontSize();
-  document.getElementById('setting-tsip-value').textContent = settings.tsIp || 'not set';
+  document.getElementById('setting-tsip-value').textContent =
+    settings.tsIp || i18n('value.notSet');
   document.getElementById('setting-port-value').textContent = String(settings.port);
   document.getElementById('setting-version').textContent =
     'v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
+  // 语言可能刚变过：先把 DOM 上的 data-i18n 文案全部刷新一遍
+  setLang(settings.language);
+  applyI18n();
+  // ⚠️ applyI18n 会无脑覆盖 [data-i18n] 元素的 textContent，
+  //    而 #setting-tsip-value 同时带 data-i18n="value.notSet" ——
+  //    有 IP 时会被打回 "not set"（实测 tsIp 存了 100.1.2.3 却显示"未设置"）。
+  //    所以必须在 applyI18n **之后**重新写一次动态值。
+  document.getElementById('setting-tsip-value').textContent =
+    settings.tsIp || i18n('value.notSet');
+  // 顶栏标题不是 data-i18n（终端页要显示会话名），单独刷
+  if (currentPage !== 'terminal') {
+    titleEl.textContent = i18n(PAGES[currentPage]?.titleKey || 'page.sessions');
+  }
   applyTheme();
   applyFontSize();
 }
@@ -587,12 +665,25 @@ function pickOption(title, options, currentId, anchorEl) {
 }
 
 document.getElementById('setting-language').addEventListener('click', async (e) => {
-  const id = await pickOption('Language', LANGS, settings.language, e.currentTarget);
-  if (id) { settings.language = id; saveSettings(); renderSettings(); }
+  const id = await pickOption(
+    i18n('setting.language'),
+    LANGS,
+    settings.language,
+    e.currentTarget,
+  );
+  if (id) {
+    settings.language = id;
+    saveSettings();
+    // setLang 必须在 renderSettings 之前 —— 否则这一帧还是旧语言
+    setLang(id);
+    renderSettings();
+    // 回会话页时标题也要跟着变；如果当前就在设置页，刷新一次即可
+    showPage(currentPage);
+  }
 });
 
 document.getElementById('setting-theme').addEventListener('click', async (e) => {
-  const id = await pickOption('Theme', THEMES, settings.theme, e.currentTarget);
+  const id = await pickOption(i18n('setting.theme'), THEMES, settings.theme, e.currentTarget);
   if (id) { settings.theme = id; saveSettings(); renderSettings(); }
 });
 
@@ -605,20 +696,20 @@ document.getElementById('setting-fontsize').addEventListener('click', async () =
   const original = settings.fontSize;
   const body =
     '<div class="tmt-size-row">' +
-    '<button class="size-btn" type="button" data-step="-1" aria-label="Decrease font size">' +
+    `<button class="size-btn" type="button" data-step="-1" aria-label="${i18n('aria.decreaseFont')}">` +
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13H5v-2h14v2z"/></svg></button>' +
-    `<input class="size-input" type="number" inputmode="numeric" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="Font size" value="${original}">` +
-    '<button class="size-btn" type="button" data-step="1" aria-label="Increase font size">' +
+    `<input class="size-input" type="number" inputmode="numeric" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="${i18n('font.aria')}" value="${original}">` +
+    `<button class="size-btn" type="button" data-step="1" aria-label="${i18n('aria.increaseFont')}">` +
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>' +
     '</div>' +
-    `<input class="tmt-size-range" type="range" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="Font size">` +
-    `<p class="tmt-size-hint">${FONT_MIN} – ${FONT_MAX} px</p>`;
+    `<input class="tmt-size-range" type="range" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="${i18n('font.aria')}">` +
+    `<p class="tmt-size-hint">${i18n('font.range', { min: FONT_MIN, max: FONT_MAX })}</p>`;
 
   const result = await tmtPrompt({
-    title: 'Font Size',
+    title: i18n('font.title'),
     body,
-    okText: 'SAVE',
-    cancelText: 'CANCEL',
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
     setup(bodyEl) {
       const num = bodyEl.querySelector('.size-input');
       const range = bodyEl.querySelector('.tmt-size-range');
@@ -661,11 +752,11 @@ document.getElementById('setting-fontsize').addEventListener('click', async () =
 
 document.getElementById('setting-tsip').addEventListener('click', async () => {
   const v = await tmtPrompt({
-    title: 'Tailscale IP',
-    message: 'Your computer\'s Tailscale IP, e.g. 100.101.102.103',
+    title: i18n('setting.tsIp'),
+    message: i18n('tsip.prompt'),
     input: { placeholder: '100.x.y.z', value: settings.tsIp },
-    okText: 'SAVE',
-    cancelText: 'CANCEL',
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
   });
   if (v === null) return;
   settings.tsIp = v;
@@ -675,29 +766,122 @@ document.getElementById('setting-tsip').addEventListener('click', async () => {
 
 document.getElementById('setting-port').addEventListener('click', async () => {
   const v = await tmtPrompt({
-    title: 'Port',
-    message: 'Port Termetron listens on (default 8899)',
+    title: i18n('setting.port'),
+    message: i18n('port.prompt'),
     input: { placeholder: '8899', value: String(settings.port), type: 'number' },
-    okText: 'SAVE',
-    cancelText: 'CANCEL',
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
   });
   if (v === null) return;
   const n = parseInt(v, 10);
-  if (!n || n < 1 || n > 65535) { err('Port must be 1–65535'); return; }
+  if (!n || n < 1 || n > 65535) { err(i18n('port.invalid')); return; }
   settings.port = n;
   saveSettings();
   renderSettings();
 });
 
-document.getElementById('setting-test').addEventListener('click', async () => {
-  if (!hasConnection()) { err('Set Tailscale IP first'); return; }
-  try {
-    const data = await api('/api/sessions');
-    const n = Object.keys(data || {}).length;
-    tmtToast(`Connected · ${n} session${n === 1 ? '' : 's'}`);
-  } catch (e2) {
-    tmtAlert(`Cannot reach ${settings.tsIp}:${settings.port}\n\n${e2.message}`);
-  }
+// ── 连接设置：顶栏左侧的链条图标 → 表单（IP + 端口），可当场测试 ────────
+// 设置页里的 Tailscale IP / Port 两项与这里读写同一份 settings，
+// 任何一处改动都会同步（saveSettings → renderSettings 刷新设置页显示值）。
+// ⚠️ 原来是设置页里一个「Test Connection」行；现在改成顶栏入口，
+//    因为连接是高频动作，不该埋在设置里翻两层。
+const CONN_FORM_BODY = `
+  <label class="tmt-field">
+    <span class="tmt-field-label" data-i18n="conn.ip">Tailscale IP</span>
+    <input class="tmt-input tmt-conn-ip" type="text" inputmode="decimal"
+           autocomplete="off" autocapitalize="off" spellcheck="false"
+           placeholder="100.x.y.z">
+  </label>
+  <label class="tmt-field">
+    <span class="tmt-field-label" data-i18n="conn.port">Port</span>
+    <input class="tmt-input tmt-conn-port" type="number" inputmode="numeric"
+           min="1" max="65535" placeholder="8899">
+  </label>
+  <p class="tmt-conn-status" hidden></p>
+  <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
+`;
+
+function openConnectionForm() {
+  return tmtPrompt({
+    title: i18n('conn.title'),
+    body: CONN_FORM_BODY,
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
+    setup(bodyEl) {
+      const ipEl = bodyEl.querySelector('.tmt-conn-ip');
+      const portEl = bodyEl.querySelector('.tmt-conn-port');
+      const stat = bodyEl.querySelector('.tmt-conn-status');
+      const testBtn = bodyEl.querySelector('.tmt-conn-test');
+      ipEl.value = settings.tsIp || '';
+      portEl.value = String(settings.port || 8899);
+      // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
+      bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
+        el.textContent = i18n(el.dataset.i18n);
+      });
+
+      const say = (msg, kind) => {
+        stat.textContent = msg;
+        stat.hidden = !msg;
+        stat.dataset.kind = kind || '';
+      };
+      const readForm = () => ({
+        ip: ipEl.value.trim(),
+        port: parseInt(portEl.value, 10),
+      });
+      const isValid = ({ ip, port }) =>
+        ip.length > 0 && Number.isFinite(port) && port >= 1 && port <= 65535;
+
+      testBtn.addEventListener('click', async () => {
+        const form = readForm();
+        if (!isValid(form)) { say(i18n('conn.invalid'), 'bad'); return; }
+        say(i18n('conn.testing'), 'idle');
+        testBtn.disabled = true;
+        // 用**表单里的值**去测，不是 settings —— 用户此刻还没点保存
+        const url = /^https?:\/\//i.test(form.ip)
+          ? form.ip.replace(/\/+$/, '')
+          : `http://${form.ip}:${form.port}`;
+        try {
+          const res = await fetch(`${url}/api/sessions`, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const n = Object.keys(data || {}).length;
+          say(i18n('conn.ok').replace('{n}', String(n)), 'good');
+        } catch (e2) {
+          say(i18n('conn.fail').replace('{err}', e2.message), 'bad');
+        } finally {
+          testBtn.disabled = false;
+        }
+      });
+    },
+    onAccept(bodyEl) {
+      const ipEl = bodyEl?.querySelector('.tmt-conn-ip');
+      const portEl = bodyEl?.querySelector('.tmt-conn-port');
+      if (!ipEl || !portEl) return true;
+      const ip = ipEl.value.trim();
+      const port = parseInt(portEl.value, 10);
+      // 校验失败就不关闭弹窗，让用户改
+      if (!ip || !Number.isFinite(port) || port < 1 || port > 65535) {
+        const stat = bodyEl.querySelector('.tmt-conn-status');
+        if (stat) {
+          stat.textContent = i18n('conn.invalid');
+          stat.hidden = false;
+          stat.dataset.kind = 'bad';
+        }
+        return false;
+      }
+      settings.tsIp = ip;
+      settings.port = port;
+      saveSettings();
+      renderSettings();
+      return true;
+    },
+  });
+}
+
+document.getElementById('btn-conn')?.addEventListener('click', () => {
+  openConnectionForm();
 });
 
 document.getElementById('setting-contact').addEventListener('click', () => {
@@ -728,6 +912,11 @@ if (splashEl) {
 }
 
 // 启动：直接进 Sessions（无登录页）
+// 启动：直接进 Sessions（无登录页）
+// ⚠️ setLang + applyI18n 必须在第一次 showPage 之前 —— showPage 会读
+//    i18n(def.titleKey) 写标题，晚一步就会先闪一下默认语言。
+setLang(settings.language);
+applyI18n();
 applyTheme();
 applyFontSize();
 showPage('sessions');

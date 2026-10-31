@@ -228,8 +228,11 @@ class Session:
         elif restored:
             # 直接塞进 list（绕过 append），避免把恢复的内容又写回磁盘
             list.extend(self.lines, restored)
-            list.append(self.lines, "[termetron] ↑ 以上为上次会话的输出（已恢复）")
-            self._log.append(["[termetron] ↑ 以上为上次会话的输出（已恢复）"], force=True)
+            # ⚠️ 这条会出现在**手机 App 的输出区**，所以用中立标记而不是
+            #    某一种语言的句子：App 端（main.js）会把它替换成本地化文案。
+            #    服务端读不到用户的语言设置，只能这样分工。
+            list.append(self.lines, "[termetron:restored]")
+            self._log.append(["[termetron:restored]"], force=True)
         # 会话开启输出：终端风格欢迎横幅（纯文本 `***` 分隔，醒目且不依赖 CSS 样式）
         self.lines.append("*" * 44)
         self.lines.append(
@@ -2524,7 +2527,7 @@ def main() -> None:
             SESSIONS[name] = Session(name, None)
             restored_info.append(name)
         except Exception as e:  # noqa: BLE001
-            print(f"[termetron] warn: 恢复会话 '{name}' 失败: {e}")
+            print(f"[termetron] warn: failed to restore session '{name}': {e}")
 
     if not SESSIONS:
         try:
@@ -2535,17 +2538,17 @@ def main() -> None:
     # agent 聊天会话由用户通过“新建会话 → agent 类型 → 填表单”创建（不预置）
 
     if restored_info:
-        print(f"[termetron] 已从磁盘恢复 {len(restored_info)} 个会话："
+        print(f"[termetron] restored {len(restored_info)} session(s): "
               + ", ".join(restored_info[:8])
               + ("..." if len(restored_info) > 8 else ""))
 
     srv = ThreadingHTTPServer((host, args.port), Handler)
     print(f"Termetron running at http://{host}:{args.port}  ({why})")
     if why == "tailscale":
-        print(f"[termetron] 手机端在设置里填：{host}  端口 {args.port}")
+        print(f"[termetron] On your phone: set Tailscale IP to {host}, port {args.port}")
     elif why != "explicit --host":
-        print("[termetron] 未检测到 Tailscale IP —— 手机端无法连接。")
-        print("[termetron] 请先安装并登录 Tailscale，或用 --host <ip> 指定监听地址。")
+        print("[termetron] No Tailscale IP detected - the phone app cannot connect.")
+        print("[termetron] Install and sign in to Tailscale, or pass --host <ip>.")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

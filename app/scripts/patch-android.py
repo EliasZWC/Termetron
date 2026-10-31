@@ -177,40 +177,64 @@ def patch_variables_gradle() -> None:
 
 
 def patch_styles() -> None:
-    """深色状态栏/导航栏：给所有 style 注入 statusBarColor 等（浅色主题下状态栏灰）。
+    """状态栏 / 导航栏色跟随主题（两套资源 + 运行时切换）。
 
     ⚠️ 颜色必须与网页 **页面底色** 完全一致，不能与顶栏一致。
        用户反馈（v0.8.10）：「状态栏背景的颜色和状态栏下面的颜色不一样，有色差」。
        根因：当时用 --bar #131313（顶栏色），而页面底是 #1B1B1B，
        状态栏与页面之间出现一条明显色阶 —— 界面里最显眼的接缝。
        v0.10.2 又犯一次：页面底改成了 #1E1E1E，状态栏常量还停在 #1B1B1B。
-       判据：状态栏 = 页面底色（#1E1E1E），与内容区无缝；
-             顶栏/标签栏比它更深（#131313），靠亮度差自然分层。
+       v0.10.4 第三次：只注入了一个固定深色值，App 内切到**日间主题**后
+       页面变白了、状态栏还是夜间黑，顶部一条明显色阶。
+
+    ✅ 现在同时写两套资源：
+       · values/styles.xml       → 深色值（#1E1E1E）
+       · values-night/styles.xml → 同一份（系统的深色模式兜底）
+       真正的切换由 App 里的 StatusBar 插件在运行时做（见 main.js 的
+       syncNativeBars），这样 App 内主题一改，状态栏立即跟上，
+       不受系统深色模式影响。
     """
     p = Path("android/app/src/main/res/values/styles.xml")
     if not p.exists():
         print("  styles.xml not found, skip", file=sys.stderr)
         return
+
+    # 读现有 style 名（通常只有一个 AppTheme.NoActionBar）
     s = p.read_text(encoding="utf-8")
+    style_names = re.findall(r'<style name="([^"]+)"', s)
 
-    # 已存在就改写颜色值（历史构建里可能残留旧色），不重复注入
-    if "android:statusBarColor" in s:
-        s = re.sub(r'(<item name="android:statusBarColor">)[^<]*(</item>)',
-                   rf'\g<1>{STATUS_BAR_COLOR}\g<2>', s)
-        s = re.sub(r'(<item name="android:navigationBarColor">)[^<]*(</item>)',
-                   rf'\g<1>{STATUS_BAR_COLOR}\g<2>', s)
-        p.write_text(s, encoding="utf-8")
-        print(f"  styles.xml: status/nav bar colour -> {STATUS_BAR_COLOR} (matches page bg)")
-        return
+    def strip_bar_items(xml: str) -> str:
+        for tag in ("android:statusBarColor", "android:navigationBarColor",
+                    "android:windowLightStatusBar"):
+            xml = re.sub(rf'\s*<item name="{re.escape(tag)}">[^<]*</item>', "", xml)
+        return xml
 
-    items = (
-        f'\n        <item name="android:statusBarColor">{STATUS_BAR_COLOR}</item>'
-        f'\n        <item name="android:navigationBarColor">{STATUS_BAR_COLOR}</item>'
-        '\n        <item name="android:windowLightStatusBar">false</item>'
-    )
-    s = s.replace("</style>", items + "\n    </style>")
-    p.write_text(s, encoding="utf-8")
-    print(f"  styles.xml: status/nav bar -> {STATUS_BAR_COLOR} (matches page bg)")
+    def inject(xml: str, color: str, light: bool) -> str:
+        xml = strip_bar_items(xml)
+        items = (
+            f'\n        <item name="android:statusBarColor">{color}</item>'
+            f'\n        <item name="android:navigationBarColor">{color}</item>'
+            f'\n        <item name="android:windowLightStatusBar">'
+            f'{"true" if light else "false"}</item>'
+        )
+        # 注入到每个 <style ...> 的结束标签前
+        return xml.replace("</style>", items + "\n    </style>")
+
+    # 1) values/styles.xml —— 深色（默认）
+    light_xml = inject(s, STATUS_BAR_COLOR, light=False)
+    p.write_text(light_xml, encoding="utf-8")
+    print(f"  values/styles.xml: status/nav bar -> {STATUS_BAR_COLOR}, light icons")
+
+    # 2) values-light/styles.xml —— 日间。用 -night（深色）以外的限定符：
+    #    values-night 是"系统深色模式"时生效，而我们要的是"App 内选日间"。
+    #    App 内切主题靠 StatusBar 插件实时改，这里只保证冷启动那一下不闪。
+    #    所以再写一份 values-night，让系统深色模式下直接用深色值。
+    night_dir = Path("android/app/src/main/res/values-night")
+    night_dir.mkdir(parents=True, exist_ok=True)
+    night_p = night_dir / "styles.xml"
+    night_p.write_text(inject(s, STATUS_BAR_COLOR, light=False), encoding="utf-8")
+    print(f"  values-night/styles.xml: status/nav bar -> {STATUS_BAR_COLOR} (system dark)")
+    print(f"  styles: {', '.join(style_names) or '(none)'}")
 
 
 def patch_launcher_background() -> None:

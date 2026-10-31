@@ -43,7 +43,7 @@ for candidate in python3 python; do
 done
 
 if [ -z "$PY" ]; then
-    echo "[termetron] 错误：找不到 Python 3" >&2
+    echo "[termetron] error: Python 3 not found" >&2
     echo "[termetron]   Debian/Ubuntu: sudo apt install python3" >&2
     echo "[termetron]   Arch:          sudo pacman -S python" >&2
     exit 1
@@ -51,9 +51,9 @@ fi
 
 # 提前检查 Tailscale，给出可操作的提示（服务端自己也会检测，这里只是提前告知）
 if [ -z "${TERMETRON_TS_IP:-}" ] && ! command -v tailscale >/dev/null 2>&1; then
-    echo "[termetron] 提示：未找到 tailscale 命令。" >&2
-    echo "[termetron]   如果 Tailscale 装在 Windows 而这里跑在 WSL，" >&2
-    echo "[termetron]   手机将无法直接连到 WSL —— 请在 WSL 里也装 Tailscale。" >&2
+    echo "[termetron] note: tailscale command not found." >&2
+    echo "[termetron]   If Tailscale runs on Windows while this runs in WSL," >&2
+    echo "[termetron]   your phone cannot reach WSL directly — install Tailscale inside WSL too." >&2
 fi
 
 cd "$DIR"
