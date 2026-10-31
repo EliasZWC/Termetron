@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.10.19
+**Version:** v0.10.20
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -37,16 +37,21 @@ machine permanently; the `trycloudflare` URL behind it changes whenever the
 tunnel is recreated, and the app re-resolves it for you.
 
 ```bash
-python termetron_cli.py new "My laptop"   # create: prints code + password (once)
-python termetron_cli.py list              # list tunnels
-python termetron_cli.py show ABC123       # details
-python termetron_cli.py use ABC123        # run that tunnel, prints current URL
-python termetron_cli.py delete ABC123     # remove
+./termetron new "My laptop"   # create: prints code + password (once)
+./termetron list              # list tunnels  (alias: ls)
+./termetron show ABC123       # details
+./termetron use ABC123        # run that tunnel, prints current URL
+./termetron delete ABC123     # remove        (alias: rm)
 ```
 
-Enter the code, password and the printed URL **once** in the app. From then on
-the refresh button re-validates by code and adopts whatever URL the tunnel is
-currently on.
+The `termetron` wrapper dispatches on the first argument: the subcommands above
+go to `termetron_cli.py`, while no argument (or `--port` / `--local-only`)
+starts the server as usual.
+
+Enter the code and password **once** in the app. From then on the refresh
+button re-validates by code and adopts whatever URL the tunnel is currently on —
+the address field is read-only in Settings, and tucked under "Advanced" in the
+connect form, because it is transport, not configuration.
 
 > **Why the password is shown only once:** it is the credential that proves
 > "this URL really is my tunnel". Keeping it out of logs, scrollback and

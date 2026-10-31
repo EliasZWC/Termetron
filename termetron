@@ -61,4 +61,24 @@ cd "$DIR"
 #    termetron.py 是**桌面启动器**（默认端口 8900、自动开浏览器、
 #    还会把 --port 吃掉再转发），用在命令行场景会得到意外行为。
 #    quant_terminal.py 才是真正的服务端（默认端口 8899、监听 Tailscale IP）。
+# ── 子命令分流 ─────────────────────────────────────────────────────────
+# 带隧道管理子命令时交给 termetron_cli.py，其余（无参数 / --port /
+# --local-only ...）仍启动服务端。
+# ⚠️ 必须在这里分流而不是让 quant_terminal.py 加子命令：那个文件同时是
+#    服务端入口，加子命令会把它自己的 argparse 搞复杂，且桌面快捷方式的
+#    "--port" 语义会和服务的 "--port" 撞车。
+case "${1:-}" in
+    new|list|show|use|delete)
+        exec "$PY" termetron_cli.py "$@"
+        ;;
+    ls)
+        shift
+        exec "$PY" termetron_cli.py list "$@"
+        ;;
+    rm)
+        shift
+        exec "$PY" termetron_cli.py delete "$@"
+        ;;
+esac
+
 exec "$PY" quant_terminal.py "$@"

@@ -180,7 +180,7 @@ _PROMPT_TAIL_RE = re.compile(r"[A-Za-z]:\\[^>]*>\s*$")
 
 
 def _cwd_from_prompt(line: str) -> str | None:
-    """从 cmd 提示符行取当前工作目录。
+    r"""从 cmd 提示符行取当前工作目录。
 
     cmd.exe 的提示符就是 cwd（如 `E:\code\quant>`），所以不用额外执行 pwd。
     取不到（非 Windows 提示符 / UNC 路径等）时返回 None，前端就不显示第二行。
