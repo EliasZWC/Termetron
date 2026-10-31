@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.10.20
+**Version:** v0.10.21
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -42,6 +42,7 @@ tunnel is recreated, and the app re-resolves it for you.
 ./termetron show ABC123       # details
 ./termetron use ABC123        # run that tunnel, prints current URL
 ./termetron delete ABC123     # remove        (alias: rm)
+./termetron clear             # delete ALL tunnels (alias: reset, asks y/N)
 ```
 
 The `termetron` wrapper dispatches on the first argument: the subcommands above

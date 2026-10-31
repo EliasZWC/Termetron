@@ -2593,6 +2593,23 @@ class RemoteMgr:
             self.stop()
         return True
 
+    def clear_tunnels(self) -> int:
+        """清空所有隧道，返回删除条数。
+
+        ⚠️ 与 delete_tunnel 不同：这里是**整体重置**，所以当前正在跑的隧道
+           也必须停掉 —— 否则进程会带着一个已经不存在的身份继续对外服务，
+           手机上看到的是「码还在但列表里没了」的矛盾状态。
+        """
+        tunnels = self.load_tunnels()
+        n = len(tunnels)
+        if n == 0:
+            return 0
+        self.save_tunnels({})
+        if self.code:
+            self.stop()
+            self.code = None
+        return n
+
     def _bin_dir(self) -> str:
         # 优先随文件部署的 bin/（手动部署 lib/termetron/bin 已在，直接用）；
         # 扩展服务器（vsix 打包只含 out/server/，无 bin/）回退到用户缓存目录，

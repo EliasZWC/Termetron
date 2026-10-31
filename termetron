@@ -68,7 +68,7 @@ cd "$DIR"
 #    服务端入口，加子命令会把它自己的 argparse 搞复杂，且桌面快捷方式的
 #    "--port" 语义会和服务的 "--port" 撞车。
 case "${1:-}" in
-    new|list|show|use|delete)
+    new|list|show|use|delete|clear)
         exec "$PY" termetron_cli.py "$@"
         ;;
     ls)
@@ -78,6 +78,10 @@ case "${1:-}" in
     rm)
         shift
         exec "$PY" termetron_cli.py delete "$@"
+        ;;
+    reset)
+        shift
+        exec "$PY" termetron_cli.py clear "$@"
         ;;
 esac
 

@@ -146,6 +146,49 @@ def cmd_delete(args) -> int:
     return 0
 
 
+def _ask_yes_no(question: str) -> bool:
+    """问一次 yes/no。
+
+    默认（直接回车）是 **no** —— 这是不可逆的批量删除，
+    手一滑回车不该把东西删光。
+    """
+    try:
+        ans = input(f"{question} [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return ans in ("y", "yes")
+
+
+def cmd_clear(args) -> int:
+    m = _mgr()
+    tunnels = m.load_tunnels()
+    n = len(tunnels)
+    if n == 0:
+        print("  Nothing to clear — no tunnels stored.")
+        return 0
+
+    print()
+    print(f"  This will permanently delete {n} tunnel(s):")
+    for code, t in sorted(tunnels.items()):
+        print(f"    {code:<8} {(t.get('label') or '-'):<20} "
+              f"{_fmt_ts(t.get('createdAt'))}")
+    print()
+    print("  Passwords are not recoverable — once cleared, those codes are")
+    print("  gone for good and any phone paired to them must be re-paired.")
+    print()
+
+    # --yes 供脚本使用；交互场景下走确认
+    if not args.yes and not _ask_yes_no("  Clear all tunnels?"):
+        print("  Aborted — nothing was deleted.")
+        return 1
+
+    removed = m.clear_tunnels()
+    print(f"  Cleared {removed} tunnel(s).")
+    print("  Run `termetron new` to create a fresh one.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="termetron",
@@ -171,6 +214,11 @@ def main() -> int:
     p_del = sub.add_parser("delete", help="delete a tunnel")
     p_del.add_argument("code")
     p_del.set_defaults(func=cmd_delete)
+
+    p_clear = sub.add_parser("clear", help="delete ALL tunnels (asks for confirmation)")
+    p_clear.add_argument("--yes", "-y", action="store_true",
+                         help="skip the confirmation prompt (for scripts)")
+    p_clear.set_defaults(func=cmd_clear)
 
     args = ap.parse_args()
     if not getattr(args, "func", None):
