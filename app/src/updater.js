@@ -116,6 +116,10 @@ function showProgressModal(title) {
   const pbar = overlay.querySelector('.ut-pbar');
   const pfill = overlay.querySelector('.ut-pfill');
   const ppct = overlay.querySelector('.ut-ppct');
+  // ⚠️ 打开时也要通知一次 —— 遮罩盖不到原生状态栏，宿主靠这个事件把
+  //    状态栏换成"压暗后"的颜色。之前只有 close() 里通知，导致下载进度
+  //    条弹出时页面暗了、状态栏仍是原亮度（用户看到的"状态栏没改"）。
+  dispatchOverlayChange();
   return {
     set(percent) {
       // 只有收到真实进度事件才切换为确定百分比；Android Filesystem 的 progress 事件常不触发，

@@ -144,6 +144,21 @@ const TMT_CSS = `
 .tmt-conn-test:disabled{opacity:.5}
 .tmt-conn-test:active{background:var(--surface-raised)}
 .tmt-conn-test:disabled{opacity:.45;pointer-events:none}
+/* 高级折叠（地址）：默认收起，避免把传输层当成用户配置项。
+   用原生 <details> 而不是自己管开关状态 —— 少一份 JS 就少一处状态不同步。 */
+.tmt-adv{margin:2px 0 6px;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
+.tmt-adv-summary{display:flex;align-items:center;gap:6px;list-style:none;cursor:pointer;padding:6px 0;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--on-surface-variant);-webkit-tap-highlight-color:transparent}
+.tmt-adv-summary::-webkit-details-marker{display:none}
+/* 右侧指示箭头：官方 Material Symbols "expand_more" 的 path，
+   展开时旋转 180°。不加箭头用户看不出那行字可以点。 */
+.tmt-adv-summary::after{content:'';display:inline-block;width:16px;height:16px;flex:none;background:currentColor;opacity:.7;transition:transform .18s ease;
+  -webkit-mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-360 280-560h400L480-360Z'/%3E%3C/svg%3E") center/16px no-repeat;
+  mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M480-360 280-560h400L480-360Z'/%3E%3C/svg%3E") center/16px no-repeat}
+.tmt-adv[open] .tmt-adv-summary::after{transform:rotate(180deg)}
+.tmt-adv-summary:active{opacity:.6}
+.tmt-adv[open] .tmt-adv-summary{margin-bottom:2px}
+.tmt-adv-body{margin:6px 0 0}
+.tmt-field-hint{display:block;margin:6px 0 0;font-size:12px;line-height:1.4;color:var(--on-surface-variant);opacity:.75}
 /* ── 连接进度弹窗（.ut-*）───────────────────────────────────────────────
    ⚠️ 这套类名属于 updater.js 的 MODAL_CSS，但那个文件只在自己弹更新框时
       注入样式。showConnProgress() 直接用 .ut-overlay 却没注入 → 元素没有
@@ -1747,35 +1762,13 @@ document.getElementById('setting-fontsize').addEventListener('click', async () =
   renderSettings();
 });
 
-document.getElementById('setting-tsip').addEventListener('click', async () => {
-  const v = await tmtPrompt({
-    title: i18n('setting.tsIp'),
-    message: i18n('tsip.prompt'),
-    input: {
-      placeholder: 'https://xxxx.trycloudflare.com',
-      value: baseUrl() || '',
-    },
-    okText: i18n('action.save'),
-    cancelText: i18n('action.cancel'),
-  });
-  if (v === null) return;
-  const raw = String(v).trim();
-  if (!raw) { err(i18n('conn.invalid')); return; }
-  let s = raw;
-  if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
-  s = s.replace(/\/+$/, '');
-  try {
-    if (!new URL(s).hostname) { err(i18n('conn.invalid')); return; }
-  } catch {
-    err(i18n('conn.invalid'));
-    return;
-  }
-  settings.address = s;
-  settings.tsIp = s;
-  rememberEndpoint(s);
-  saveSettings();
-  renderSettings();
-});
+// ⚠️ 地址不再提供编辑入口（设置页那一行只是只读显示）。
+//    原因是模型上「隧道码 = 根，地址 = 可丢弃的传输」：
+//       · 隧道重建后 URL 会变，由 refreshConnection() 按码自动发现并改写；
+//       · 允许手填就等于鼓励用户去见一个固定域名，那就不是用 Cloudflare 的
+//         隧道了，而是套壳——正是当初否掉的方案。
+//    真要抢修（自动发现全部失败）时，走连接表单里的「暴露高级」入口，
+//    而不是把它放在设置首页当常规配置。
 
 // ⚠️ 端口项已移除：隧道地址是完整 URL（自带域名，无端口），
 //    单独的端口输入只会让用户困惑。settings.port 仅保留给
@@ -1802,12 +1795,18 @@ const CONN_FORM_BODY = `
     <input class="tmt-input tmt-conn-pass" type="password"
            autocomplete="off" spellcheck="false" placeholder="••••••••">
   </label>
-  <label class="tmt-field">
-    <span class="tmt-field-label" data-i18n="conn.address">Address</span>
-    <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
-           autocomplete="off" autocapitalize="off" spellcheck="false"
-           placeholder="https://xxxx.trycloudflare.com">
-  </label>
+  <!-- 地址默认折叠：它由「刷新」按隧道码自动发现并改写，不是用户该操心的事。
+       只有自动发现彻底失败时才需要人工指定，所以收进「高级」。 -->
+  <details class="tmt-adv">
+        <summary class="tmt-adv-summary" data-i18n="conn.advanced">Advanced</summary>
+    <label class="tmt-field tmt-adv-body">
+      <span class="tmt-field-label" data-i18n="conn.address">Address</span>
+      <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
+             autocomplete="off" autocapitalize="off" spellcheck="false"
+             placeholder="https://xxxx.trycloudflare.com">
+      <span class="tmt-field-hint" data-i18n="conn.addressHint">Usually filled in automatically.</span>
+    </label>
+  </details>
   <p class="tmt-conn-status" hidden></p>
   <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
 `;
@@ -1827,6 +1826,12 @@ function openConnectionForm() {
       codeEl.value = settings.tunnelCode || '';
       passEl.value = settings.tunnelPassword || '';
       addrEl.value = baseUrl() || '';
+      // 没有可用地址时（首次配置 / 自动发现全挂），把「高级」展开 ——
+      // 此刻地址是唯一能救场的东西，收着就不合理了。
+      if (!addrEl.value) {
+        const adv = bodyEl.querySelector('.tmt-adv');
+        if (adv) adv.open = true;
+      }
       // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
       bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
         el.textContent = i18n(el.dataset.i18n);
@@ -1923,7 +1928,20 @@ function openConnectionForm() {
         return false;
       };
       const raw = addrEl.value.trim();
-      if (!raw) return bad('conn.invalid');
+      const code = (codeEl?.value || '').trim().toUpperCase();
+      const pass = passEl?.value || '';
+      // 有隧道码就不用逼用户填地址：地址由刷新自动发现。
+      // 既没码又没地址才是真的没法连。
+      if (!raw) {
+        if (!code) return bad('conn.invalid');
+        settings.tunnelCode = code;
+        settings.tunnelPassword = pass;
+        saveSettings();
+        renderSettings();
+        // 立刻试一次自动发现，省得用户还要再点一次刷新
+        setTimeout(() => refreshConnection(), 0);
+        return true;
+      }
       let s = raw;
       if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
       s = s.replace(/\/+$/, '');
@@ -1935,8 +1953,8 @@ function openConnectionForm() {
       // 存三个字段：
       //   tunnelCode / tunnelPassword —— 身份，长期不变（接力时的校验根）
       //   address                     —— 传输地址，可随隧道重建而变
-      settings.tunnelCode = (codeEl?.value || '').trim().toUpperCase();
-      settings.tunnelPassword = passEl?.value || '';
+      settings.tunnelCode = code;
+      settings.tunnelPassword = pass;
       settings.address = s;
       settings.tsIp = s;   // 兼容旧路径
       rememberEndpoint(s);

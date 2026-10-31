@@ -117,10 +117,12 @@
             </button>
           </li>
           <li class="setting-item">
-            <button class="setting-action" type="button" id="setting-tsip">
-              <span class="setting-label" data-i18n="conn.address">Address</span>
-              <span class="setting-value" id="setting-tsip-value">not set</span>
-            </button>
+            <!-- 地址是**传输层**，不是用户配置项：隧道重建后 URL 会变，
+                 由顶栏「刷新」按隧道码自动发现并改写。
+                 这里只展示当前实际连着的地址，不可编辑 ——
+                 能改就会变成「套壳一个固定域名」，绕开了隧道码这个根。 -->
+            <span class="setting-label" data-i18n="conn.address">Address</span>
+            <span class="setting-value" id="setting-tsip-value">not set</span>
           </li>
         </ul>
       </section>
