@@ -2444,6 +2444,8 @@ class RemoteMgr:
     def __init__(self):
         self.proc = None            # cloudflared 子进程
         self.url: str | None = None
+        # 当前正在跑的隧道码（身份）。URL 会变，但这个不会。
+        self.code: str | None = None
         self.token: str | None = None
         self.status = "off"         # off / starting / on / error
         self.error: str | None = None
@@ -2501,6 +2503,96 @@ class RemoteMgr:
     def on(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
+    # ── 隧道码（身份）的持久化 ───────────────────────────────────────
+    # 设计要点：**隧道码是身份，URL 是运行时产物**。
+    #   · 隧道码 6 位、用户可见、长期不变 —— 手机端只存它和密码；
+    #   · 密码用于验证「知道这个隧道码的人」确实被授权；
+    #   · URL 每次 cloudflared 重启都可能变，但它由服务端掌握，
+    #     手机不需要记住（见 /api/discover 返回 currentUrl）。
+    #   这样重连时用户只需在 App 里点「刷新」，不必重新抄一串随机 URL。
+    def _tunnels_path(self) -> str:
+        base = os.environ.get("TERMETRON_STATE_DIR", "").strip()
+        if not base:
+            base = os.path.join(
+                os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+                ".local", "state", "termetron",
+            )
+        return os.path.join(base, "tunnels.json")
+
+    def load_tunnels(self) -> dict:
+        """读出全部隧道配置：{code: {code, password, createdAt, label}}。"""
+        try:
+            p = self._tunnels_path()
+            if not os.path.exists(p):
+                return {}
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            t = data.get("tunnels")
+            return t if isinstance(t, dict) else {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def save_tunnels(self, tunnels: dict) -> None:
+        try:
+            p = self._tunnels_path()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            tmp = p + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"tunnels": tunnels}, f, indent=2)
+            os.replace(tmp, p)
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def new_code() -> str:
+        """生成隧道码：6 位大写字母数字，去掉易混字符（0/O/1/I/L）。"""
+        alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        return "".join(secrets.choice(alphabet) for _ in range(6))
+
+    def create_tunnel(self, label: str = "") -> dict:
+        """新建一条隧道（生成隧道码 + 密码并落盘）。"""
+        tunnels = self.load_tunnels()
+        code = self.new_code()
+        while code in tunnels:
+            code = self.new_code()
+        pw = secrets.token_urlsafe(12)
+        tunnels[code] = {
+            "code": code,
+            "password": pw,
+            "createdAt": int(time.time()),
+            "label": label or "",
+        }
+        self.save_tunnels(tunnels)
+        return tunnels[code]
+
+    def find_tunnel(self, code: str) -> dict | None:
+        return self.load_tunnels().get((code or "").strip().upper())
+
+    def verify(self, code: str, password: str) -> bool:
+        """校验隧道码 + 密码是否匹配。
+
+        这是「接力」的信任根：URL 变了之后，手机拿隧道码来问
+        「这条隧道还是我原来那条吗」，服务端用密码证明身份。
+        没有这一步，任何一个 URL 只要返回 200 就会被误当成"接上了"。
+        """
+        t = self.find_tunnel(code)
+        if not t:
+            return False
+        # 定长比较，避免把密码长度/前缀泄露给爆破者
+        return secrets.compare_digest(str(t.get("password") or ""), str(password or ""))
+
+    def delete_tunnel(self, code: str) -> bool:
+        tunnels = self.load_tunnels()
+        key = (code or "").strip().upper()
+        if key not in tunnels:
+            return False
+        del tunnels[key]
+        self.save_tunnels(tunnels)
+        # 如果删的正是当前在跑的那条，顺手停掉
+        if (self.code or "").upper() == key:
+            self.stop()
+        return True
+
     def _bin_dir(self) -> str:
         # 优先随文件部署的 bin/（手动部署 lib/termetron/bin 已在，直接用）；
         # 扩展服务器（vsix 打包只含 out/server/，无 bin/）回退到用户缓存目录，
@@ -2549,10 +2641,12 @@ class RemoteMgr:
         if sysname != "Windows":
             os.chmod(binp, 0o755)
 
-    def start(self, local_port: int) -> dict:
+    def start(self, local_port: int, code: str | None = None) -> dict:
+        """启动隧道。code 为隧道码（身份）；不传则用当前已加载的。"""
         with self.lock:
             if self.on:
-                return {"ok": True, "url": self.url, "token": self.token, "status": self.status}
+                return {"ok": True, "url": self.url, "token": self.token,
+                        "status": self.status, "code": self.code}
             binp = self._bin_path()
             if not os.path.exists(binp):
                 self.status = "starting"
@@ -2562,6 +2656,9 @@ class RemoteMgr:
                     self.status = "error"
                     self.error = f"cloudflared download failed: {e}"
                     return {"ok": False, "error": self.error}
+            # 隧道码：调用方没指定就沿用上一次的（重启 watcher 时不该丢身份）
+            if code:
+                self.code = code.strip().upper()
             self.token = secrets.token_hex(3)   # 6 位一次性密码
             self.url = None
             self.status = "starting"
@@ -2590,7 +2687,8 @@ class RemoteMgr:
             self._probe_fail = 0
             threading.Thread(target=self._read_url, daemon=True).start()
             threading.Thread(target=self._watchdog_loop, daemon=True).start()
-            return {"ok": True, "token": self.token, "status": "starting"}
+            return {"ok": True, "token": self.token, "status": "starting",
+                    "code": self.code}
 
     def _read_url(self) -> None:
         """持续读取 cloudflared 输出，解析 trycloudflare URL。
@@ -2687,7 +2785,7 @@ class RemoteMgr:
             try:
                 self.stop()
                 time.sleep(1)
-                self.start(_LOCAL_PORT)
+                self.start(_LOCAL_PORT, self.code)
             except Exception as e:  # noqa: BLE001
                 with self.lock:
                     self.error = f"auto-restart failed: {e}"
@@ -2711,11 +2809,14 @@ class RemoteMgr:
             self.pending = {}
             # ⚠️ 同样不清空 self.allowed：remote off 只是关隧道，
             #    设备信任关系应当延续到下次 remote on。
+            # ⚠️ self.code **也不清空**：隧道码是身份，停了隧道不代表换了身份。
+            #    清掉的话，下次 remote on 会变成一个空码，手机端就认不出来了。
             self._probe_fail = 0
 
     def status_json(self) -> dict:
         with self.lock:
             return {"status": self.status, "url": self.url, "token": self.token,
+                    "code": self.code,
                     "pending": sorted(self.pending), "allowed": len(self.allowed),
                     "error": self.error}
 
@@ -2986,12 +3087,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(st)
         elif path == "/api/discover":
             # 无需鉴权的自我描述：客户端用它确认「对端确实是一个 termetron」，
-            # 顺便拿到可达地址与端口。
-            # ⚠️ 只返回地址与版本，不含任何会话/文件信息 —— 拿到地址并不能
-            #    读数据（其余 /api/* 都要鉴权）。
-            # 主要用途：App 做 URL 接力时，用这个接口判断某个地址是否还活着
-            #    （返回 app=="termetron" 才算命中），避免把任意 HTTP 服务
-            #    误当成自己的后端。
+            # 并拿到当前隧道码与地址。
+            # ⚠️ 只返回地址/版本/隧道码，**不含密码**，也不含会话或文件信息。
+            #    隧道码本身不是秘密（用户会看到），密码才是凭据 ——
+            #    所以这里给码不给密码是安全的；客户端随后调 /api/tunnel/verify
+            #    用密码换一个「确实是同一条隧道」的确认。
             self._json({
                 "ok": True,
                 "app": "termetron",
@@ -3000,7 +3100,40 @@ class Handler(BaseHTTPRequestHandler):
                 "port": _LOCAL_PORT,
                 "addrs": _local_addrs(),
                 "platform": sys.platform,
+                # 当前在跑的隧道码（URL 变了它也不变）—— 客户端据此判断
+                # 「接力到的这个地址，是不是我原来那条隧道」。
+                "tunnelCode": REMOTE.code,
+                "tunnelUrl": REMOTE.url,
             })
+        elif path == "/api/tunnel/list":
+            # 查询用 GET（幂等、可缓存语义正确）。列表**不含密码**。
+            if not self._authed():
+                self._json({"error": "auth required", "auth_required": True}, 401)
+                return
+            tunnels = REMOTE.load_tunnels()
+            items = [
+                {
+                    "code": t.get("code"),
+                    "label": t.get("label") or "",
+                    "createdAt": t.get("createdAt"),
+                    "active": (REMOTE.code or "").upper() == str(t.get("code")).upper(),
+                }
+                for t in tunnels.values()
+            ]
+            items.sort(key=lambda x: x.get("createdAt") or 0, reverse=True)
+            self._json({"ok": True, "tunnels": items})
+        elif path == "/api/tunnel/verify":
+            # 用「隧道码 + 密码」确认身份。这是 URL 变化后接力时的信任锚。
+            code = self._query("code")
+            if REMOTE.verify(code, self._query("password")):
+                self._json({
+                    "ok": True,
+                    "tunnelCode": (code or "").strip().upper(),
+                    "tunnelUrl": REMOTE.url,
+                })
+            else:
+                # 不区分「码不存在」和「密码错」——避免被用来枚举有效隧道码
+                self._json({"ok": False, "error": "invalid code or password"}, 401)
         elif path.startswith("/api/stream/"):
             # ── 服务端推送（SSE）────────────────────────────────────────
             # 为什么要有这个：手机端原来是每 120ms 轮询一次 /api/output。
@@ -3078,7 +3211,75 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authed():
                 self._json({"error": "auth required", "auth_required": True}, 401)
                 return
-            self._json(REMOTE.start(_LOCAL_PORT))
+            # 可选 body: {"code": "ABC123"} —— 指定用哪条隧道启动
+            code = None
+            try:
+                n = int(self.headers.get("Content-Length", 0) or 0)
+                if n:
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    code = (body.get("code") or "").strip() or None
+            except Exception:  # noqa: BLE001
+                code = None
+            # 没指定就挑一个已存在的；一个都没有则新建
+            if not code:
+                existing = REMOTE.load_tunnels()
+                code = next(iter(existing), None)
+                if not code:
+                    code = REMOTE.create_tunnel()["code"]
+            if not REMOTE.find_tunnel(code):
+                self._json({"ok": False, "error": f"no such tunnel: {code}"}, 404)
+                return
+            self._json(REMOTE.start(_LOCAL_PORT, code))
+            return
+        if self.path == "/api/tunnel/new":
+            # 新建一条隧道（生成隧道码 + 密码），不自动启动
+            if not self._authed():
+                self._json({"error": "auth required", "auth_required": True}, 401)
+                return
+            label = ""
+            try:
+                n = int(self.headers.get("Content-Length", 0) or 0)
+                if n:
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    label = (body.get("label") or "").strip()
+            except Exception:  # noqa: BLE001
+                pass
+            t = REMOTE.create_tunnel(label)
+            self._json({"ok": True, "tunnel": t})
+            return
+        if self.path == "/api/tunnel/list":
+            if not self._authed():
+                self._json({"error": "auth required", "auth_required": True}, 401)
+                return
+            tunnels = REMOTE.load_tunnels()
+            # ⚠️ 列表里**不回传密码**：密码只在创建时显示一次。
+            #    需要重看时让用户重新生成，避免密码在任何列表接口里裸奔。
+            items = [
+                {
+                    "code": t.get("code"),
+                    "label": t.get("label") or "",
+                    "createdAt": t.get("createdAt"),
+                    "active": (REMOTE.code or "").upper() == str(t.get("code")).upper(),
+                }
+                for t in tunnels.values()
+            ]
+            items.sort(key=lambda x: x.get("createdAt") or 0, reverse=True)
+            self._json({"ok": True, "tunnels": items})
+            return
+        if self.path == "/api/tunnel/delete":
+            if not self._authed():
+                self._json({"error": "auth required", "auth_required": True}, 401)
+                return
+            code = ""
+            try:
+                n = int(self.headers.get("Content-Length", 0) or 0)
+                if n:
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    code = (body.get("code") or "").strip()
+            except Exception:  # noqa: BLE001
+                pass
+            ok = REMOTE.delete_tunnel(code)
+            self._json({"ok": ok, "error": None if ok else "no such tunnel"})
             return
         if self.path == "/api/remote/stop":
             if not self._authed():
@@ -3088,13 +3289,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
             return
         if self.path == "/api/remote/restart":
-            # 隧道失效后重开：停旧隧道 → 开新隧道（新 URL + 新一次性密码）
+            # 隧道失效后重开：停旧隧道 → 开新隧道（新 URL，**隧道码不变**）
             if not self._authed():
                 self._json({"error": "auth required", "auth_required": True}, 401)
                 return
+            code = REMOTE.code
             REMOTE.stop()
             time.sleep(0.5)
-            self._json(REMOTE.start(_LOCAL_PORT))
+            self._json(REMOTE.start(_LOCAL_PORT, code))
             return
         if self.path == "/api/remote/auth":
             try:

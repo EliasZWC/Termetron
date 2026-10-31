@@ -1,0 +1,8 @@
+/mnt/e/product/Termetron/quant_terminal.py:183: SyntaxWarning: invalid escape sequence '\c'
+  """从 cmd 提示符行取当前工作目录。
+[termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
+[termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
+[termetron] restored 2 session(s): persist-test, shell
+Termetron running at http://127.0.0.1:8899  (--local-only)
+[termetron] No Tailscale IP detected - the phone app cannot connect.
+[termetron] Install and sign in to Tailscale, or pass --host <ip>.

@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.10.15
+**Version:** v0.10.16
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -29,6 +29,28 @@ Install it globally:
 ```bash
 sudo ln -s "$PWD/termetron" /usr/local/bin/termetron
 ```
+
+### Tunnels: code is identity, URL is transport
+
+The phone never needs to remember a URL. A **tunnel code** identifies your
+machine permanently; the `trycloudflare` URL behind it changes whenever the
+tunnel is recreated, and the app re-resolves it for you.
+
+```bash
+python termetron_cli.py new "My laptop"   # create: prints code + password (once)
+python termetron_cli.py list              # list tunnels
+python termetron_cli.py show ABC123       # details
+python termetron_cli.py use ABC123        # run that tunnel, prints current URL
+python termetron_cli.py delete ABC123     # remove
+```
+
+Enter the code, password and the printed URL **once** in the app. From then on
+the refresh button re-validates by code and adopts whatever URL the tunnel is
+currently on.
+
+> **Why the password is shown only once:** it is the credential that proves
+> "this URL really is my tunnel". Keeping it out of logs, scrollback and
+> screenshots is worth the inconvenience of re-creating a tunnel you lost it for.
 
 ### Run as a systemd service (recommended)
 

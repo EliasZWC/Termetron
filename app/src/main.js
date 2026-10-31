@@ -22,13 +22,20 @@ const DEFAULTS = {
   language: 'en',
   theme: 'dark',
   fontSize: 13,
-  // 隧道地址（完整 URL）。主字段。
+  // ── 隧道身份（长期不变）────────────────────────────────────────
+  // ⚠️ 设计：**隧道码是身份，URL 是运行时产物**。
+  //    · tunnelCode / tunnelPassword 由用户设置一次，之后永不改变
+  //    · address 只是"最近一次可用的 URL"，会随隧道重建而变
+  //    重连时：用 tunnelCode+password 向服务端确认身份，URL 由服务端告知。
+  //    这样用户不必记住一串随机域名。
+  tunnelCode: '',
+  tunnelPassword: '',
+  // 最近一次可用的地址（完整 URL）。会自动更新。
   address: '',
-  // ⚠️ tsIp / port 是旧字段，保留只为兼容已安装用户的本地存储：
-  //    tsIp 历史上存过「Tailscale IP」也存过完整 URL；port 只在
-  //    用户输入裸主机名时才用来拼地址。新代码一律读写 address。
+  // 兼容旧字段
   tsIp: '',
   port: 8899,
+  // 备用地址列表：URL 失效时按顺序接力尝试。
   altEndpoints: [],
 };
 
@@ -281,12 +288,13 @@ function rememberEndpoint(base) {
 }
 
 /**
- * 依次尝试主地址与备用地址，返回第一个能响应的 base。
- * 成功时把该地址提升为主地址（并记住其余可用的），失败的地址丢弃。
+ * 依次尝试主地址与备用地址，返回第一个**通过隧道码校验**的 base。
  *
- * ⚠️ 为什么需要这个：trycloudflare 重建隧道后 URL 会变。手机里存着旧
- *    URL 就只能干等 —— 用户看到的是「连不上」，但服务其实活着，只是
- *    换了个门牌号。接力让「换门牌」这件事对用户透明。
+ * ⚠️ 这是「接力」的信任根：URL 会变，隧道码不会。
+ *    所以判断「这条地址是不是我的隧道」不能只看它能不能连通
+ *    （任何 HTTP 服务都能 200），必须拿隧道码 + 密码去验证：
+ *      GET /api/tunnel/verify?code=X&password=Y
+ *    只有校验通过才认，否则继续试下一个候选。
  */
 async function resolveBase() {
   const primary = baseUrl();
@@ -294,36 +302,53 @@ async function resolveBase() {
     .filter(Boolean)
     .filter((u, i, a) => a.indexOf(u) === i);
   if (!candidates.length) return '';
+
+  const code = settings.tunnelCode || '';
+  const password = settings.tunnelPassword || '';
+
   for (const base of candidates) {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), FAILOVER_TIMEOUT_MS);
     try {
-      const res = await fetch(`${base}/api/discover`, {
-        signal: ac.signal,
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json();
-      if (d?.app !== 'termetron') throw new Error('not termetron');
-      // 命中了：把它设为主地址
-      if (base !== primary) {
-        settings.tsIp = base.replace(/^https?:\/\//, '');
-        const m = /:(\d+)$/.exec(settings.tsIp);
-        if (m) {
-          settings.port = parseInt(m[1], 10);
-          settings.tsIp = settings.tsIp.replace(/:\d+$/, '');
-        }
-        saveSettings();
+      if (code && password) {
+        // 有身份 → 严格校验：「这个地址后面是不是我那条隧道」
+        const q = `code=${encodeURIComponent(code)}&password=${encodeURIComponent(password)}`;
+        const res = await fetch(`${base}/api/tunnel/verify?${q}`, {
+          signal: ac.signal,
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) throw new Error('verify failed');
+        const d = await res.json();
+        if (!d?.ok) throw new Error('not my tunnel');
+      } else {
+        // 没配身份（本机调试等场景）→ 退化为「确认对端是 termetron」
+        const res = await fetch(`${base}/api/discover`, {
+          signal: ac.signal,
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+        if (d?.app !== 'termetron') throw new Error('not termetron');
       }
+      // 校验通过：把它设为主地址
+      if (base !== primary) adoptEndpoint(base);
       rememberEndpoint(base);
       return base;
     } catch {
-      /* 不可用，试下一个 */
+      /* 不可用或不是我的隧道，试下一个 */
     } finally {
       clearTimeout(timer);
     }
   }
   return '';
+}
+
+/** 把某个地址设为当前使用的地址（同步旧字段，保证 baseUrl() 一致）。 */
+function adoptEndpoint(base) {
+  if (!base) return;
+  settings.address = base;
+  settings.tsIp = base;
+  saveSettings();
 }
 
 async function api(path, opts = {}) {
@@ -563,30 +588,30 @@ function sessionRow(name, info) {
 }
 
 async function refreshSessions() {
-  // 空状态只有**一种**：没有会话就显示「暂无会话」。
-  // ⚠️ 不再按「未配置 IP / 连不上 / 无会话」分三种文案 —— 用户的判断很简单：
-  //    列表空着就该有提示。分三种反而在"配置了但后端返回空"时漏掉提示
-  //    （v0.10.7 的真机 bug 就出在这）。
-  //    连接相关的提示交给「连接」按钮和设置页，不在列表区表达。
-  const showEmpty = () => setSessionsEmpty(true);
+  // 空状态分两种，因为用户该做的事完全不同：
+  //   · 没连上 → 先连接（提示怎么连，并给个直达按钮）
+  //   · 连上了但没会话 → 点 + 新建
+  // ⚠️ 这两者**必须区分**：只显示「暂无会话」的话，没连接的用户会去点 +
+  //    然后被拒，绕一圈才知道要先连。
+  const showEmpty = (kind) => setSessionsEmpty(true, kind);
 
   // ⚠️⚠️ 关键：**先无条件把空状态设为可见**，再去拉数据。
   //    之前是先拉数据、按结果再决定显隐，走了三次真机都没生效 ——
   //    无论中间哪一步（hasConnection、fetch、JSON 解析、sessionRow）在
   //    真机上抛了什么，只要那段没跑完，空状态就永远停在 HTML 初始的
   //    `hidden` 上，而控制台又看不到（真机不方便开）。
-  //    现在把它提到最前面：哪怕后面全炸了，用户至少看到「暂无会话」，
-  //    这正是「没有会话」这个事实的呈现。有会话时再把它关掉。
-  showEmpty();
+  //    现在把它提到最前面：哪怕后面全炸了，用户至少看到提示。
+  showEmpty('offline');
 
   if (!hasConnection()) return;
   try {
     const data = await api('/api/sessions');
     const list = sessionListEl();
     const names = Object.keys(data || {});
-    if (!names.length) return;          // 空状态已在前方设好
-    // 单行渲染失败不拖垮整个列表：一行坏掉时其余照常显示，
-    // 全部失败就保留空状态。
+    if (!names.length) {
+      showEmpty('noSessions');   // 连上了，只是还没有会话
+      return;
+    }
     let ok = 0;
     for (const n of names) {
       try {
@@ -605,10 +630,12 @@ async function refreshSessions() {
 
 /**
  * 显示/隐藏会话空状态，并同步清空列表。
- * 独立成函数是为了在 refreshSessions 内外都能用，且带兜底文案 ——
- * i18n 若因语言键缺失返回空串，至少还有字显示出来（不是一片空白）。
+ * @param {boolean} show
+ * @param {'offline'|'noSessions'} kind
+ *   offline    —— 还没连上电脑：提示去连接
+ *   noSessions —— 已连上但没有会话：提示点 + 新建
  */
-function setSessionsEmpty(show) {
+function setSessionsEmpty(show, kind = 'noSessions') {
   const list = sessionListEl();
   const empty = sessionsEmptyEl();
   if (!empty) return;
@@ -620,8 +647,13 @@ function setSessionsEmpty(show) {
     empty.style.display = 'block';
     const t = empty.querySelector('.empty-title');
     const h = empty.querySelector('.empty-hint');
-    if (t) t.textContent = i18n('empty.noSessions') || 'No Session';
-    if (h) h.textContent = i18n('empty.noSessionsHint') || '';
+    if (kind === 'offline') {
+      if (t) t.textContent = i18n('empty.offline') || 'Not Connected';
+      if (h) h.textContent = i18n('empty.offlineHint') || '';
+    } else {
+      if (t) t.textContent = i18n('empty.noSessions') || 'No Session';
+      if (h) h.textContent = i18n('empty.noSessionsHint') || '';
+    }
   } else {
     empty.hidden = true;
     empty.style.display = '';
@@ -629,9 +661,19 @@ function setSessionsEmpty(show) {
 }
 
 // 新建会话
+// ⚠️ 顺序很重要：**先确认能连上，再让用户输名字**。
+//    旧实现只判 hasConnection()（"填过地址没有"），地址填了但隧道已失效时，
+//    用户照样要输完名字、点了创建，才在最后一步看到失败 —— 白费一次输入。
+//    现在先发一个轻量探测：连不上就直接提示"先远程连接"，根本不出表单。
 addBtnEl()?.addEventListener('click', async () => {
   if (!hasConnection()) {
-    tmtAlert(i18n('session.errNoConnection'));
+    await promptConnectFirst();
+    return;
+  }
+  // 真正探一次，而不是只看"填过地址"
+  const reachable = await probeServer();
+  if (!reachable) {
+    await promptConnectFirst();
     return;
   }
   const name = await tmtPrompt({
@@ -653,6 +695,30 @@ addBtnEl()?.addEventListener('click', async () => {
   }
 });
 
+/**
+ * 轻量探测服务器是否可达（带接力）。
+ * 返回 true/false，**不抛异常** —— 调用方只关心能不能继续。
+ * 复用 resolveBase()：它本身就会按候选列表逐个试，命中即切换主地址，
+ * 正好顺便把"隧道换了 URL"这件事修好。
+ */
+async function probeServer() {
+  const base = await resolveBase();
+  return !!base;
+}
+
+/**
+ * 「还没连上」的统一出口：解释原因，并直接把用户送到连接表单。
+ * 只弹一句"未连接"然后让用户自己去找入口，等于把问题丢回给用户。
+ */
+async function promptConnectFirst() {
+  const ok = await tmtConfirm(i18n('session.needConnection'), {
+    title: i18n('session.new'),
+    okText: i18n('action.connect'),
+    cancelText: i18n('action.cancel'),
+  });
+  if (ok) openConnectionForm();
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 终端页
 // ═══════════════════════════════════════════════════════════════════════
@@ -673,19 +739,28 @@ let lastOutputText = '';
 //   · 有程序在跑（busy）→ 120ms，接近"实时"
 //   · 空闲（等输入）    → 400ms，够快且省电
 //   · 页面不可见        → 停止（省流量，回来时立刻补一次）
+//   · 经隧道            → 不低于 300ms：公网往返本身就 100ms+，
+//                        再密集只会让请求排队变慢，不会更快
 const POLL_BUSY_MS = 120;
 const POLL_IDLE_MS = 400;
+const POLL_TUNNEL_MIN_MS = 300;
 let pollDelay = POLL_BUSY_MS;
+
+/** 当前是否经公网隧道（延迟高、有并发上限）。 */
+function overTunnel() {
+  return /\.trycloudflare\.com/i.test(baseUrl() || '');
+}
 
 /** 用 setTimeout 自调度代替 setInterval，才能动态改间隔。 */
 function schedulePoll() {
   clearTimeout(pollTimer);
+  const delay = overTunnel() ? Math.max(pollDelay, POLL_TUNNEL_MIN_MS) : pollDelay;
   pollTimer = setTimeout(async () => {
     await pullOutput();
     if (currentPage === 'terminal' && currentSession && !document.hidden) {
       schedulePoll();
     }
-  }, pollDelay);
+  }, delay);
 }
 
 // ── 服务端推送（SSE）────────────────────────────────────────────────
@@ -719,6 +794,15 @@ function startStream(name) {
   }
   const base = baseUrl();
   if (!base) { schedulePoll(); return; }
+  // ⚠️ Cloudflare Quick Tunnel **明确不支持 SSE**
+  //    （官方文档 Limitations：「Quick Tunnels do not support Server-Sent
+  //    Events (SSE)」）。在隧道下建 EventSource 只会挂住然后在 watchdog
+  //    超时后退回轮询 —— 白等 3 秒，还多一次失败的连接。
+  //    所以：认出是 trycloudflare 地址就直接用轮询，跳过试探。
+  if (/\.trycloudflare\.com/i.test(base)) {
+    schedulePoll();
+    return;
+  }
   sseGotData = false;
   try {
     sseSource = new EventSource(
@@ -1629,7 +1713,22 @@ document.getElementById('setting-tsip').addEventListener('click', async () => {
 // 任何一处改动都会同步（saveSettings → renderSettings 刷新设置页显示值）。
 // ⚠️ 原来是设置页里一个「Test Connection」行；现在改成顶栏入口，
 //    因为连接是高频动作，不该埋在设置里翻两层。
+// ⚠️ 三栏的含义，别混：
+//   · Tunnel Code   —— 身份，长期不变。换 URL 也不用重填。
+//   · Password      —— 身份凭据，长期不变。
+//   · Address (URL) —— 传输地址，会随隧道重建而变；平时由「刷新」自动更新。
 const CONN_FORM_BODY = `
+  <label class="tmt-field">
+    <span class="tmt-field-label" data-i18n="conn.code">Tunnel Code</span>
+    <input class="tmt-input tmt-conn-code" type="text"
+           autocomplete="off" autocapitalize="characters" spellcheck="false"
+           placeholder="ABC123">
+  </label>
+  <label class="tmt-field">
+    <span class="tmt-field-label" data-i18n="conn.password">Password</span>
+    <input class="tmt-input tmt-conn-pass" type="password"
+           autocomplete="off" spellcheck="false" placeholder="••••••••">
+  </label>
   <label class="tmt-field">
     <span class="tmt-field-label" data-i18n="conn.address">Address</span>
     <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
@@ -1647,9 +1746,13 @@ function openConnectionForm() {
     okText: i18n('action.save'),
     cancelText: i18n('action.cancel'),
     setup(bodyEl) {
+      const codeEl = bodyEl.querySelector('.tmt-conn-code');
+      const passEl = bodyEl.querySelector('.tmt-conn-pass');
       const addrEl = bodyEl.querySelector('.tmt-conn-addr');
       const stat = bodyEl.querySelector('.tmt-conn-status');
       const testBtn = bodyEl.querySelector('.tmt-conn-test');
+      codeEl.value = settings.tunnelCode || '';
+      passEl.value = settings.tunnelPassword || '';
       addrEl.value = baseUrl() || '';
       // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
       bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
@@ -1693,17 +1796,32 @@ function openConnectionForm() {
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), 8000);
         try {
-          // 用 /api/discover 而不是 /api/sessions：前者能确认「对端真是
-          // termetron」（返回 app="termetron"），后者任何正常 HTTP 服务
-          // 都可能是 200，容易误判成连上了。
-          const res = await fetch(`${url}/api/discover`, {
-            headers: { 'Content-Type': 'application/json' },
-            signal: ac.signal,
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const d = await res.json();
-          if (d?.app !== 'termetron') throw new Error(i18n('conn.notTermetron'));
-          say(i18n('conn.ok').replace('{v}', d.version || '?'), 'good');
+          // ⚠️ 有隧道码 + 密码时必须走 /api/tunnel/verify：
+          //    只确认「对端是 termetron」是不够的 —— 换 URL 后可能连到
+          //    别人的实例上。隧道码才是判断「是不是我这条」的根。
+          const code = (codeEl.value || '').trim().toUpperCase();
+          const pass = passEl.value || '';
+          if (code && pass) {
+            const q = `code=${encodeURIComponent(code)}&password=${encodeURIComponent(pass)}`;
+            const res = await fetch(`${url}/api/tunnel/verify?${q}`, {
+              headers: { 'Content-Type': 'application/json' },
+              signal: ac.signal,
+            });
+            if (res.status === 401) throw new Error(i18n('conn.badCode'));
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const d = await res.json();
+            if (!d?.ok) throw new Error(i18n('conn.badCode'));
+            say(i18n('conn.ok').replace('{v}', code), 'good');
+          } else {
+            const res = await fetch(`${url}/api/discover`, {
+              headers: { 'Content-Type': 'application/json' },
+              signal: ac.signal,
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const d = await res.json();
+            if (d?.app !== 'termetron') throw new Error(i18n('conn.notTermetron'));
+            say(i18n('conn.ok').replace('{v}', d.version || '?'), 'good');
+          }
         } catch (e2) {
           // AbortError 的 message 在部分 WebView 上是空的，单独判一下，
           // 统一换成可读的「超时」提示。
@@ -1718,9 +1836,10 @@ function openConnectionForm() {
       });
     },
     onAccept(bodyEl) {
+      const codeEl = bodyEl?.querySelector('.tmt-conn-code');
+      const passEl = bodyEl?.querySelector('.tmt-conn-pass');
       const addrEl = bodyEl?.querySelector('.tmt-conn-addr');
       if (!addrEl) return true;
-      const raw = addrEl.value.trim();
       const bad = (msgKey) => {
         const stat = bodyEl.querySelector('.tmt-conn-status');
         if (stat) {
@@ -1730,6 +1849,7 @@ function openConnectionForm() {
         }
         return false;
       };
+      const raw = addrEl.value.trim();
       if (!raw) return bad('conn.invalid');
       let s = raw;
       if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
@@ -1739,10 +1859,13 @@ function openConnectionForm() {
       } catch {
         return bad('conn.invalid');
       }
-      // 存**完整地址**。settings.address 是新字段（隧道方案的主键），
-      // tsIp 同步写一份是因为 baseUrl() 与旧的接力逻辑都读它。
+      // 存三个字段：
+      //   tunnelCode / tunnelPassword —— 身份，长期不变（接力时的校验根）
+      //   address                     —— 传输地址，可随隧道重建而变
+      settings.tunnelCode = (codeEl?.value || '').trim().toUpperCase();
+      settings.tunnelPassword = passEl?.value || '';
       settings.address = s;
-      settings.tsIp = s;
+      settings.tsIp = s;   // 兼容旧路径
       rememberEndpoint(s);
       saveSettings();
       renderSettings();
@@ -1751,9 +1874,62 @@ function openConnectionForm() {
   });
 }
 
-document.getElementById('btn-conn')?.addEventListener('click', () => {
+// ── 刷新连接 ────────────────────────────────────────────────────────
+// 「刷新」= 重新解析当前可用地址并重连。它做三件事：
+//   1. 按隧道码 + 密码验证候选地址，挑出确实属于我的那条隧道；
+//   2. 若地址变了，自动更新并记住（用户不需要手动改 URL）；
+//   3. 刷新会话列表。
+// ⚠️ 长按（或点两次）才进配置表单 —— 平时不需要改配置。
+let connPressTimer = null;
+document.getElementById('btn-conn')?.addEventListener('click', async (e) => {
+  // 双击 / 长按 → 打开配置
+  if (e.detail > 1 || connPressTimer === 'long') return;
+  await refreshConnection();
+});
+document.getElementById('btn-conn')?.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
   openConnectionForm();
 });
+document.getElementById('btn-conn')?.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return;   // 桌面端不装长按
+  connPressTimer = setTimeout(() => {
+    connPressTimer = 'long';
+    openConnectionForm();
+  }, 650);
+});
+document.getElementById('btn-conn')?.addEventListener('pointerup', () => {
+  if (connPressTimer !== 'long') clearTimeout(connPressTimer);
+  connPressTimer = null;
+});
+document.getElementById('btn-conn')?.addEventListener('pointercancel', () => {
+  clearTimeout(connPressTimer);
+  connPressTimer = null;
+});
+
+/**
+ * 刷新连接：用隧道码校验并接管新地址，然后重新拉会话。
+ * 出错时给出**可操作**的说明，而不是一句"连接失败"。
+ */
+async function refreshConnection() {
+  if (!hasConnection() && !settings.tunnelCode) {
+    openConnectionForm();
+    return;
+  }
+  tmtToast(i18n('conn.refreshing'));
+  const base = await resolveBase();
+  if (!base) {
+    // 所有候选都不通：可能隧道重建到全新地址了
+    const ok = await tmtConfirm(i18n('conn.allLost'), {
+      title: i18n('conn.title'),
+      okText: i18n('action.editAddress'),
+      cancelText: i18n('action.cancel'),
+    });
+    if (ok) openConnectionForm();
+    return;
+  }
+  await refreshSessions();
+  tmtToast(i18n('conn.refreshed'));
+}
 
 document.getElementById('setting-contact').addEventListener('click', () => {
   // 照 Livolog / Scholarius 的做法：Contact 显示邮箱，点击直接发信

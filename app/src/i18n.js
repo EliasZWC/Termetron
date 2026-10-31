@@ -77,6 +77,8 @@ const I18N = {
     'action.save': 'SAVE',
     'action.cancel': 'CANCEL',
     'action.delete': 'DELETE',
+    'action.connect': 'CONNECT',
+    'action.editAddress': 'EDIT ADDRESS',
     'action.create': 'CREATE',
 
     // 会话
@@ -84,6 +86,9 @@ const I18N = {
     'session.nameHint': 'Name for the new terminal session',
     'session.namePlaceholder': 'Session name',
     'session.errNoConnection': 'Set the tunnel address in Setting first.',
+    // 新建会话前的可达性提示：说明「为什么现在不能建」+「下一步做什么」
+    'session.needConnection':
+      'Not connected to your computer yet.\n\nStart the tunnel on the computer with `termetron remote on`, then paste the address it shows.\n\nConnect now?',
     'session.errCreate': 'Could not create session:\n{err}',
     'session.errSend': 'Send failed:\n{err}',
     'session.rename': 'Rename',
@@ -107,7 +112,13 @@ const I18N = {
 
     // 连接表单
     'conn.title': 'Connection',
-    'conn.address': 'Tunnel Address',
+    'conn.code': 'Tunnel Code',
+    'conn.password': 'Password',
+    'conn.address': 'Address',
+    'conn.refreshing': 'Refreshing…',
+    'conn.refreshed': 'Reconnected',
+    'conn.allLost':
+      'None of the known addresses respond.\n\nThe tunnel may have been recreated at a new address. Paste the current address, or run `termetron remote` on the computer again.\n\nEdit address now?',
     'conn.test': 'TEST CONNECTION',
     'conn.testing': 'Testing…',
     'conn.ok': 'Connected · termetron {v}',
@@ -115,6 +126,7 @@ const I18N = {
     'conn.timeout': 'Timed out after 8s',
     'conn.notTermetron':
       'That address answered, but it is not Termetron.',
+    'conn.badCode': 'Wrong tunnel code or password for this address.',
     'conn.invalid': 'Enter a full address, e.g. https://xxxx.trycloudflare.com',
 
     // 字号
@@ -131,6 +143,7 @@ const I18N = {
     // 无障碍
     'aria.back': 'Back',
     'aria.connection': 'Connection',
+    'aria.refresh': 'Refresh connection',
     'aria.newSession': 'New session',
     'aria.interrupt': 'Interrupt (Ctrl+C)',
     'aria.copyOutput': 'Copy output',
@@ -186,12 +199,16 @@ const I18N = {
     'action.save': '保存',
     'action.cancel': '取消',
     'action.delete': '删除',
+    'action.connect': '去连接',
+    'action.editAddress': '修改地址',
     'action.create': '创建',
 
     'session.new': '新建会话',
     'session.nameHint': '新终端会话的名称',
     'session.namePlaceholder': '会话名称',
     'session.errNoConnection': '请先在设置里填入隧道地址。',
+    'session.needConnection':
+      '还没有连接到电脑。\n\n请先在电脑上执行 `termetron remote on` 开启隧道，再把显示的地址粘贴过来。\n\n现在去连接？',
     'session.errCreate': '无法创建会话：\n{err}',
     'session.errSend': '发送失败：\n{err}',
     'session.rename': '重命名',
@@ -214,13 +231,20 @@ const I18N = {
     'aria.sessionMenu': '会话菜单',
 
     'conn.title': '连接',
-    'conn.address': '隧道地址',
+    'conn.code': '隧道码',
+    'conn.password': '密码',
+    'conn.address': '地址',
+    'conn.refreshing': '正在刷新…',
+    'conn.refreshed': '已重新连接',
+    'conn.allLost':
+      '已知地址均无响应。\n\n隧道可能已在新的地址重建。请粘贴当前地址，或在电脑上重新执行 `termetron remote`。\n\n现在修改地址？',
     'conn.test': '测试连接',
     'conn.testing': '正在测试…',
     'conn.ok': '已连接 · termetron {v}',
     'conn.fail': '无法连接到服务器。\n{err}',
     'conn.timeout': '8 秒内未响应',
     'conn.notTermetron': '该地址有响应，但它不是 Termetron。',
+    'conn.badCode': '隧道码或密码与该地址不匹配。',
     'conn.invalid': '请输入完整地址，例如 https://xxxx.trycloudflare.com',
 
     'font.title': '字号',
@@ -233,6 +257,7 @@ const I18N = {
 
     'aria.back': '返回',
     'aria.connection': '连接',
+    'aria.refresh': '刷新连接',
     'aria.newSession': '新建会话',
     'aria.interrupt': '中断 (Ctrl+C)',
     'aria.copyOutput': '复制输出',
