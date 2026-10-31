@@ -1,0 +1,14 @@
+﻿n= 13 cols= 43
+ 0 '********************************************'
+ 1 "[termetron] session 'demo' ready — type /help for commands or run a sh"
+ 2 '********************************************'
+ 3 'Microsoft Windows [版本 10.0.26300.9711]'
+ 4 '(c) Microsoft Corporation。保留所有权利。'
+ 5 'E:\\product\\Termetron>'
+ 6 'python -c "print(chr(66)*100)"'
+ 7 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+ 8 'E:\\product\\Termetron>Microsoft Windows [版本 10.0.26300.9711]'
+ 9 '(c) Microsoft Corporation。保留所有权利。'
+10 'E:\\product\\Termetron>python -c "print(chr(66)*100)"'
+11 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+12 'E:\\product\\Termetron>'

@@ -60,9 +60,14 @@ const I18N = {
     // 会话状态
     'session.running': 'running',
     'session.idle': 'idle',
+    'session.done': 'done',
 
     // 终端
     'terminal.placeholder': 'Run a command',
+    'terminal.interrupt': 'Interrupt (Ctrl+C)',
+    'term.copied': 'Output copied',
+    'term.copyEmpty': 'Nothing to copy yet',
+    'term.copyFailed': 'Copy failed',
 
     // 通用按钮
     'action.ok': 'OK',
@@ -105,6 +110,8 @@ const I18N = {
     'aria.back': 'Back',
     'aria.connection': 'Connection',
     'aria.newSession': 'New session',
+    'aria.interrupt': 'Interrupt (Ctrl+C)',
+    'aria.copyOutput': 'Copy output',
     'aria.decreaseFont': 'Decrease font size',
     'aria.increaseFont': 'Increase font size',
   },
@@ -145,8 +152,13 @@ const I18N = {
     // 会话状态
     'session.running': '运行中',
     'session.idle': '空闲',
+    'session.done': '已结束',
 
     'terminal.placeholder': '输入命令',
+    'terminal.interrupt': '中断 (Ctrl+C)',
+    'term.copied': '已复制输出',
+    'term.copyEmpty': '暂无内容可复制',
+    'term.copyFailed': '复制失败',
 
     'action.ok': '确定',
     'action.save': '保存',
@@ -182,6 +194,8 @@ const I18N = {
     'aria.back': '返回',
     'aria.connection': '连接',
     'aria.newSession': '新建会话',
+    'aria.interrupt': '中断 (Ctrl+C)',
+    'aria.copyOutput': '复制输出',
     'aria.decreaseFont': '减小字号',
     'aria.increaseFont': '增大字号',
   },

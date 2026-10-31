@@ -70,14 +70,129 @@ _TQDM_RE = re.compile(r"^(.*?)[:]?\s*(\d+)%\|.*?\|\s*(\d+)/(\d+)")
 
 # ANSI 转义序列（光标移动/清行等）：剥离，避免污染 lines 与 tqdm 解析
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+# 只匹配 OSC（操作系统命令）：`\x1b]0;标题\x07` 这类**设置窗口标题**的序列。
+# 交互式模式下要保留 CSI（颜色/光标），但 OSC 标题没有显示意义，
+# 留着会污染首行（ConPTY 每次切前台进程都会发一条）。
+_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def _strip_osc(s: str) -> str:
+    """只剥 OSC 标题等非显示序列，保留颜色/光标（交互式模式用）。"""
+    return _OSC_RE.sub("", s)
+
+
+# 屏幕上"没有视觉位置"的控制序列：清行、光标定位、光标显隐、模式切换。
+# 它们描述的是"画在哪"，而不是"画什么" —— 落到行文本里只会变成乱码。
+# ⚠️ 不含 `m`（SGR）：颜色是"画什么"，要保留给前端渲染。
+# ⚠️ 参数部分要允许 `?`（`\x1b[?25h` 光标显隐就是这种），否则会残留 `?25h`。
+_CTRL_RE = re.compile(
+    r"\x1b\[[0-9;?<=>]*[ABCDEFGHJKSTfhlnsut]"
+    r"|\x1b[=>]"
+    r"|\x1b[()][A-Za-z0-9]"
+    r"|\x00"
+)
+
+
+def _pending_escape(s: str) -> str:
+    r"""返回 `s` 末尾**未完结**的转义序列（可能是空串）。
+
+    转义序列被 read 边界切断时，后半截（如 `[?25h`）会被当成普通文本渲染成
+    乱码。把未完结的部分留到下一轮拼接即可。
+
+    三种形态：
+      - `\x1b` 单独结尾
+      - `\x1b[` + 参数（还没到终止字母）
+      - `\x1b]` + OSC 内容（还没到 BEL / ST）
+    """
+    if not s:
+        return ""
+    i = s.rfind("\x1b")
+    if i < 0:
+        return ""
+    tail = s[i:]
+    # CSI：ESC [ 后跟若干 0-9;:?<=>!\"#$%&'()*+,-./ 直到 0x40-0x7E 的终止符
+    if len(tail) >= 2 and tail[1] == "[":
+        if re.fullmatch(r"\x1b\[[0-9;:?<=>]*", tail):
+            return tail          # 还没遇到终止字母
+        return ""
+    # OSC：ESC ] ... 直到 BEL 或 ST(ESC \)
+    if len(tail) >= 2 and tail[1] == "]":
+        if "\x07" not in tail and not tail.endswith("\x1b\\"):
+            return tail
+        return ""
+    # 只有 ESC 还没收到第二个字节
+    if len(tail) == 1:
+        return tail
+    # 其它双字节序列（ESC ( / ESC ) / ESC = 等）—— 若只有 2 字节也算完整
+    if len(tail) == 2:
+        return tail
+    return ""
+
+
+def _visible_line(s: str) -> str:
+    r"""把一段带控制序列的终端输出转成"这一行看起来是什么"。
+
+    做四件事：
+      1. `[K`（清行）—— 之后的内容从行首重画，所以取最后一个 `[K` 之后。
+      2. `\r` 当回到行首覆盖（`a\rb` → `b`）。
+      3. 去掉光标定位/清屏/光标显隐 —— Web 端不逐格定位。
+      4. 保留 SGR（`\x1b[..m`），前端据此上色。
+    """
+    if not s:
+        return ""
+    s = _strip_osc(s)
+    # 归一 CRLF 与行尾单 \r —— 这类 \r 只是"换行的一部分"，不是覆盖指令
+    if "\r\n" in s:
+        s = s.replace("\r\n", "\n")
+    s = s.rstrip("\r")
+
+    # ⚠️ 顺序很关键：**先**把 ANSI 控制序列全部剥掉，**再**处理 `\r` 覆盖。
+    #    反过来的话，`\r` 覆盖会把"前一段的 ANSI"和"后一段的文本"拼在一起，
+    #    留下 `\x1b[?25h` 这种半截序列（实测就得到 `>>> prin?25h`）。
+    #    `\x1b[K` 是「清除光标到行尾」，光标通常停在行尾 → 直接删掉。
+    while "\x1b[K" in s:
+        s = s.replace("\x1b[K", "")
+    s = _CTRL_RE.sub("", s)
+
+    # \r 覆盖：逐段叠加，后一段盖住前一段的同位置部分
+    if "\r" in s:
+        out = ""
+        for seg in s.split("\r"):
+            out = seg + out[len(seg):]
+        s = out
+    return s.rstrip("\x00").rstrip()
 
 
 def _strip_ansi(s: str) -> str:
     return _ANSI_RE.sub("", s)
 # 匹配 Windows cmd 提示符（如 E:\code\quant>）：行出现即 shell 空闲
 _PROMPT_RE = re.compile(r"^[A-Za-z]:\\.*> *$")
+# 从提示符行提取当前目录：`E:\code\quant>` → `E:\code\quant`
+# ⚠️ 用贪婪 `.*` 匹配到**最后一个** `>` 前，而不是 `[^>]*?`：
+#    目录名本身可以含 `>`（如 D:\a>b\c），非贪婪会在第一个 `>` 处截断。
+_PROMPT_CWD_RE = re.compile(r"^([A-Za-z]:\\.*)>+\s*$")
 # 命令回显行 `E:\code\quant>cmd`：提取命令，改写成 termetron 提示符风格 `$ cmd`
 _CMD_ECHO_RE = re.compile(r"^[A-Za-z]:\\.*>\s*(.*)$")
+# 行尾出现 cmd 提示符（`...输出E:\code\quant>`）。
+# 用于判断 shell 是否已回到待输入状态：`ping` 这类程序最后一行不带换行，
+# 提示符会**粘在输出尾部**，用整行匹配 `^...>$` 是匹配不到的。
+_PROMPT_TAIL_RE = re.compile(r"[A-Za-z]:\\[^>]*>\s*$")
+
+
+def _cwd_from_prompt(line: str) -> str | None:
+    """从 cmd 提示符行取当前工作目录。
+
+    cmd.exe 的提示符就是 cwd（如 `E:\code\quant>`），所以不用额外执行 pwd。
+    取不到（非 Windows 提示符 / UNC 路径等）时返回 None，前端就不显示第二行。
+    """
+    m = _PROMPT_CWD_RE.match(line or "")
+    if not m:
+        return None
+    path = m.group(1)
+    # 去掉多余的尾部反斜杠，但**保留盘符根目录的那一个**（`E:\` 不能变成 `E:`）
+    if len(path) > 3:
+        path = path.rstrip("\\")
+    return path or None
 
 # 量化脚本编号注册表（(编号, 短名, 文件名)）
 SCRIPT_REGISTRY = [
@@ -185,6 +300,20 @@ class _PersistentLines(list):
             # 持久化永远不能影响主流程
             pass
 
+    def __setitem__(self, index, value):  # type: ignore[override]
+        """支持 `lines[-1] = x`。
+
+        ConPTY 的逐字符回显会反复重画同一行，`_commit_line` 用
+        `lines[-1] = line` 就地更新。磁盘日志是追加式，没法改历史记录，
+        所以写一条带 `\\r` 的覆盖记录：恢复时 `_visible_line` 的 `\\r`
+        覆盖语义会自动把它合并成同一行的最终内容。
+        """
+        super().__setitem__(index, value)
+        try:
+            self._log.append(["\r" + str(value)])
+        except Exception:  # noqa: BLE001
+            pass
+
     def clear(self) -> None:
         super().clear()
         try:
@@ -209,6 +338,25 @@ class Session:
         self._tqdm_t0: float | None = None  # 本进程 tqdm 起始时间（用于 ETA 估算）
         self.updated = time.time()
         self.script: dict | None = _script_from_cmd(cmd)
+        # 当前工作目录：由 cmd 提示符行（`E:\code\quant>`）解析得到。
+        # 不主动跑 `cd` 去问 —— 提示符本身就是 cwd，白拿的信息。
+        self.cwd: str | None = None
+        # ── 交互式程序模式 ────────────────────────────────────────────
+        # 为 True 时：输出**不剥 ANSI、不按行切分**，原样流式转发，
+        # 让 python REPL / ssh / vim / top 这类程序能正常工作。
+        # ConPTY 可用时默认就是 True（真终端语义）；退回管道模式时只能
+        # 保持 False（管道下拿不到不带换行的提示符，交互式程序本来也没法用）。
+        self.interactive = False
+        self.interactive_buf: str | None = None   # 尚未遇到换行的当前行
+        self.interactive_tail: str = ""           # 该行的最新快照（含 \r 覆盖结果）
+        # 终端尺寸（列 × 行）。由前端按自己窗口能容纳的**字符数**上报，
+        # 这样换行位置就和手机屏幕上看到的完全一致 —— 否则程序按 200 列
+        # 排版，在 40 列的手机上会被二次折行，看起来就是"乱的"。
+        self.cols: int = 0
+        self.rows: int = 0
+        # resize 之后 ConPTY 会重发整屏内容用于重排；到这个世界点之前
+        # 收到的输出全部丢弃（否则历史里会出现整段重复）。
+        self._suppress_until: float = 0.0
 
         # ── 恢复上次的输出 ──────────────────────────────────────────────
         # ⚠️ 必须在 _spawn() **之前**读回：新进程启动后马上会有输出，
@@ -223,11 +371,29 @@ class Session:
                 restored = []
 
         self._spawn()
+        # PTY 模式下从一开始就是真终端语义（不剥 ANSI、不按行切分），
+        # 否则连 shell 自己的彩色提示符都会被吃掉。
+        if getattr(self, "pty", None) is not None:
+            self.interactive = True
         if cmd:
             self.send(cmd)
         elif restored:
-            # 直接塞进 list（绕过 append），避免把恢复的内容又写回磁盘
-            list.extend(self.lines, restored)
+            # 直接塞进 list（绕过 append），避免把恢复的内容又写回磁盘。
+            # ⚠️ 磁盘日志里有 `\r` 覆盖记录（逐字符回显写入的"同一行重画"），
+            #    必须合并成最终内容，否则读回的历史满是半成品行。
+            #    这里**不调用 _commit_line**：历史行当初已经清洗过，
+            #    再洗一遍会把有意保留的 SGR 颜色也弄乱。
+            for ln in restored:
+                if ln.startswith("\r"):
+                    if self.lines:
+                        try:
+                            list.__setitem__(self.lines, -1, ln[1:])
+                        except Exception:  # noqa: BLE001
+                            pass
+                    continue
+                if self.lines and not ln.strip() and not self.lines[-1].strip():
+                    continue          # 连续空行只留一个
+                list.append(self.lines, ln)
             # ⚠️ 这条会出现在**手机 App 的输出区**，所以用中立标记而不是
             #    某一种语言的句子：App 端（main.js）会把它替换成本地化文案。
             #    服务端读不到用户的语言设置，只能这样分工。
@@ -242,10 +408,52 @@ class Session:
         self.lines.append("*" * 44)
 
     def _spawn(self) -> None:
-        """(Re)start the interactive shell process and its reader thread."""
+        """(Re)start the interactive shell process and its reader thread.
+
+        ⚠️ 优先用 **ConPTY**（真控制台）。原因不是"高级"，而是必须：
+           `subprocess.PIPE` 下 cmd.exe 是管道，python REPL 的 `>>> ` 不带
+           换行也不 flush —— read() 永远拿不到那几字节，交互式程序
+           （python / ssh / vim / top）在管道链路下**根本无法使用**。
+           ConPTY 给子进程一个真控制台，输出是行/字节级流式推进的。
+
+           取不到 ConPTY（老 Windows / 非 Windows）时退回管道 + 行模式，
+           功能降级但不至于起不来。
+        """
         env = dict(os.environ)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
+
+        self.pty = None
+        self.proc = None
+        try:
+            # ⚠️ 用**文件所在目录**而不是 cwd：服务可能从任意目录启动
+            #    （systemd / 计划任务 / 双击），`from conpty import` 会
+            #    ImportError，于是静默降级到管道 —— 表现就是"交互式程序
+            #    用不了，且输出里全是 `\x1b[K\r` 空行"。
+            _here = os.path.dirname(os.path.abspath(__file__))
+            if _here not in sys.path:
+                sys.path.insert(0, _here)
+            from conpty import ConPty, available as _conpty_available
+        except Exception as exc:  # noqa: BLE001
+            print(f"[termetron] conpty import failed ({exc}); "
+                  f"interactive programs will not work")
+            _conpty_available = lambda: False  # noqa: E731
+            ConPty = None  # type: ignore[assignment]
+
+        if ConPty is not None and _conpty_available():
+            try:
+                # 初始尺寸先用一个宽值；前端连上后会按自己的实际列数
+                # 调 POST /api/sessions/<name>/resize 改小（手机约 40 列）。
+                self.pty = ConPty(_shell_cmd(),
+                                  cols=self.cols or 200,
+                                  rows=self.rows or 50)
+                threading.Thread(target=self._read_pty, daemon=True).start()
+                return
+            except Exception as exc:  # noqa: BLE001
+                # 起不来就降级：宁可没有交互式能力，也不能整个会话创建失败
+                print(f"[termetron] ConPTY unavailable, falling back to pipe: {exc}")
+                self.pty = None
+
         self.proc = subprocess.Popen(
             _shell_cmd(),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -253,17 +461,161 @@ class Session:
         )
         threading.Thread(target=self._read, daemon=True).start()
 
+    def _running(self) -> bool:
+        """子进程是否还活着（PTY / 管道两种模式统一判断）。"""
+        if getattr(self, "pty", None) is not None:
+            return self.pty.is_alive()
+        p = getattr(self, "proc", None)
+        return p is not None and p.poll() is None
+
+    def resize(self, cols: int, rows: int) -> bool:
+        """调整 PTY 尺寸（前端上报的字符列数/行数）。
+
+        这是"屏幕适配"的关键：程序按 PTY 的列数决定在哪里换行。
+        手机屏幕宽度只能放下 ~40 个等宽字符，如果 PTY 还是 200 列，
+        程序会排成 200 宽的行，在手机上被二次折行 —— 看起来就是乱序。
+        让 PTY 与屏幕同宽，换行位置就和真终端一致，还能顺带获得
+        `ls` 多列、`top` 自适应等好处。
+        """
+        cols = max(20, min(int(cols or 0), 500))
+        rows = max(6, min(int(rows or 0), 200))
+        if cols == self.cols and rows == self.rows:
+            return False
+        self.cols, self.rows = cols, rows
+        pty = getattr(self, "pty", None)
+        if pty is None:
+            return False
+        try:
+            # ⚠️ ResizePseudoConsole 会让 ConPTY **重发整屏内容**（按新宽度
+            #    重排）。这些行如果不丢弃，历史里会出现一整段重复输出。
+            #    窗口取 0.35s —— 重绘是 resize 之后立刻发生的，很短。
+            self._suppress_until = time.time() + 0.35
+            pty.resize(cols, rows)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _track_busy_pty(self) -> None:
+        """PTY 模式下根据「当前行是否停在 cmd 提示符」判定 busy。
+
+        为什么需要：`send()` / `send_raw()` 一开始就把 `busy=True`，
+        而管道模式靠 `_feed` 里的 `_PROMPT_RE` 把它清回 False。
+        PTY 模式不按行切分、也不走 `_feed`，**没人清** → 中断按钮永远
+        显示（用户实测 ping 结束后按钮还在）。
+
+        判据：当前未完结行（`interactive_tail`）完整匹配 `X:\\...>`，
+        说明 shell 已经回到提示符 → 前台没有程序在跑。
+        只在 `busy` 为真时检查，避免空闲时的重复赋值。
+        """
+        if not self.busy:
+            return
+        # 提示符可能还在"未完结行"里，也可能已经被 `\n` 提交进历史。
+        # ⚠️ 还有第三种常见形态：提示符**粘在上一行输出尾部**，没有换行。
+        #    例如 `ping -n 4 ...` 的最后一行是
+        #    `... 平均 = 0msE:\product\Termetron>`，用 `^...>$` 匹配不到。
+        #    所以这里用"行尾匹配"而不是"整行匹配"。
+        tail = (self.interactive_tail or "").strip()
+        if tail and _PROMPT_TAIL_RE.search(tail):
+            self.busy = False
+            return
+        if self.lines:
+            last = (self.lines[-1] or "").strip()
+            if last and _PROMPT_TAIL_RE.search(last):
+                self.busy = False
+        # Python REPL 的 `>>> ` 也算"回到等待输入" —— 此时 ctrl+C 仍可用
+        # （中断一个正在求值的表达式），但普通命令已经结束了。
+        # 这里保持 busy=True 更诚实：REPL 本身是前台进程。
+        # 所以不做额外处理。
+
+    def _read_pty(self) -> None:
+        """PTY 模式的读线程：字节流原样进 _append_raw。
+
+        PTY 输出天然带 ANSI（颜色 / 光标 / 清屏），且不带换行的提示符
+        （`>>> `）也是流式到达的。这里**不做任何剥离或按行切分** ——
+        那正是管道模式做不到交互式程序的三个原因。
+        """
+        pty = self.pty
+        if pty is None:
+            return
+        buf = b""
+        while True:
+            try:
+                raw = pty.read(8192)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[termetron] _read_pty read error: {exc!r}")
+                break
+            if not raw:
+                import traceback
+                print(f"[termetron] _read_pty got EOF; pty._closed={getattr(pty,'_closed',None)}")
+                traceback.print_stack()
+                break
+            buf += raw
+            text, buf = _smart_decode(buf)
+            # 启动窗口内丢弃 cmd 的 banner/版本行，保证新会话干净。
+            # ⚠️ 窗口只有 0.4s，且**只丢一次**：一旦超时就永久放行，
+            #    否则慢机器上会把用户第一条命令的输出也吞掉。
+            if self._startup:
+                if time.time() - self._startup_t0 >= 0.4:
+                    self._startup = False
+                else:
+                    continue
+            # resize 后的整屏重发：丢掉，避免历史出现重复段
+            if time.time() < self._suppress_until:
+                continue
+            self._append_raw(text)
+            self._update_cwd_from(text)
+            self._track_busy_pty()
+            self.updated = time.time()
+        if buf:
+            text, _ = _smart_decode(buf)
+            self._append_raw(text)
+        pty.wait()
+        if self.pending:
+            self._append_raw(self.pending)
+        if self.pty is pty:
+            self.done = True
+            self.busy = False
+        self.updated = time.time()
+
     def send(self, text: str) -> bool:
-        if self.proc.poll() is not None or self.proc.stdin is None:
+        if not self._running():
             return False
         self.cmd = text  # 最近提交的命令（agent 通道读取）
-        # cmd.exe on zh-CN Windows reads stdin in the ANSI codepage (GBK);
-        # encode commands accordingly so Chinese text typed in the box works.
-        enc = "cp936" if os.name == "nt" else "utf-8"
         try:
-            self.proc.stdin.write((text + "\r\n").encode(enc, "replace"))
-            self.proc.stdin.flush()
-            self.busy = True  # 命令开始运行，直到下一个 shell 提示符
+            if getattr(self, "pty", None) is not None:
+                # PTY 里回车是 `\r`（不是 `\r\n`，否则 REPL 多一个空行）
+                self.pty.write((text + "\r").encode("utf-8", "replace"))
+            else:
+                # cmd.exe on zh-CN Windows reads stdin in the ANSI codepage (GBK);
+                # encode commands accordingly so Chinese text typed in the box works.
+                enc = "cp936" if os.name == "nt" else "utf-8"
+                assert self.proc is not None and self.proc.stdin is not None
+                self.proc.stdin.write((text + "\r\n").encode(enc, "replace"))
+                self.proc.stdin.flush()
+            self.busy = True  # 命令开始运行，直到下一个提示符
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def send_raw(self, text: str, *, submit: bool = False) -> bool:
+        """把 text **原样**写进 stdin，不 strip、不加换行。
+
+        交互式程序（python REPL / ssh / vim / top）需要逐字节输入：
+        `send()` 总是补回车并把整段当一条命令，在 REPL 里会多出空行。
+        这里只依赖调用方给的字节；submit=True 时才补一次回车。
+        """
+        if not self._running():
+            return False
+        try:
+            payload = text + ("\r\n" if submit else "")
+            if getattr(self, "pty", None) is not None:
+                self.pty.write(payload.encode("utf-8", "replace"))
+            else:
+                enc = "cp936" if os.name == "nt" else "utf-8"
+                assert self.proc is not None and self.proc.stdin is not None
+                self.proc.stdin.write(payload.encode(enc, "replace"))
+                self.proc.stdin.flush()
+            self.busy = True
             return True
         except Exception:  # noqa: BLE001
             return False
@@ -298,6 +650,10 @@ class Session:
                             continue
                     if _PROMPT_RE.match(line):
                         self.busy = False  # 回到 shell 提示符 = 空闲
+                        # 顺手记下当前目录：提示符就是 cwd，不额外开销
+                        cwd = _cwd_from_prompt(line)
+                        if cwd:
+                            self.cwd = cwd
                         self.pending = None
                         continue  # 孤立设备提示符（E:\...>）不显示，termetron 用自己的提示符
                     m = _CMD_ECHO_RE.match(line)
@@ -344,7 +700,8 @@ class Session:
 
     def _read(self) -> None:
         proc = self.proc
-        assert proc.stdout is not None
+        if proc is None or proc.stdout is None:   # PTY 模式不走这里
+            return
         buf = b""
         while True:
             raw = proc.stdout.read(8192)
@@ -352,24 +709,176 @@ class Session:
                 break
             buf += raw
             text, buf = _smart_decode(buf)
-            self._feed(_strip_ansi(text).replace("\r\n", "\n"))
+            if self.interactive:
+                # 交互式程序：**原样**转发，不剥 ANSI、不按行切分。
+                # 终止符（如 REPL 的 >>>）不带换行，按行切分会永远攒在
+                # pending 里不显示 —— 这正是之前 python/ssh 用不了的原因。
+                self._append_raw(text)
+            else:
+                self._feed(_strip_ansi(text).replace("\r\n", "\n"))
             self.updated = time.time()
+        # 进程结束：剩余字节按当前模式收尾
         if buf:
             text, _ = _smart_decode(buf)
-            self._feed(_strip_ansi(text).replace("\r\n", "\n"))
+            if self.interactive:
+                self._append_raw(text)
+            else:
+                self._feed(_strip_ansi(text).replace("\r\n", "\n"))
         proc.wait()
         if self.pending:
-            hit = _parse_tqdm(self.pending)
-            if hit:
-                self._set_prog(hit)
+            if self.interactive:
+                self._append_raw(self.pending)
             else:
-                self.lines.append(self.pending)
+                hit = _parse_tqdm(self.pending)
+                if hit:
+                    self._set_prog(hit)
+                else:
+                    self.lines.append(self.pending)
         if self.proc is proc:  # 只有当前 shell 结束才标记 done
             self.done = True
             self.busy = False
+            self.interactive = False
         self.updated = time.time()
 
+    def _update_cwd_from(self, text: str) -> None:
+        """从新到达的输出里找 cmd 提示符，更新 cwd。
+
+        PTY 模式的输出不按行切分，且提示符被 ANSI 光标序列包着，
+        所以要先用 `_visible_line` 还原成"看起来的那一行"再匹配。
+        `\r` 在这里当作行分隔（ConPTY 用 \r 归位提示符）。
+        """
+        plain = _visible_line(text)
+        for line in plain.replace("\r", "\n").split("\n"):
+            m = _PROMPT_CWD_RE.match(line.strip())
+            if m:
+                path = m.group(1)
+                if len(path) > 3:
+                    path = path.rstrip("\\")
+                if path:
+                    self.cwd = path
+                    return
+
+    def _append_raw(self, text: str) -> None:
+        r"""交互式落字：**原样**保留 ANSI 与 `\r`，只按 `\n` 切行。
+
+        三件必须做对的事：
+          1. **不扔 ANSI** —— 颜色、清屏、光标定位都靠它。
+          2. **不带换行的提示符也要显示** —— REPL 的 `>>> ` 后面没有 \n，
+             未完结的当前行放在 `interactive_tail`，由 snapshot 带出去。
+          3. **`\r` 原样保留** —— 它是"光标回到行首"，不是换行也不是
+             覆盖。真正的覆盖由前端按终端语义渲染（`\r` 后重新写这一行）。
+             之前在这里 `rsplit("\r")[-1]` 会把 ConPTY 的标题序列
+             （`\x1b]0;title\x07`）之后的内容全丢掉，导致输出空白。
+        """
+        if not text:
+            return
+        # ⚠️ 先拼接再做任何清洗。`_strip_osc` 之类的正则依赖完整的转义
+        #    序列；如果只对新到达的块做，被 read 边界切开的序列
+        #    （`\x1b` 在上一块、`]0;title\x07` 在这一块）会漏处理，
+        #    反过来也可能把上一块遗留的 `\x1b` 孤立掉。
+        cur = self.interactive_buf or ""
+        buf = cur + text
+
+        # 剥 OSC 标题（`\x1b]0;...\x07`）—— 没有显示意义，且每个前台
+        # 进程切换时 ConPTY 都会发一条。
+        buf = _strip_osc(buf)
+
+        # ⚠️ ConPTY 的换行是 `\r\n`。`\r` 在这里**只是回车**，不是"清行重画"
+        #    （那是单独的 `\x1b[K`）。若把 \r\n 里的 \r 留下来，_visible_line
+        #    会按覆盖语义把整行抹掉，导致满屏空行。
+        #    ⚠️ 必须在算 hold 之前归一：否则被切在 `\r` 与 `\n` 之间时，
+        #    hold 会把 `\r` 带进缓冲区，下一轮拼出 `\r\n` 却被当成行内回车。
+        buf = buf.replace("\r\n", "\n")
+
+        # ⚠️ 转义序列会被 read 边界切断（`\x1b` 在上一块末尾、`[?25h` 在下一块），
+        #    切开后 `[?25h` 就成了可见乱码。这里把**末尾未完结的 ESC 序列**
+        #    留在缓冲区，等下一块拼齐再处理。
+        hold = _pending_escape(buf)
+        if hold:
+            buf = buf[: -len(hold)]
+
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            self._commit_line(line)
+
+        # 把被切断的尾部接回去（下次 read 会拼完整）
+        self.interactive_buf = buf + hold
+        self.interactive_tail = _visible_line(buf)
+
+    def _sanitize_history(self) -> None:
+        """对历史做一次就地清洗（幂等）。
+
+        为什么需要：ConPTY 的增量重绘会在历史里留下两类垃圾 ——
+          1. 只含控制序列的"空行"（`\\x1b[K` + `\\r`）；
+          2. 行尾残留的 `\\r`（CRLF 被切开的产物）。
+        这些行在 `_visible_line` 下都是空串，但一旦落到 `self.lines`
+        就会在 Web 端变成成片的空白。这里统一清掉，保证对外暴露的
+        历史永远是"看得见的内容"。
+        """
+        cleaned: list[str] = []
+        for raw in list(self.lines):
+            line = _visible_line(raw)
+            if not line.strip():
+                continue
+            if cleaned and cleaned[-1] == line:
+                continue
+            cleaned.append(line)
+        if len(cleaned) != len(self.lines):
+            list.clear(self.lines)
+            for line in cleaned:
+                list.append(self.lines, line)
+
+    def _commit_line(self, raw: str) -> None:
+        """提交一整行到历史。
+
+        ⚠️ ConPTY 的「逐字符回显」本质上是在同一行上反复重画：
+           每敲一个键，输出里都会出现一次当前这一行的完整内容。
+           如果每段都 append，打 `x = [i*i for i in range(4)]` 会留下
+           十几行"半成品"（`>>> x`、`>>> x =`、`>>> x = [i*` …）。
+
+        判据：**如果新行是上一行的前缀延伸，就替换上一行而不是追加。**
+        这正是"同一行在增长"的特征；而真正的两行输出（如 `42` 后跟
+        `>>>`）互不为前缀，会被正常保留。
+
+        空行：ConPTY 重绘会刷出海量空行，这里**只在必要时**记录一个，
+        并且不记录纯空白（历史里留空行只会让屏幕出现大片空白）。
+        """
+        line = _visible_line(raw)
+        if not line.strip():
+            return
+        if self.lines:
+            prev = self.lines[-1]
+            if line == prev:
+                return
+            # 新行以旧行开头（或旧行以新行开头）= 同一行在重画
+            if line.startswith(prev) or prev.startswith(line):
+                try:
+                    self.lines[-1] = line
+                except Exception:  # noqa: BLE001
+                    self.lines.append(line)
+                return
+            # ⚠️ ConPTY 的逐字符回显会产生 `>>> p` / `>>> pr` / `>>> pri`
+            #    这类"同一行以不同长度重复出现"的中间帧，但它们之间
+            #    可能夹着控制序列导致 startswith 判断失效。这里再用
+            #    "去掉尾部控制字符后互为前缀"兜底一次。
+            a = line.rstrip()
+            b = prev.rstrip()
+            if a.startswith(b) or b.startswith(a):
+                try:
+                    self.lines[-1] = line if len(line) >= len(prev) else prev
+                except Exception:  # noqa: BLE001
+                    pass
+                return
+        self.lines.append(line)
+
     def snapshot(self) -> dict:
+        # ⚠️ 先清洗历史：ConPTY 的增量重绘会往 lines 里写入只含控制序列的
+        #    "空行"（`\x1b[K\r`）和行尾 `\r`。不清洗的话前端拿到的
+        #    lines 里一半是空串，Web 上一渲染就是成片空白。
+        #    这一步是幂等的，频繁调用也不会改变已清洗的内容。
+        if self.interactive:
+            self._sanitize_history()
+
         out = {
             "lines": self.lines[-600:],
             "progress": self.prog,
@@ -377,6 +886,11 @@ class Session:
             "busy": self.busy,
             "script": self.script,
             "cmd": self.cmd,
+            "cwd": self.cwd,
+            "interactive": self.interactive,
+            "tail": self.interactive_tail if self.interactive else "",
+            "cols": getattr(self, "cols", 0),
+            "rows": getattr(self, "rows", 0),
             "updated": time.strftime("%H:%M:%S", time.localtime(self.updated)),
         }
         if self.prog is not None and self._tqdm_t0 is not None:
@@ -389,18 +903,29 @@ class Session:
         rebuild=True：会话保持可用（stop 后仍可继续输入）；
         rebuild=False：仅终止（用于删除会话 / 程序退出）。
         """
-        pid = self.proc.pid
+        pty = getattr(self, "pty", None)
+        pid = pty.pid if pty is not None else self.proc.pid
         try:
             if os.name == "nt":
                 subprocess.run(
                     ["taskkill", "/PID", str(pid), "/T", "/F"],
                     capture_output=True, timeout=15,
                 )
+            elif pty is not None:
+                pty.close()
             else:
                 self.proc.kill()
         except Exception:  # noqa: BLE001
             try:
-                self.proc.kill()
+                if pty is not None:
+                    pty.close()
+                else:
+                    self.proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+        if pty is not None:
+            try:
+                pty.close()
             except Exception:  # noqa: BLE001
                 pass
         self.busy = False
@@ -467,6 +992,9 @@ class AgentSession:
             "busy": self.busy,
             "script": None,
             "cmd": self.cmd,
+            "interactive": False,
+            "cols": 0,
+            "rows": 0,
             "updated": time.strftime("%H:%M:%S", time.localtime(self.updated)),
         }
 
@@ -2257,10 +2785,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/sessions":
                 self._json({
                     n: ({"status": "agent", "cmd": s.cmd, "progress": None, "busy": s.busy,
-                         "script": None, "kind": "agent", "system_prompt": s.system_prompt}
+                         "script": None, "kind": "agent", "system_prompt": s.system_prompt,
+                         "cwd": getattr(s, "cwd", None)}
                          if isinstance(s, AgentSession) else
                          {"status": "done" if s.done else "running", "cmd": s.cmd,
-                          "progress": s.prog, "busy": s.busy, "script": s.script})
+                          "progress": s.prog, "busy": s.busy, "script": s.script,
+                          "cwd": s.cwd, "interactive": s.interactive})
                     for n, s in SESSIONS.items()
                 })
             elif path.startswith("/api/output/"):
@@ -2378,15 +2908,42 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001
                 self._json({"error": "bad request"}, 400)
                 return
-            text = (body.get("text") or "").strip()
-            if not text:
+            text = body.get("text") or ""
+            raw = bool(body.get("raw"))
+            submit = bool(body.get("submit"))
+            # 交互式模式开关：显式传入就切换，不传则保持原状
+            if "interactive" in body:
+                want = bool(body.get("interactive"))
+                if want != s.interactive:
+                    s.interactive = want
+                    # 进入时把已攒的半行收尾，避免与旧的 pending 混在一起
+                    if want:
+                        if s.pending:
+                            s.lines.append(s.pending)
+                            s.pending = None
+                    else:
+                        if s.interactive_buf:
+                            s.lines.append(s.interactive_buf)
+                        s.interactive_buf = None
+                        s.interactive_tail = ""
+            if not raw:
+                # 行模式：沿用旧规则（去空白、当一条命令），但**不清空**
+                # 纯空白输入：允许发送空行（REPL 里回车有意义）
+                if not text.strip():
+                    self._json({"error": "empty input"}, 400)
+                    return
+                scr = _script_from_cmd(text)
+                if scr:
+                    s.script = scr
+                ok = s.send(text)
+                self._json({"ok": ok, "interactive": s.interactive})
+                return
+            # 原样模式：不 strip、不补换行。submit=True 时补一个 \r。
+            if text == "" and not submit:
                 self._json({"error": "empty input"}, 400)
                 return
-            scr = _script_from_cmd(text)
-            if scr:
-                s.script = scr
-            ok = s.send(text)
-            self._json({"ok": ok})
+            ok = s.send_raw(text, submit=submit)
+            self._json({"ok": ok, "interactive": s.interactive})
         # 中断当前进程（杀进程树并重建 shell）
         elif self.path.startswith("/api/sessions/") and self.path.endswith("/stop"):
             name = self.path.split("/")[3]
@@ -2396,6 +2953,26 @@ class Handler(BaseHTTPRequestHandler):
                 return
             s.stop()
             self._json({"ok": True})
+        # 终端尺寸：前端按自己屏幕能容纳的**字符列数**上报。
+        # 这是"屏幕适配"的落点 —— PTY 与屏幕同宽，程序换行位置才和真终端一致。
+        elif self.path.startswith("/api/sessions/") and self.path.endswith("/resize"):
+            name = self.path.split("/")[3]
+            s = SESSIONS.get(name)
+            if not s:
+                self._json({"error": "not found"}, 404)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:  # noqa: BLE001
+                self._json({"error": "bad request"}, 400)
+                return
+            changed = False
+            if hasattr(s, "resize"):
+                changed = s.resize(body.get("cols"), body.get("rows"))
+            self._json({"ok": True, "changed": changed,
+                        "cols": getattr(s, "cols", 0),
+                        "rows": getattr(s, "rows", 0)})
         # 重命名会话
         elif self.path.startswith("/api/sessions/") and self.path.endswith("/rename"):
             old = self.path.split("/")[3]

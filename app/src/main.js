@@ -64,60 +64,65 @@ function tmtToast(msg) {
 }
 
 // ── 弹窗（照 Scholarius 的 .sheet 抽屉）─────────────────────────────────
-// 弹窗 / 菜单的样式。**必须在这里写全**——不能用 app/src/styles.css，
-// 因为这段在 quant_terminal.py 的内联页面里也复用不到（那边是另一套 DOM），
-// 而且参考应用 Livolog 的 .menu 也是运行时注入的。
+// 弹窗 / 菜单的样式在运行时注入。为什么不全放 styles.css：
+// 这段是动态创建的 DOM，样式跟着 JS 一起走更省心（参考应用 Livolog 的
+// .menu 也是运行时注入的）。
+//
+// ⚠️ 颜色一律用 CSS 变量，**不要写死色值**。
+//    写死的话 App 切到日间主题后，弹窗仍是深色底 + 深色文字，
+//    在浅色页面上一片糊（v0.10.5 → v0.10.6 修的就是这个）。
+//    变量来自 styles.css 的 :root / :root[data-theme="light"]，自动跟随。
 const TMT_CSS = `
 .tmt-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
-.tmt-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
-.tmt-modal h3{color:#F2F2F0;margin:12px 0 8px;font-size:15px;font-weight:700}
-.tmt-modal p{margin:12px 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}
+.tmt-modal{background:var(--surface);border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:var(--on-surface);box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
+.tmt-modal h3{color:var(--nav-active);margin:12px 0 8px;font-size:15px;font-weight:700}
+.tmt-modal p{margin:12px 0 8px;font-size:13px;line-height:1.55;color:var(--on-surface-variant);white-space:pre-line;word-break:break-word}
 .tmt-actions{display:flex;align-items:center;gap:12px;justify-content:space-between;padding-top:18px;margin-top:0}
 /* 只有一个按钮时居中（Scholarius 的 .setting-action.setting-center） */
 .tmt-actions:has(:only-child){justify-content:center}
-.tmt-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#7EE2A8;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease}
+.tmt-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:var(--success);-webkit-tap-highlight-color:transparent;transition:opacity .12s ease}
 .tmt-btn:active{opacity:.55}
-.tmt-btn.cancel{color:#9A9A98}
-.tmt-input{width:100%;box-sizing:border-box;padding:2px 0;border:0;border-radius:0;background:transparent;color:#ECECEA;font:inherit;font-size:15px;outline:none}
-.tmt-input::placeholder{color:#9A9A98;opacity:.55}
+.tmt-btn.cancel{color:var(--on-surface-variant)}
+.tmt-input{width:100%;box-sizing:border-box;padding:2px 0;border:0;border-radius:0;background:transparent;color:var(--on-surface);font:inherit;font-size:15px;outline:none}
+.tmt-input::placeholder{color:var(--on-surface-variant);opacity:.55}
 /* ── 下拉菜单：逐项照 Livolog 的 .menu / .menu-item 实测值 ────────────
-   Livolog 实测：背景 #242424、圆角 12px、边框 1px #333333、
+   Livolog 实测：背景 var(--surface)、圆角 12px、边框 1px var(--outline)、
    padding 6px、min-width 160px、阴影 0 8px 24px rgba(0,0,0,.22)、
    项 padding 10px 14px / 14px 字号、选中项只加粗到 600 不改色。 */
-.tmt-menu{position:fixed;z-index:10000;min-width:160px;max-height:min(60vh,320px);overflow-y:auto;box-sizing:border-box;padding:6px;background:#242424;border:1px solid #333333;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22);font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
-.tmt-menu-item{display:block;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:#ECECEA;font:inherit;font-size:14px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.tmt-menu-item:active{background:#303030}
+.tmt-menu{position:fixed;z-index:10000;min-width:160px;max-height:min(60vh,320px);overflow-y:auto;box-sizing:border-box;padding:6px;background:var(--surface);border:1px solid var(--outline);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22);font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
+.tmt-menu-item{display:block;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:var(--on-surface);font:inherit;font-size:14px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-menu-item:active{background:var(--surface-raised)}
 .tmt-menu-item.is-selected{font-weight:600}
 /* ── 字号表单：中间「减 / 数值 / 加」一行 + 下方滑块 ───────────────────
    按钮/输入框尺寸照 Scholarius 阅读视图 .reader-size-controls 实测值：
-   按钮 32×32 圆形、输入 60×28 / 14px / 居中 / 1px #333333 / 圆角 8px。 */
+   按钮 32×32 圆形、输入 60×28 / 14px / 居中 / 1px var(--outline) / 圆角 8px。 */
 .tmt-body{margin:4px 0 8px}
 .tmt-size-row{display:flex;align-items:center;justify-content:center;gap:4px}
-.tmt-size-row .size-btn{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:#9A9A98;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-size-row .size-btn{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:var(--on-surface-variant);cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tmt-size-row .size-btn:active{opacity:.55}
 .tmt-size-row .size-btn:disabled{opacity:.32;pointer-events:none}
 .tmt-size-row .size-btn svg{width:22px;height:22px;fill:currentColor}
-.tmt-size-row .size-input{width:60px;height:28px;box-sizing:border-box;padding:0 6px;border:1px solid #333333;border-radius:8px;background:transparent;color:#ECECEA;font:inherit;font-size:14px;font-variant-numeric:tabular-nums;text-align:center;outline:none;-moz-appearance:textfield;appearance:textfield}
+.tmt-size-row .size-input{width:60px;height:28px;box-sizing:border-box;padding:0 6px;border:1px solid var(--outline);border-radius:8px;background:transparent;color:var(--on-surface);font:inherit;font-size:14px;font-variant-numeric:tabular-nums;text-align:center;outline:none;-moz-appearance:textfield;appearance:textfield}
 .tmt-size-row .size-input::-webkit-outer-spin-button,
 .tmt-size-row .size-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.tmt-size-row .size-input:focus{border-color:#9A9A98}
+.tmt-size-row .size-input:focus{border-color:var(--on-surface-variant)}
 .tmt-size-range{display:block;width:100%;height:24px;margin:14px 0 0;padding:0;background:transparent;-webkit-appearance:none;appearance:none}
-.tmt-size-range::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#333333}
-.tmt-size-range::-moz-range-track{height:3px;border-radius:2px;background:#333333}
-.tmt-size-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;margin-top:-6.5px;border:0;border-radius:50%;background:#F2F2F0;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.tmt-size-range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:#F2F2F0;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.tmt-size-hint{margin:8px 0 0;font-size:12px;color:#9A9A98;text-align:center}
+.tmt-size-range::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:var(--outline)}
+.tmt-size-range::-moz-range-track{height:3px;border-radius:2px;background:var(--outline)}
+.tmt-size-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;margin-top:-6.5px;border:0;border-radius:50%;background:var(--nav-active);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tmt-size-range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--nav-active);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tmt-size-hint{margin:8px 0 0;font-size:12px;color:var(--on-surface-variant);text-align:center}
 /* ── 连接表单 ─────────────────────────────────────────────────────────── */
 .tmt-field{display:block;margin:0 0 14px}
-.tmt-field-label{display:block;margin:0 0 4px;font-size:12px;letter-spacing:.4px;color:#9A9A98}
-.tmt-field .tmt-input{border-bottom:1px solid #333333;padding:4px 0}
-.tmt-field .tmt-input:focus{border-bottom-color:#9A9A98}
+.tmt-field-label{display:block;margin:0 0 4px;font-size:12px;letter-spacing:.4px;color:var(--on-surface-variant)}
+.tmt-field .tmt-input{border-bottom:1px solid var(--outline);padding:4px 0}
+.tmt-field .tmt-input:focus{border-bottom-color:var(--on-surface-variant)}
 .tmt-conn-status{margin:4px 0 0;font-size:13px;line-height:1.5;white-space:pre-line;word-break:break-word}
-.tmt-conn-status[data-kind="good"]{color:#7EE2A8}
-.tmt-conn-status[data-kind="bad"]{color:#E06C5E}
-.tmt-conn-status[data-kind="idle"]{color:#9A9A98}
-.tmt-conn-test{display:block;width:100%;margin:14px 0 0;padding:11px 0;border:1px solid #333333;border-radius:10px;background:transparent;color:#ECECEA;font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.tmt-conn-test:active{background:#303030}
+.tmt-conn-status[data-kind="good"]{color:var(--success)}
+.tmt-conn-status[data-kind="bad"]{color:var(--danger)}
+.tmt-conn-status[data-kind="idle"]{color:var(--on-surface-variant)}
+.tmt-conn-test{display:block;width:100%;margin:14px 0 0;padding:11px 0;border:1px solid var(--outline);border-radius:10px;background:transparent;color:var(--on-surface);font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-conn-test:active{background:var(--surface-raised)}
 .tmt-conn-test:disabled{opacity:.45;pointer-events:none}
 `;
 
@@ -185,10 +190,12 @@ function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = nu
     if (cancel) cancel.textContent = cancelText;
 
     document.body.appendChild(overlay);
+    notifyOverlayChange();
 
     const finish = (val) => {
       overlay.remove();
       document.removeEventListener('keydown', kd);
+      notifyOverlayChange();
       resolve(val);
     };
     const accept = () => {
@@ -311,6 +318,22 @@ function showPage(name) {
   if (backBtn) backBtn.hidden = !isTerminal;
   if (connBtn) connBtn.hidden = name !== 'sessions';
 
+  // 右格：终端页始终显示「复制 + 中断」。
+  // ⚠️ 中断按钮**不按 busy 显隐**：它等价于键盘上的 Ctrl+C —— 键盘不会
+  //    只在程序运行时才出现，按钮也不该。按一下没有程序在跑时，只是往
+  //    shell 发一个空中断（cmd 会静默忽略），代价为零；
+  //    而"按钮忽然出现/消失"反而让人在需要时找不到它。
+  const copyBtn = document.getElementById('btn-term-copy');
+  if (copyBtn) copyBtn.hidden = !isTerminal;
+  const ctrlBtn = document.getElementById('btn-term-ctrlc');
+  if (ctrlBtn) ctrlBtn.hidden = !isTerminal;
+
+  // ⚠️ 终端页不显示底部导航：终端是「全屏工作区」，多一条 64px 的导航条
+  //    会白吃掉一整行高度，而且用户在终端里只会敲命令、不会切 tab
+  //    （返回靠标题栏的左箭头）。其余页面保留导航。
+  const bottomNav = document.querySelector('.bottom-nav');
+  if (bottomNav) bottomNav.hidden = isTerminal;
+
   // tab 高亮：终端页归属 Sessions 这个 tab
   document.querySelectorAll('.nav-item').forEach((btn) => {
     const on = btn.dataset.page === def.tab.replace('tab-', '');
@@ -346,22 +369,45 @@ App.addListener('backButton', ({ canGoBack }) => {
 const sessionList = document.getElementById('session-list');
 const sessionsEmpty = document.getElementById('sessions-empty');
 
+// 会话行：名称在上、绝对路径在下（同一列），状态固定在右侧
+//   <li class="session-row">
+//     <button class="session-btn">
+//       <span class="session-text">            ← 左侧竖排两行，占满剩余宽度
+//         <span class="session-name">名字</span>
+//         <span class="session-cwd">E:\code\quant</span>
+//       <span class="session-state">running</span>
 function sessionRow(name, info) {
+  const inf = info || {};
   const li = document.createElement('li');
-  li.className = 'setting-item';
+  li.className = 'session-row';
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'setting-action';
+  btn.className = 'session-btn';
+
+  const text = document.createElement('span');
+  text.className = 'session-text';
 
   const label = document.createElement('span');
-  label.className = 'setting-label';
+  label.className = 'session-name';
   label.textContent = name;
+  text.appendChild(label);
+
+  // 当前工作目录：后端从 cmd 提示符解析，取不到（如 agent 会话）就不渲染
+  if (inf.cwd) {
+    const cwd = document.createElement('span');
+    cwd.className = 'session-cwd';
+    cwd.textContent = inf.cwd;
+    cwd.title = inf.cwd;
+    text.appendChild(cwd);
+  }
 
   const value = document.createElement('span');
-  value.className = 'setting-value';
-  value.textContent = i18n(info && info.busy ? 'session.running' : 'session.idle');
+  value.className = 'session-state';
+  const done = inf.done && !inf.busy;
+  value.textContent = i18n(inf.busy ? 'session.running' : done ? 'session.done' : 'session.idle');
+  if (inf.busy) value.classList.add('is-running');
 
-  btn.append(label, value);
+  btn.append(text, value);
   btn.addEventListener('click', () => openSession(name));
   li.appendChild(btn);
   return li;
@@ -430,14 +476,303 @@ addBtn.addEventListener('click', async () => {
 const termOut = document.getElementById('term-out');
 const termForm = document.getElementById('term-form');
 const termInput = document.getElementById('term-input');
+const btnTermCtrlC = document.getElementById('btn-term-ctrlc');
+const btnTermCopy = document.getElementById('btn-term-copy');
+
+// 最近一次渲染的**纯文本**（去掉控制序列），供复制按钮使用。
+// 不直接读 termOut.textContent：那里已经是 HTML 结构，且含行间空白。
+let lastOutputText = '';
+
+// ── 轮询节奏 ─────────────────────────────────────────────────────────
+// 原来固定 1s，交互式程序（逐字符回显、REPL）会明显卡顿。
+// 改成分档：
+//   · 有程序在跑（busy）→ 120ms，接近"实时"
+//   · 空闲（等输入）    → 400ms，够快且省电
+//   · 页面不可见        → 停止（省流量，回来时立刻补一次）
+const POLL_BUSY_MS = 120;
+const POLL_IDLE_MS = 400;
+let pollDelay = POLL_BUSY_MS;
+
+/** 用 setTimeout 自调度代替 setInterval，才能动态改间隔。 */
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    await pullOutput();
+    if (currentPage === 'terminal' && currentSession && !document.hidden) {
+      schedulePoll();
+    }
+  }, pollDelay);
+}
 
 async function openSession(name) {
   currentSession = name;
   showPage('terminal');
   termOut.textContent = '';
+  termOut._last = '';
+  lastOutputText = '';
+  pollDelay = POLL_BUSY_MS;   // 刚进会话，先按"忙"的节奏抢一次
+  // ⚠️ 先算好字符网格再拉输出：pullOutput 要用 lastGrid.cols 做折行，
+  //    顺序反了第一次渲染就没有折行宽度。
+  await syncTerminalSize();
   await pullOutput();
-  clearInterval(pollTimer);
-  pollTimer = setInterval(pullOutput, 1000);
+  schedulePoll();
+}
+
+// ── ANSI → HTML ────────────────────────────────────────────────────────
+// 后端用真 PTY（ConPTY），输出带颜色/光标序列。不渲染就只是一堆乱码。
+// 只支持「显示相关」的子集：SGR 颜色/粗体、光标定位/清行、清屏。
+// ⚠️ 其余序列一律丢弃 —— 显示不出来总比露出 `\x1b[?25l` 强。
+const ANSI_FG = {
+  30: '#4a4a4a', 31: '#E06C5E', 32: '#7EE2A8', 33: '#D7BA7D',
+  34: '#6EA8FE', 35: '#C586C0', 36: '#4EC9B0', 37: '#ECECEA',
+  90: '#7E7E7C', 91: '#F48771', 92: '#A5E8C0', 93: '#E8CFA0',
+  94: '#9CC5FF', 95: '#D7A3D7', 96: '#7EE0D0', 97: '#FFFFFF',
+};
+
+function escHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+/**
+ * 算出当前输出区能放下多少个**等宽字符**（列）和多少行。
+ *
+ * 这是"屏幕适配"的核心：终端里所有内容都是等宽排版，列数决定了
+ * 程序在哪里换行（`ls` 分几列、`top` 的表格宽度、长命令怎么断行）。
+ * 只要 PTY 的 cols 和屏幕上真实能放下的字符数一致，显示就和真终端一样，
+ * 不会出现"程序按 200 列排，在 40 列的手机上被二次折行"的错乱。
+ *
+ * 做法：
+ *   1. 用 offscreen 的 canvas measureText 量出**当前字体下**一个 `M`
+ *      字符的宽度（不同字体/字号下 monospace 宽度不同，硬编码会错）。
+ *   2. 用输出区的 content 宽度（已扣掉 padding）除以单字符宽度。
+ *   3. 行数 = content 高度 / 行高。
+ */
+let charW = 0;
+function measureCharWidth(el) {
+  if (charW > 0) return charW;
+  const cs = getComputedStyle(el);
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  // 拼出完整 font shorthand，否则 canvas 会忽略 weight/family
+  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const w = ctx.measureText('M').width;
+  // 兜底：measureText 异常时按 fontSize * 0.6 估算（等宽字常见比例）
+  charW = w > 0 ? w : parseFloat(cs.fontSize) * 0.6;
+  return charW;
+}
+
+function computeGrid() {
+  const cw = measureCharWidth(termOut);
+  const cs = getComputedStyle(termOut);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const availW = termOut.clientWidth - padX;
+  const availH = termOut.clientHeight - padY;
+  const lineH = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+  // 留 1 列余量：浏览器与终端对"最后一个字符是否换行"的边界处理
+  // 常差 1 格，宁可少 1 列也不要出现"每个满行末尾都折一个字符"。
+  const cols = Math.max(20, Math.floor(availW / cw) - 1);
+  const rows = Math.max(6, Math.floor(availH / lineH));
+  return { cols, rows };
+}
+
+/** 把当前字符网格同步给后端 PTY（尺寸变了才发请求）。 */
+let lastGrid = { cols: 0, rows: 0 };
+let gridTimer = null;
+async function syncTerminalSize(force) {
+  if (!currentSession || currentPage !== 'terminal') return;
+  const g = computeGrid();
+  if (!force && g.cols === lastGrid.cols && g.rows === lastGrid.rows) return;
+  lastGrid = g;
+  // ⚠️ 本地立刻按新列数重绘：折行是前端做的，后端 resize 只影响程序的
+  //    排版宽度。等后端返回再重绘会有明显延迟，旋转屏幕时很难受。
+  if (currentPage === 'terminal') termOut._last = '';
+  try {
+    await api(`/api/sessions/${encodeURIComponent(currentSession)}/resize`, {
+      method: 'POST',
+      body: JSON.stringify(g),
+    });
+  } catch {
+    /* 老后端没有这个接口时静默忽略（仍能工作，只是换行由后端决定） */
+  }
+  // 尺寸变了要立即重渲染一次，让折行位置马上跟着变
+  await pullOutput();
+}
+
+/** 尺寸变化要做防抖：旋转屏幕/拖动窗口会连续触发。 */
+function scheduleSizeSync() {
+  clearTimeout(gridTimer);
+  gridTimer = setTimeout(() => {
+    // ⚠️ 必须清掉字符宽缓存：字号不变时它是对的，但一旦字号/字体变了
+    //    （用户调了字号、系统字体缩放），旧值会让列数算错。
+    charW = 0;
+    const before = lastGrid;
+    const g = computeGrid();
+    // 只有网格真的变了才发请求（避免抖动期间狂发 resize）
+    if (g.cols === before.cols && g.rows === before.rows) return;
+    lastGrid = g;
+    syncTerminalSize(true);
+  }, 120);
+}
+
+window.addEventListener('resize', scheduleSizeSync);
+window.addEventListener('orientationchange', () => setTimeout(scheduleSizeSync, 200));
+
+/**
+ * 判断一个字符在等宽终端里占几列（1 还是 2）。
+ *
+ * ⚠️ 终端里中文/日文/韩文和 emoji 是**双宽**的（占两格），而 JS 的
+ *    `String.length` 把它们各算 1 个。不修正的话含中文的行会少折一半，
+ *    屏幕上就被挤压。
+ *    这里覆盖主要的宽字符区段（CJK 统一表意文字、假名、全角符号、emoji）。
+ */
+function charWidth(ch) {
+  const c = ch.codePointAt(0);
+  // 组合符号 / 零宽字符：不占列
+  if (c === 0x200b || (c >= 0x0300 && c <= 0x036f)) return 0;
+  // CJK、假名、谚文、全角符号、常见 emoji
+  if (
+    (c >= 0x1100 && c <= 0x115f) ||   // 谚文字母
+    (c >= 0x2e80 && c <= 0xa4cf) ||   // CJK 部首 + 汉字 + 假名
+    (c >= 0xac00 && c <= 0xd7a3) ||   // 谚文音节
+    (c >= 0xf900 && c <= 0xfaff) ||   // CJK 兼容汉字
+    (c >= 0xfe30 && c <= 0xfe6f) ||   // CJK 兼容符号
+    (c >= 0xff00 && c <= 0xff60) ||   // 全角 ASCII
+    (c >= 0xffe0 && c <= 0xffe6) ||   // 全角符号
+    (c >= 0x1f300 && c <= 0x1f64f) || // emoji
+    (c >= 0x1f900 && c <= 0x1f9ff) ||
+    (c >= 0x20000 && c <= 0x3fffd)    // CJK 扩展
+  ) return 2;
+  return 1;
+}
+
+/**
+ * 把终端原始文本转成"人类可读的纯文本"，用于复制。
+ *
+ * ⚠️ 只做"看得见"的转换，不做覆盖/重画 —— 这里的目标是让粘贴出来的
+ *    内容干净可读，而不是复刻屏幕像素。
+ *    · 删除所有 CSI / OSC 控制序列（颜色、光标、清屏）
+ *    · `\r\n` → `\n`
+ */
+function stripAnsiForCopy(text) {
+  if (!text) return '';
+  return text
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')  // OSC
+    .replace(/\x1b\[[0-9;?<=>]*[A-Za-z]/g, '')           // CSI
+    .replace(/\x1b[=>]|\x1b[()][A-Za-z0-9]/g, '')        // 其它短序列
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+/**
+ * 把一屏带 ANSI 的文本转成 HTML。
+ * @param {string} text 后端给的原始文本（含 \r、\x1b[...m 等）
+ * @param {number} cols 屏幕能容纳的列数（0 = 不折行）
+ */
+function ansiToHtml(text, cols) {
+  // ⚠️ 先把 CRLF 归一成 LF。后端历史里每行以 `\r` 结尾（ConPTY 原样保留），
+  //    join('\n') 之后就是 `\r\n`；浏览器会把 `\r\n` 当**两个**换行，
+  //    屏上立刻多出成倍空行。归一化必须在任何分行之前。
+  text = text.replace(/\r\n/g, '\n');
+
+  // 再把同一行内的 \r 当"回到行首覆盖"处理（进度条/top 的刷新语义）。
+  // 此时的 \r 已经是"行内覆盖"而不是换行。
+  const lines = text.split('\n').map((line) => {
+    if (!line.includes('\r')) return line;
+    let out = '';
+    for (const seg of line.split('\r')) {
+      out = seg + out.slice(seg.length);
+    }
+    return out;
+  });
+
+  // 折叠连续空行：后端的历史里会有成片的空行（ConPTY 重绘刷出来的），
+  // 全渲染出来屏上就是一大段空白。最多保留一个。
+  const collapsed = [];
+  for (const ln of lines) {
+    if (!ln.trim() && collapsed.length && !collapsed[collapsed.length - 1].trim()) {
+      continue;
+    }
+    collapsed.push(ln);
+  }
+
+  let html = '';
+  for (const raw of collapsed) {
+    // ── 1. 先把一行拆成「文本片段 + 颜色状态」序列 ──────────────────
+    // ⚠️ 不能在字符串里直接拼 <span>：折行是按**字符**切的，必须知道
+    //    每个字符当前是什么颜色，才能在折行处正确地断开/续上标签。
+    let s = raw.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');  // OSC
+    const runs = [];      // [{ text, color, bold }]
+    let cur = { text: '', color: null, bold: false };
+    let i = 0;
+    while (i < s.length) {
+      // SGR？
+      if (s[i] === '\x1b' && s[i + 1] === '[') {
+        const end = s.indexOf('m', i);
+        if (end > 0 && /^[0-9;]*$/.test(s.slice(i + 2, end))) {
+          if (cur.text) { runs.push(cur); cur = { text: '', ...cur, }; }
+          for (const c of s.slice(i + 2, end).split(';').filter(Boolean).map(Number)) {
+            if (c === 0) { cur.color = null; cur.bold = false; }
+            else if (c === 1) cur.bold = true;
+            else if (ANSI_FG[c]) cur.color = ANSI_FG[c];
+          }
+          i = end + 1;
+          continue;
+        }
+      }
+      // 其它控制序列：整段丢掉
+      if (s[i] === '\x1b') {
+        const m = /^\x1b\[[0-9;?<=>]*[A-Za-z]/.exec(s.slice(i));
+        i += m ? m[0].length : 1;
+        continue;
+      }
+      cur.text += s[i];
+      i += 1;
+    }
+    if (cur.text) runs.push(cur);
+
+    // ── 2. 按显示列数折行，同时维护颜色标签 ──────────────────────────
+    // 折行是纯显示行为：不改内容，只决定在哪里断开。
+    // 每行独立开关 <span>，避免标签跨行导致后续行继承错误颜色。
+    const colsEff = cols > 0 ? cols : Infinity;
+    let lineHtml = '';
+    let width = 0;
+    let openTag = null;    // 当前打开着的 <span ...>
+    const closeTag = () => { if (openTag) { lineHtml += '</span>'; openTag = null; } };
+    const openFor = (color, bold) => {
+      const want = color || bold;
+      const sig = (color || '') + (bold ? 'b' : '');
+      if (openTag && openTag.sig === sig) return;
+      closeTag();
+      if (want) {
+        const style = [
+          color ? `color:${color}` : '',
+          bold ? 'font-weight:700' : '',
+        ].filter(Boolean).join(';');
+        lineHtml += `<span style="${style}">`;
+        openTag = { sig };
+      }
+    };
+
+    for (const run of runs) {
+      for (const ch of run.text) {
+        const cw = charWidth(ch);
+        if (width + cw > colsEff) {
+          closeTag();
+          lineHtml += '\n';
+          width = 0;
+        }
+        openFor(run.color, run.bold);
+        lineHtml += escHtml(ch);
+        width += cw;
+      }
+    }
+    closeTag();
+    html += lineHtml + '\n';
+  }
+  return html;
 }
 
 async function pullOutput() {
@@ -445,18 +780,30 @@ async function pullOutput() {
   try {
     const data = await api(`/api/output/${encodeURIComponent(currentSession)}`);
     // ⚠️ /api/output/<name> 返回的是 **JSON 对象**，不是纯文本：
-    //    { lines: [...], progress, done, busy, script, cmd, updated }
-    //    （Session 与 AgentSession 共用这个形状）。
-    //    早期我按字符串处理会导致 `[object Object]`，这里显式取 lines。
+    //    { lines, progress, done, busy, script, cmd, cwd, interactive, tail }
     const raw = Array.isArray(data?.lines) ? data.lines : [String(data ?? '')];
-    // 服务端发的是中立标记（如 [termetron:restored]），在这里按语言渲染
-    const text = localizeServerLines(raw).join('\n');
-    if (termOut.textContent !== text) {
+    // tail 是「尚未遇到换行」的当前行（REPL 的 `>>> ` 就在这里），
+    // 不带它会让交互式程序看起来"卡住不动"。
+    let all = localizeServerLines(raw).join('\n');
+    if (data?.tail) all += '\n' + data.tail;
+
+    // 折行列数用**自己算出来的网格**，不用后端返回的 cols：
+    // 后端可能在 resize 之前还是旧值，而本地网格始终反映当前屏幕。
+    const html = ansiToHtml(all, lastGrid.cols || 0);
+    // 复制用的文本每次都更新，不能只在"画面变了"时更新 ——
+    // 否则用户在内容滚出首屏后点复制，拿到的还是旧的一屏。
+    lastOutputText = stripAnsiForCopy(all);
+    if (termOut._last !== html) {
       const atBottom =
         termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
-      termOut.textContent = text;
+      termOut.innerHTML = html;
+      termOut._last = html;
       if (atBottom) termOut.scrollTop = termOut.scrollHeight;
     }
+
+    // 节奏：有程序在跑就加快，空闲放慢。
+    // ⚠️ 不要在这里动中断按钮的显隐 —— 它是常驻的（见 showPage 里的说明）。
+    pollDelay = data?.busy ? POLL_BUSY_MS : POLL_IDLE_MS;
   } catch {
     /* 断线时静默，下个 tick 重试 */
   }
@@ -464,17 +811,69 @@ async function pullOutput() {
 
 termForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  // ⚠️ 不再 trim：REPL 里空行回车有意义，且前导空格是命令的一部分。
   const text = termInput.value;
-  if (!text.trim() || !currentSession) return;
+  if (!currentSession) return;
   termInput.value = '';
   try {
     await api(`/api/sessions/${encodeURIComponent(currentSession)}/input`, {
       method: 'POST',
-      body: JSON.stringify({ text: text + '\n' }),
+      body: JSON.stringify({ text, raw: true, submit: true }),
     });
     setTimeout(pullOutput, 120);
   } catch (err) {
     tmtAlert(i18n('session.errSend', { err: err.message }));
+  }
+});
+
+// Ctrl+C：真正的终端中断信号（写 0x03 到 PTY），不是杀进程
+btnTermCtrlC?.addEventListener('click', async () => {
+  if (!currentSession) return;
+  try {
+    await api(`/api/sessions/${encodeURIComponent(currentSession)}/input`, {
+      method: 'POST',
+      body: JSON.stringify({ text: '\u0003', raw: true }),
+    });
+    setTimeout(pullOutput, 150);
+  } catch (err) {
+    tmtAlert(i18n('session.errSend', { err: err.message }));
+  }
+});
+
+// 复制当前会话的全部输出（纯文本，已剥掉 ANSI）
+btnTermCopy?.addEventListener('click', async () => {
+  if (!lastOutputText) {
+    tmtToast(i18n('term.copyEmpty'));
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(lastOutputText);
+    tmtToast(i18n('term.copied'));
+  } catch {
+    // WebView 里 clipboard API 可能不可用（需要安全上下文）：
+    // 退回 textarea + execCommand，仍然能复制。
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = lastOutputText;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      tmtToast(i18n('term.copied'));
+    } catch {
+      tmtAlert(i18n('term.copyFailed'));
+    }
+  }
+});
+
+// 页面重新可见时立刻补一次（移动端切回前台要马上看到最新输出）
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentPage === 'terminal' && currentSession) {
+    pollDelay = POLL_BUSY_MS;
+    pullOutput();
+    schedulePoll();
   }
 });
 
@@ -505,10 +904,52 @@ const FONT_MIN = 11;
 const FONT_MAX = 24;
 const CONTACT_EMAIL = 'eliaschang@163.com';
 
+// ── 弹窗遮罩 ↔ 原生状态栏 ────────────────────────────────────────────
+// 弹窗的 .tmt-overlay 是 fixed inset:0，但它**盖不到原生状态栏**
+// （状态栏在 WebView 外面）。所以画面上“页面暗了一档”时，最顶上那条
+// 仍是原亮度，看起来像一道割裂的亮带。
+// 做法：弹窗打开期间把状态栏换成遮罩叠在页面底色上的等效色
+// （即 rgba(0,0,0,.32) 混合后的结果），关掉后恢复。
+// 用计数器是因为可能同时存在多层（例如弹窗里再开一个输入框）。
+let openOverlays = 0;
+const OVERLAY_ALPHA = 0.32;
+
+/** 把 rgba(0,0,0,alpha) 叠在 hex 底色上，算出等效不透明色。 */
+function blendOverlay(hex, alpha) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const k = 1 - alpha;
+  const mix = (c) => Math.round(c * k).toString(16).padStart(2, '0');
+  return `#${mix(r)}${mix(g)}${mix(b)}`.toUpperCase();
+}
+
+/** 弹窗数量变化时调用：0 → 有 或 有 → 0，都要重算状态栏。 */
+function notifyOverlayChange() {
+  const prev = openOverlays;
+  openOverlays = document.querySelectorAll('.tmt-overlay, .ut-overlay').length;
+  if ((prev === 0) !== (openOverlays === 0)) syncNativeBars();
+}
+
+// updater.js 的弹窗（升级提示）自己创建 overlay，通过事件通知过来。
+// 不直接 import 它的函数 —— 两模块互相 import 会形成循环依赖。
+document.addEventListener('termetron:overlays-changed', notifyOverlayChange);
+
 function err(msg) {
   // 统一在设置页给出反馈，不用弹窗打断
   tmtToast(msg);
 }
+
+// 启动页的固定底色 —— 必须与 styles.css 的 `.splash` background 和
+// Android 原生启动屏（SPLASH_BG / windowSplashScreenBackground）三者一致。
+// ⚠️ 不用 --bg：启动页是一次性品牌画面，不跟随应用内主题。
+const SPLASH_BG = '#1B1B1B';
+
+// 启动页是否还在屏幕上。为 true 时状态栏跟启动页底色走（见 syncNativeBars）。
+// ⚠️ 必须在 applyTheme 之前声明：applyTheme → syncNativeBars 会在启动时
+//    立即被调用，`let` 在初始化前处于 TDZ，连读取都会抛 ReferenceError。
+let splashActive = !!document.getElementById('splash');
 
 function applyTheme() {
   // ⚠️ 用 `data-theme` 属性切换，**不要**在 JS 里逐条 setProperty：
@@ -532,7 +973,19 @@ const THEME_NATIVE = {
 };
 
 async function syncNativeBars() {
-  const cfg = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
+  // 优先级：启动页 > 弹窗遮罩 > 主题
+  //   · 启动期间：跟启动页固定底色（深色）
+  //   · 有弹窗时：跟遮罩混合后的色，这样状态栏与页面“一起变暗”
+  //   · 否则：跟当前主题
+  let cfg;
+  if (splashActive) {
+    cfg = { bar: SPLASH_BG, style: Style.Dark };        // 深底 → 浅色图标
+  } else if (openOverlays > 0) {
+    const base = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
+    cfg = { bar: blendOverlay(base.bar, OVERLAY_ALPHA), style: base.style };
+  } else {
+    cfg = THEME_NATIVE[settings.theme] || THEME_NATIVE.dark;
+  }
   try {
     await StatusBar.setBackgroundColor({ color: cfg.bar });
     await StatusBar.setStyle({ style: cfg.style });
@@ -899,6 +1352,16 @@ document.getElementById('setting-contact').addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 const splashEl = document.getElementById('splash');
+
+/** 启动页退场：移除元素，并把状态栏交回主题控制。 */
+function dismissSplash() {
+  if (!splashActive) return;
+  splashActive = false;
+  splashEl?.remove();
+  // 启动期间状态栏是启动页色，这里切回当前主题色（深/浅各自对应）
+  syncNativeBars();
+}
+
 if (splashEl) {
   // ⚠️ 必须判 `e.target === splashEl`：animationend 会从子元素冒泡上来，
   //    splash 里 `>` / 圆点 / `_` / 9 个字母各有动画，任一结束都会触发回调。
@@ -906,18 +1369,18 @@ if (splashEl) {
   //    圆点、`_`、品牌字全没出现。
   // ⚠️ 不要加 { once: true }：第一个子元素的 animationend 会消耗掉监听器。
   splashEl.addEventListener('animationend', (e) => {
-    if (e.target === splashEl) splashEl.remove();
+    if (e.target === splashEl) dismissSplash();
   });
-  setTimeout(() => splashEl.remove(), 4200);
+  // 兜底：某些 WebView 下 animationend 可能不来，超时也要退场
+  setTimeout(dismissSplash, 4200);
 }
 
-// 启动：直接进 Sessions（无登录页）
 // 启动：直接进 Sessions（无登录页）
 // ⚠️ setLang + applyI18n 必须在第一次 showPage 之前 —— showPage 会读
 //    i18n(def.titleKey) 写标题，晚一步就会先闪一下默认语言。
 setLang(settings.language);
 applyI18n();
-applyTheme();
+applyTheme();      // 内部会调 syncNativeBars；此时 splashActive=true → 状态栏=启动页色
 applyFontSize();
 showPage('sessions');
 

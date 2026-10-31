@@ -498,6 +498,48 @@ public class MainActivity extends BridgeActivity {
 '''
 
 
+def patch_cleartext() -> None:
+    """允许 WebView 用明文 HTTP 访问 Tailscale IP。
+
+    ⚠️ 这是「填了正确的 IP 和端口，测试连接仍然失败」的真正原因（v0.10.6）：
+       Android 9（API 28）起**默认禁止明文 HTTP**。而 Termetron 的手机端
+       通过 fetch 访问 `http://100.x.y.z:8899` —— 走系统网络栈，
+       不是 WebView 内部的混合内容，所以 capacitor.config.ts 里的
+       `allowMixedContent: true` 管不到它（那个只管 https 页面里加载
+       http 资源时的渲染策略）。
+       缺少 `android:usesCleartextTraffic="true"` 时，请求会被系统直接拒绝，
+       Promise 抛错，界面上就显示「测试连接失败」。
+
+    Tailscale 的 tailnet 本身是 WireGuard 加密的，明文 HTTP 只暴露在
+    已加密的覆盖网络内，不经过公网 —— 这个取舍是安全的。
+    """
+    manifest = Path("android/app/src/main/AndroidManifest.xml")
+    if not manifest.exists():
+        print("  AndroidManifest not found, skip", file=sys.stderr)
+        return
+    s = manifest.read_text(encoding="utf-8")
+
+    if 'android:usesCleartextTraffic="true"' in s:
+        print("  AndroidManifest: usesCleartextTraffic already true, skip")
+        return
+    if "android:usesCleartextTraffic" in s:
+        # 历史构建里可能被写成 false，强制改成 true
+        s = re.sub(r'android:usesCleartextTraffic="[^"]*"',
+                   'android:usesCleartextTraffic="true"', s)
+        manifest.write_text(s, encoding="utf-8")
+        print("  AndroidManifest: usesCleartextTraffic -> true")
+        return
+
+    # 注入到 <application 标签的属性里
+    if "<application" not in s:
+        print("  AndroidManifest: <application> not found", file=sys.stderr)
+        sys.exit(1)
+    s = s.replace("<application",
+                  '<application\n        android:usesCleartextTraffic="true"', 1)
+    manifest.write_text(s, encoding="utf-8")
+    print("  AndroidManifest: usesCleartextTraffic=true (plain HTTP to Tailscale IP)")
+
+
 def patch_apk_install() -> None:
     """App 内更新：APK 安装能力。
     - REQUEST_INSTALL_PACKAGES 权限 + FileProvider（Android 8+ 安装 APK 必需）
@@ -701,6 +743,7 @@ if __name__ == "__main__":
     patch_styles()
     patch_launcher_background()
     patch_version_name()
+    patch_cleartext()
     patch_apk_install()
     patch_splash()
     patch_splash_dep()

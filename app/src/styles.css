@@ -144,7 +144,11 @@ body {
      所以返回键 margin-right:auto 把新建按钮顶到最右。
      只靠 space-between 不行 —— 隐藏的按钮仍占位，间距会算错。 */
   height: 56px;
-  padding: 0 16px;
+  /* ⚠️ 8px（照 Scholarius 的 .page-header padding: 0 8px）。
+     两侧图标按钮靠这个 padding 自然对齐到 8px，**不需要负边距**：
+     原来用 padding 16px + margin-right -8px 凑出右边 8px，
+     但左边没负值 → 左 16px / 右 8px，两边差 8px（用户 v0.10.6 反馈）。 */
+  padding: 0 8px;
   background: transparent;
   /* 顶栏字号与内边距全部写死 px：不继承 body、不引用 --fs，
      否则设置项里的「字体大小」会连带改变标题栏的视觉高度与字高。 */
@@ -161,7 +165,9 @@ body {
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
-  max-width: calc(100% - 120px);
+  /* 两侧各留 8px(padding) + 40px(按钮) + 8px(缓冲) = 112px，
+     保证长标题不会压到图标按钮上。 */
+  max-width: calc(100% - 112px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -217,10 +223,22 @@ body {
   margin-right: auto;
   margin-left: 0;
 }
-.topbar-icon-btn.is-trailing {
+/* 右侧按钮组：容器负责「推到最右」，按钮之间只有 gap 一个间距。
+   ⚠️ 不要给每个按钮写 margin-left:auto —— 那样两个按钮会各自分走
+      剩余空间、紧贴在一起（实测间距 0），8px 会被 auto 的分配吞掉。
+   ⚠️ gap 只在**都显示时**才占位：隐藏的按钮是 display:none，
+      不参与 flex 排布，所以只显示一个时不会多出 8px 空隙。 */
+.topbar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* 按钮盒之间 4px。
+     ⚠️ 视觉上仍与右侧外边距不等：图标 22px 居中在 40px 盒里，盒内左右各有
+        9px 留白。所以「图标→图标」= 4 + 9 + 9 = 22px，而「图标→屏幕边」
+        = 8(顶栏 padding) + 9 = 17px。要完全相等需要负边距，不可行；
+        这里按**触摸目标**对齐（盒距），图标字形的位置差异是有意保留的。 */
+  gap: 4px;
   margin-left: auto;
-  /* 外壳 padding 是 16px，负边距把图标光学对齐到内边距线 */
-  margin-right: -8px;
 }
 .topbar-icon-btn:active { opacity: 0.55; }
 /* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号 */
@@ -353,6 +371,10 @@ body {
   /* ⚠️ 不叠 --safe-bottom：已由 body 的 padding-bottom 让开手势条。
      叠两次会让导航栏底下多出一条空白（实测 64px 变 64+34px）。 */
 }
+/* ⚠️ `hidden` 必须显式压过 display:flex —— 元素上的 display 会盖掉
+   UA 的 `[hidden]{display:none}`，导致"设了 hidden 却还显示"。
+   终端页靠它隐藏导航栏（腾出一整行高度给输出区）。 */
+.bottom-nav[hidden] { display: none; }
 .nav-item {
   flex: 1 1 0;
   min-width: 0;
@@ -409,6 +431,91 @@ body {
   text-overflow: ellipsis;
 }
 
+/* ── 会话列表：列表式，行间 1px 分隔线 ──────────────────────────────────
+   #session-list 复用了 .setting-list 的类（页面里同一个元素），
+   但要**去掉圆角卡片的三件套**：背景、圆角、左右 16px margin。
+   剩下的就是"贴边 + 分隔线"的普通列表。
+   ⚠️ overflow 也要放开：圆角卡片用它裁切，列表不需要，
+      且留着会让 focus 描边被切断。
+   ⚠️ 分隔线用 --outline，**不是** --bg：卡片内的线靠"比卡片暗一档"，
+      而列表是整页底色，用 --bg 会完全看不见。
+   ---------------------------------------------------------------------- */
+#session-list {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.session-row {
+  list-style: none;
+  border-top: 1px solid var(--outline);
+}
+.session-row:first-child { border-top: 0; }
+
+.session-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 20px;
+  background: transparent;
+  border: 0;
+  color: var(--on-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.session-btn:active { background: var(--surface-raised); }
+
+/* 左侧竖排：名称在上、绝对路径在下。吃掉剩余宽度，状态列固定 */
+.session-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 当前工作目录：名称下方，等宽小字、淡色，过长单行省略。
+   ⚠️ min-width:0 不能省，否则 flex 子项不会收缩，省略号不出现。 */
+.session-cwd {
+  display: block;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-state {
+  flex: none;
+  align-self: center;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--on-surface-variant);
+}
+
+/* 运行中的会话：状态用 success 色，一眼能看出哪些在跑 */
+.session-state.is-running { color: var(--success); }
+
 /* ── 空状态 ───────────────────────────────────────────────────────────── */
 .empty { padding: 64px 32px; text-align: center; }
 .empty-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--on-surface); }
@@ -429,10 +536,22 @@ body {
   overscroll-behavior: contain;
   padding: 12px 16px;
   font-size: var(--fs);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
+  /* ⚠️ 行高用**固定像素**而不是倍数：前端算"屏幕能放几行"（PTY 的 rows）
+     时要用它做除数，倍数会随字体变化导致算出来的行数抖动。
+     1.45 × 字号留出足够行距，又能保证 40 列在窄屏上不挤。 */
+  line-height: 1.45;
+  /* ⚠️ 用 pre 而不是 pre-wrap：真终端输出里列是对齐的（ls / top / 表格），
+     pre-wrap 会在任意位置折行，把对齐彻底打乱。横向溢出靠 overflow-x 处理。
+     正常情况下 PTY 已按屏幕列数排版，不会产生横向滚动。 */
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
   font-variant-ligatures: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* 滚动/重绘优化：告诉浏览器这块内容会频繁变化，避免整页重排 */
+  contain: content;
+  will-change: scroll-position;
 }
 .term-input-row {
   flex: 0 0 auto;

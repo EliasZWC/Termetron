@@ -30,25 +30,29 @@ function semverLte(a, b) {
 //   · 按钮无边框无底色，纯文字 15px/700/uppercase
 //   · 主操作 = --success #7EE2A8，取消 = --dim #9A9A98，危险 = --danger #E06C5E
 // ⚠️ 旧样式是「居中 + 1px 边框 + 12px 圆角 + 实心色块按钮」，与 Scholarius 不一致。
+// ⚠️ 所有颜色都用 CSS 变量，**不要写死色值** ——
+//    这套样式是运行时注入的 <style>，写死深色值的话，App 切到日间主题后
+//    弹窗仍是深色底、深色文字，和页面完全不搭（v0.10.5 用户反馈）。
+//    变量来自 styles.css 的 :root / :root[data-theme="light"]，会跟着切换。
 const MODAL_CSS = `
 .ut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
-.ut-modal{background:#242424;border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:#ECECEA;box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
-.ut-modal h3{color:#F2F2F0;margin:12px 0 8px;font-size:15px;font-weight:700}
-.ut-modal p{margin:0 0 8px;font-size:13px;line-height:1.55;color:#9A9A98;white-space:pre-line;word-break:break-word}
+.ut-modal{background:var(--surface);border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:var(--on-surface);box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
+.ut-modal h3{color:var(--nav-active);margin:12px 0 8px;font-size:15px;font-weight:700}
+.ut-modal p{margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--on-surface-variant);white-space:pre-line;word-break:break-word}
 .ut-actions{display:flex;align-items:center;gap:12px;justify-content:space-between;padding-top:18px;margin-top:0}
 /* ⚠️ 只有一个按钮时必须居中（Scholarius 的 .setting-action.setting-center）：
    双按钮 = 取消左 / 确定右；单按钮再靠边就会显得“漏了一个”。 */
 .ut-actions:has(:only-child){justify-content:center}
-.ut-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:#9A9A98;-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
+.ut-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:var(--on-surface-variant);-webkit-tap-highlight-color:transparent;transition:opacity .12s ease,color .16s ease}
 .ut-btn:active{opacity:.55}
-.ut-btn.cancel{color:#9A9A98}
-.ut-btn.ok{color:#7EE2A8}
+.ut-btn.cancel{color:var(--on-surface-variant)}
+.ut-btn.ok{color:var(--success)}
 .ut-btn:focus{outline:none}
-.ut-pbar{height:6px;background:#303030;border-radius:3px;overflow:hidden;margin:2px 0 10px;position:relative}
-.ut-pfill{height:100%;width:0;background:#F2F2F0;transition:width .2s ease}
+.ut-pbar{height:6px;background:var(--surface-raised);border-radius:3px;overflow:hidden;margin:2px 0 10px;position:relative}
+.ut-pfill{height:100%;width:0;background:var(--nav-active);transition:width .2s ease}
 .ut-pbar.indet .ut-pfill{width:36%;animation:ut-indet 1.4s ease-in-out infinite}
 @keyframes ut-indet{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
-.ut-ppct{color:#9A9A98;font-size:12px;text-align:left;margin:0}
+.ut-ppct{color:var(--on-surface-variant);font-size:12px;text-align:left;margin:0}
 `;
 
 function ensureModalCss() {
@@ -57,6 +61,16 @@ function ensureModalCss() {
   s.id = 'ut-modal-css';
   s.textContent = MODAL_CSS;
   document.head.appendChild(s);
+}
+
+/**
+ * 通知宿主「弹窗数量变了」。
+ * 用自定义事件而不是 import main.js 的函式 —— 否则两模块互相 import
+ * 形成循环依赖，Vite 打包后执行顺序不可控。
+ * main.js 监听这个事件来调整原生状态栏（遮罩盖不到状态栏，需要手动压暗）。
+ */
+function dispatchOverlayChange() {
+  document.dispatchEvent(new CustomEvent('termetron:overlays-changed'));
 }
 
 function showModal({ title, message, okText = 'OK', cancelText = null }) {
@@ -77,7 +91,8 @@ function showModal({ title, message, okText = 'OK', cancelText = null }) {
     ok.textContent = okText;
     if (cancel) cancel.textContent = cancelText;
     document.body.appendChild(overlay);
-    const done = (val) => { overlay.remove(); document.removeEventListener('keydown', kd); resolve(val); };
+    dispatchOverlayChange();
+    const done = (val) => { overlay.remove(); dispatchOverlayChange(); document.removeEventListener('keydown', kd); resolve(val); };
     const kd = (e) => {
       if (e.key === 'Escape' && cancel) { e.preventDefault(); done(false); }
       else if (e.key === 'Enter') { e.preventDefault(); done(true); }
@@ -111,7 +126,7 @@ function showProgressModal(title) {
       pfill.style.width = p + '%';
       ppct.textContent = p + '%';
     },
-    close() { overlay.remove(); },
+    close() { overlay.remove(); dispatchOverlayChange(); },
   };
 }
 
