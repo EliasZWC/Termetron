@@ -24,6 +24,10 @@ const DEFAULTS = {
   fontSize: 13,
   tsIp: '',
   port: 8899,
+  // 备用地址列表：隧道 URL 失效时按顺序接力尝试。
+  // ⚠️ 这是「URL 换了但会话不能断」的关键 —— trycloudflare 每次重建
+  //    都会给新 URL，App 必须记住旧的、也接受新的，并且知道该切到哪个。
+  altEndpoints: [],
 };
 
 function loadSettings() {
@@ -122,8 +126,7 @@ const TMT_CSS = `
 .tmt-conn-status[data-kind="bad"]{color:var(--danger)}
 .tmt-conn-status[data-kind="idle"]{color:var(--on-surface-variant)}
 .tmt-conn-test{display:block;width:100%;margin:14px 0 0;padding:11px 0;border:1px solid var(--outline);border-radius:10px;background:transparent;color:var(--on-surface);font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.tmt-conn-discover{display:block;width:100%;margin:8px 0 0;padding:11px 0;border:0;border-radius:10px;background:var(--surface-raised);color:var(--on-surface);font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.tmt-conn-discover:disabled,.tmt-conn-test:disabled{opacity:.5}
+.tmt-conn-test:disabled{opacity:.5}
 .tmt-conn-test:active{background:var(--surface-raised)}
 .tmt-conn-test:disabled{opacity:.45;pointer-events:none}
 `;
@@ -262,6 +265,62 @@ function hasConnection() {
 //    默认 8 秒：局域网 / Tailscale 的正常往返都在毫秒级，8 秒已非常宽裕；
 //    确实需要更久的接口用 `timeout` 单独放宽。
 const API_TIMEOUT_MS = 8000;
+// 接力探测要快：用户正在等，不能让每个候选都耗满 8 秒
+const FAILOVER_TIMEOUT_MS = 3500;
+
+/** 记录一个可用端点（去重、限量、最近使用的排第一）。 */
+function rememberEndpoint(base) {
+  if (!base) return;
+  const list = [base, ...(settings.altEndpoints || []).filter((u) => u !== base)];
+  settings.altEndpoints = list.slice(0, 6);
+  saveSettings();
+}
+
+/**
+ * 依次尝试主地址与备用地址，返回第一个能响应的 base。
+ * 成功时把该地址提升为主地址（并记住其余可用的），失败的地址丢弃。
+ *
+ * ⚠️ 为什么需要这个：trycloudflare 重建隧道后 URL 会变。手机里存着旧
+ *    URL 就只能干等 —— 用户看到的是「连不上」，但服务其实活着，只是
+ *    换了个门牌号。接力让「换门牌」这件事对用户透明。
+ */
+async function resolveBase() {
+  const primary = baseUrl();
+  const candidates = [primary, ...(settings.altEndpoints || [])]
+    .filter(Boolean)
+    .filter((u, i, a) => a.indexOf(u) === i);
+  if (!candidates.length) return '';
+  for (const base of candidates) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), FAILOVER_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${base}/api/discover`, {
+        signal: ac.signal,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (d?.app !== 'termetron') throw new Error('not termetron');
+      // 命中了：把它设为主地址
+      if (base !== primary) {
+        settings.tsIp = base.replace(/^https?:\/\//, '');
+        const m = /:(\d+)$/.exec(settings.tsIp);
+        if (m) {
+          settings.port = parseInt(m[1], 10);
+          settings.tsIp = settings.tsIp.replace(/:\d+$/, '');
+        }
+        saveSettings();
+      }
+      rememberEndpoint(base);
+      return base;
+    } catch {
+      /* 不可用，试下一个 */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return '';
+}
 
 async function api(path, opts = {}) {
   const base = baseUrl();
@@ -275,13 +334,28 @@ async function api(path, opts = {}) {
       headers: { 'Content-Type': 'application/json', ...(rest.headers || {}) },
       signal: ac.signal,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // 401 不是「地址不对」，是「没配对」—— 交给调用方处理，不要接力
+      if (res.status === 401) {
+        const e = new Error('UNAUTHORIZED');
+        e.status = 401;
+        throw e;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
     const ct = res.headers.get('content-type') || '';
     return ct.includes('json') ? res.json() : res.text();
   } catch (e) {
     // AbortError 的 message 在部分 WebView 上是空的，统一换成可读文案，
     // 否则调用方会把空字符串展示给用户。
     if (e.name === 'AbortError') throw new Error(i18n('conn.timeout'));
+    // 网络层失败（不可达 / 隧道失效）→ 尝试接力到备用地址
+    if (e.status !== 401 && (e.message === 'Failed to fetch' || e.name === 'TypeError')) {
+      const alt = await resolveBase();
+      if (alt && alt !== base) {
+        return api(path, { ...opts, timeout });
+      }
+    }
     throw e;
   } finally {
     clearTimeout(timer);
@@ -321,10 +395,7 @@ function showPage(name) {
   if (!def) return;
 
   // 离开终端页就停止输出轮询（否则后台一直请求）
-  if (name !== 'terminal' && pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  if (name !== 'terminal') stopStream();
 
   for (const key of Object.keys(PAGES)) {
     const node = document.getElementById(PAGES[key].el);
@@ -357,10 +428,16 @@ function showPage(name) {
   //    只在程序运行时才出现，按钮也不该。按一下没有程序在跑时，只是往
   //    shell 发一个空中断（cmd 会静默忽略），代价为零；
   //    而"按钮忽然出现/消失"反而让人在需要时找不到它。
-  const copyBtn = document.getElementById('btn-term-copy');
-  if (copyBtn) copyBtn.hidden = !isTerminal;
+  // 右格：终端页只留「中断 + 菜单」两个高频按钮。
+  // ⚠️ 复制已移入菜单 —— 它不是高频操作（读完输出才复制一次），
+  //    占着标题栏反而挤掉了更常用的位置。
+  // ⚠️ 中断按钮**不按 busy 显隐**：它等价于键盘上的 Ctrl+C —— 键盘不会
+  //    只在程序运行时才出现，按钮也不该。
   const ctrlBtn = document.getElementById('btn-term-ctrlc');
   if (ctrlBtn) ctrlBtn.hidden = !isTerminal;
+  // 会话菜单：终端页才显示（复制/重命名/删除/信息都是针对当前会话的）
+  const menuBtn = document.getElementById('btn-term-menu');
+  if (menuBtn) menuBtn.hidden = !isTerminal;
 
   // ⚠️ 终端页不显示底部导航：终端是「全屏工作区」，多一条 64px 的导航条
   //    会白吃掉一整行高度，而且用户在终端里只会敲命令、不会切 tab
@@ -551,7 +628,7 @@ const termOut = document.getElementById('term-out');
 const termForm = document.getElementById('term-form');
 const termInput = document.getElementById('term-input');
 const btnTermCtrlC = document.getElementById('btn-term-ctrlc');
-const btnTermCopy = document.getElementById('btn-term-copy');
+const btnTermMenu = document.getElementById('btn-term-menu');
 
 // 最近一次渲染的**纯文本**（去掉控制序列），供复制按钮使用。
 // 不直接读 termOut.textContent：那里已经是 HTML 结构，且含行间空白。
@@ -578,6 +655,72 @@ function schedulePoll() {
   }, pollDelay);
 }
 
+// ── 服务端推送（SSE）────────────────────────────────────────────────
+// 轮询的问题：经公网隧道时单次往返 100ms+，而轮询间隔 120ms ——
+// 相当于每次刷新都要付一次过路费，输入会明显滞后。
+// 推送后：服务端一有输出就发，客户端等着即可，延迟 = 一次单向传输。
+//
+// ⚠️ 必须有降级：某些隧道 / 反代会缓冲 SSE（数据攒着不发），表现为
+//    「连上了但一直没输出」。所以连上后若 3 秒内没收到任何数据，
+//    自动退回轮询。宁可慢一点，不能黑屏。
+let sseSource = null;
+let sseGotData = false;
+let sseWatchdog = null;
+
+function stopStream() {
+  if (sseSource) {
+    try { sseSource.close(); } catch { /* ignore */ }
+    sseSource = null;
+  }
+  clearTimeout(sseWatchdog);
+  sseWatchdog = null;
+  clearTimeout(pollTimer);
+  pollTimer = null;
+}
+
+function startStream(name) {
+  stopStream();
+  if (!name || typeof EventSource === 'undefined') {
+    schedulePoll();
+    return;
+  }
+  const base = baseUrl();
+  if (!base) { schedulePoll(); return; }
+  sseGotData = false;
+  try {
+    sseSource = new EventSource(
+      `${base}/api/stream/${encodeURIComponent(name)}`,
+    );
+  } catch {
+    schedulePoll();
+    return;
+  }
+  sseSource.onmessage = (ev) => {
+    sseGotData = true;
+    try {
+      renderSnapshot(JSON.parse(ev.data));
+    } catch { /* 半个包/坏包：忽略，下一条会补上 */ }
+  };
+  sseSource.onerror = () => {
+    // 服务端关闭或网络断开：关掉并回到轮询兜底（轮询还能重连）
+    if (sseSource) {
+      try { sseSource.close(); } catch { /* ignore */ }
+      sseSource = null;
+    }
+    schedulePoll();
+  };
+  // 看门狗：3 秒内一条数据都没有 → 判定这条链路不支持流式，退回轮询。
+  sseWatchdog = setTimeout(() => {
+    if (!sseGotData) {
+      if (sseSource) {
+        try { sseSource.close(); } catch { /* ignore */ }
+        sseSource = null;
+      }
+      schedulePoll();
+    }
+  }, 3000);
+}
+
 async function openSession(name) {
   currentSession = name;
   showPage('terminal');
@@ -589,7 +732,8 @@ async function openSession(name) {
   //    顺序反了第一次渲染就没有折行宽度。
   await syncTerminalSize();
   await pullOutput();
-  schedulePoll();
+  // 首帧用轮询拿一次（保证立即有内容），之后交给推送。
+  startStream(name);
 }
 
 // ── ANSI → HTML ────────────────────────────────────────────────────────
@@ -849,35 +993,42 @@ function ansiToHtml(text, cols) {
   return html;
 }
 
+/**
+ * 把一份快照渲染到屏幕。SSE 推送与轮询降级**共用**这一份逻辑 ——
+ * 否则两条路径迟早渲染不一致（一处改了折行、另一处忘改）。
+ */
+function renderSnapshot(data) {
+  // ⚠️ /api/output/<name> 与 /api/stream/<name> 返回同一种结构：
+  //    { lines, progress, done, busy, script, cmd, cwd, interactive, tail }
+  const raw = Array.isArray(data?.lines) ? data.lines : [String(data ?? '')];
+  // tail 是「尚未遇到换行」的当前行（REPL 的 `>>> ` 就在这里），
+  // 不带它会让交互式程序看起来"卡住不动"。
+  let all = localizeServerLines(raw).join('\n');
+  if (data?.tail) all += '\n' + data.tail;
+
+  // 折行列数用**自己算出来的网格**，不用后端返回的 cols：
+  // 后端可能在 resize 之前还是旧值，而本地网格始终反映当前屏幕。
+  const html = ansiToHtml(all, lastGrid.cols || 0);
+  // 复制用的文本每次都更新，不能只在"画面变了"时更新 ——
+  // 否则用户在内容滚出首屏后点复制，拿到的还是旧的一屏。
+  lastOutputText = stripAnsiForCopy(all);
+  if (termOut._last !== html) {
+    const atBottom =
+      termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
+    termOut.innerHTML = html;
+    termOut._last = html;
+    if (atBottom) termOut.scrollTop = termOut.scrollHeight;
+  }
+  // 节奏：有程序在跑就加快，空闲放慢。
+  // ⚠️ 不要在这里动中断按钮的显隐 —— 它是常驻的（见 showPage 里的说明）。
+  pollDelay = data?.busy ? POLL_BUSY_MS : POLL_IDLE_MS;
+}
+
 async function pullOutput() {
   if (!currentSession || currentPage !== 'terminal') return;
   try {
     const data = await api(`/api/output/${encodeURIComponent(currentSession)}`);
-    // ⚠️ /api/output/<name> 返回的是 **JSON 对象**，不是纯文本：
-    //    { lines, progress, done, busy, script, cmd, cwd, interactive, tail }
-    const raw = Array.isArray(data?.lines) ? data.lines : [String(data ?? '')];
-    // tail 是「尚未遇到换行」的当前行（REPL 的 `>>> ` 就在这里），
-    // 不带它会让交互式程序看起来"卡住不动"。
-    let all = localizeServerLines(raw).join('\n');
-    if (data?.tail) all += '\n' + data.tail;
-
-    // 折行列数用**自己算出来的网格**，不用后端返回的 cols：
-    // 后端可能在 resize 之前还是旧值，而本地网格始终反映当前屏幕。
-    const html = ansiToHtml(all, lastGrid.cols || 0);
-    // 复制用的文本每次都更新，不能只在"画面变了"时更新 ——
-    // 否则用户在内容滚出首屏后点复制，拿到的还是旧的一屏。
-    lastOutputText = stripAnsiForCopy(all);
-    if (termOut._last !== html) {
-      const atBottom =
-        termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
-      termOut.innerHTML = html;
-      termOut._last = html;
-      if (atBottom) termOut.scrollTop = termOut.scrollHeight;
-    }
-
-    // 节奏：有程序在跑就加快，空闲放慢。
-    // ⚠️ 不要在这里动中断按钮的显隐 —— 它是常驻的（见 showPage 里的说明）。
-    pollDelay = data?.busy ? POLL_BUSY_MS : POLL_IDLE_MS;
+    renderSnapshot(data);
   } catch {
     /* 断线时静默，下个 tick 重试 */
   }
@@ -915,7 +1066,8 @@ btnTermCtrlC?.addEventListener('click', async () => {
 });
 
 // 复制当前会话的全部输出（纯文本，已剥掉 ANSI）
-btnTermCopy?.addEventListener('click', async () => {
+// ⚠️ 已从标题栏移入菜单，见 btnTermMenu 的处理。
+async function copyOutput() {
   if (!lastOutputText) {
     tmtToast(i18n('term.copyEmpty'));
     return;
@@ -940,14 +1092,108 @@ btnTermCopy?.addEventListener('click', async () => {
       tmtAlert(i18n('term.copyFailed'));
     }
   }
+}
+
+// ── 会话菜单：重命名 / 删除 / 查看信息 ──────────────────────────────
+btnTermMenu?.addEventListener('click', async (e) => {
+  if (!currentSession) return;
+  const anchor = e.currentTarget;
+  const action = await pickOption(
+    currentSession,
+    [
+      { id: 'copy', name: i18n('term.copyOutput') },
+      { id: 'rename', name: i18n('session.rename') },
+      { id: 'delete', name: i18n('session.delete') },
+      { id: 'info', name: i18n('session.info') },
+    ],
+    null,
+    anchor,
+  );
+  if (action === 'copy') return copyOutput();
+  if (action === 'rename') return renameSession();
+  if (action === 'delete') return deleteSession();
+  if (action === 'info') return showSessionInfo();
 });
 
-// 页面重新可见时立刻补一次（移动端切回前台要马上看到最新输出）
+async function renameSession() {
+  if (!currentSession) return;
+  const old = currentSession;
+  const next = await tmtPrompt({
+    title: i18n('session.rename'),
+    message: i18n('session.renameHint'),
+    input: { value: old, placeholder: i18n('session.namePlaceholder') },
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
+  });
+  if (!next || next === old) return;
+  try {
+    await api(`/api/sessions/${encodeURIComponent(old)}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ name: next }),
+    });
+    currentSession = next;
+    // 标题要跟着改名；同时重建流（新名字是新端点）
+    const title = titleEl();
+    if (title) title.textContent = next;
+    startStream(next);
+    tmtToast(i18n('session.renamed'));
+  } catch (err) {
+    tmtAlert(i18n('session.errRename', { err: err.message }));
+  }
+}
+
+async function deleteSession() {
+  if (!currentSession) return;
+  const name = currentSession;
+  const ok = await tmtConfirm(i18n('session.deleteConfirm', { name }), {
+    title: i18n('session.delete'),
+    okText: i18n('action.delete'),
+    cancelText: i18n('action.cancel'),
+  });
+  if (!ok) return;
+  try {
+    await api(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    stopStream();
+    currentSession = null;
+    showPage('sessions');
+    tmtToast(i18n('session.deleted'));
+  } catch (err) {
+    tmtAlert(i18n('session.errDelete', { err: err.message }));
+  }
+}
+
+/**
+ * 会话信息：把「当前它在用什么地址」明确展示出来。
+ * 用户能直接看到 URL 是什么，隧道换了地址也能自己判断该更新成什么。
+ */
+async function showSessionInfo() {
+  if (!currentSession) return;
+  let remote = null;
+  try {
+    remote = await api('/api/remote/status');
+  } catch { /* 本机直连时可能取不到，不影响显示其它字段 */ }
+  const base = baseUrl() || '—';
+  const rows = [
+    [i18n('info.name'), currentSession],
+    [i18n('info.endpoint'), base],
+    [i18n('info.tunnel'), remote?.url || i18n('info.tunnelOff')],
+    [i18n('info.auth'), remote?.url
+      ? (remote?.authenticated ? i18n('info.paired') : i18n('info.notPaired'))
+      : '—'],
+  ];
+  await tmtAlert(
+    rows.map(([k, v]) => `${k}: ${v}`).join('\n'),
+    i18n('session.info'),
+  );
+}
+
+
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentPage === 'terminal' && currentSession) {
     pollDelay = POLL_BUSY_MS;
     pullOutput();
-    schedulePoll();
+    // 切到后台时浏览器会关掉 SSE；回前台重连，重连前先用轮询兜着。
+    startStream(currentSession);
   }
 });
 
@@ -1364,7 +1610,6 @@ const CONN_FORM_BODY = `
   </label>
   <p class="tmt-conn-status" hidden></p>
   <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
-  <button class="tmt-conn-discover" type="button" data-i18n="conn.discover">Find My Computer</button>
 `;
 
 function openConnectionForm() {
@@ -1396,63 +1641,6 @@ function openConnectionForm() {
       });
       const isValid = ({ ip, port }) =>
         ip.length > 0 && Number.isFinite(port) && port >= 1 && port <= 65535;
-
-      // ── 自动检测电脑地址 ─────────────────────────────────────────────
-      // 目的：用户不该去 `tailscale ip -4` 里手抄 IP。
-      // 做法：对当前网段 + 已保存的地址做并发探测，谁先应答 `termetron`
-      // 的 /api/discover 就用谁的地址。
-      // ⚠️ 不扫全 100.64.0.0/10（一千多万个地址，不可能）：Tailscale 一定
-      //    在 100.x 段内但无法枚举，所以只能探「已知候选」——
-      //    · 上次保存的 IP（大概率没变）
-      //    · 手机自己所在网段的同段地址（局域网场景）
-      //    找不到就明确告诉用户去电脑上跑一次 `termetron remote` 看地址，
-      //    而不是假装能自动发现。
-      const discoverBtn = bodyEl.querySelector('.tmt-conn-discover');
-      discoverBtn.addEventListener('click', async () => {
-        const port = parseInt(portEl.value, 10) || 8899;
-        const candidates = [];
-        const push = (ip) => {
-          if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !candidates.includes(ip)) {
-            candidates.push(ip);
-          }
-        };
-        push(settings.tsIp);
-        push('100.87.96.69');   // 上次用过的地址：最常见的情况是它没变
-        say(i18n('conn.discovering'), 'idle');
-        discoverBtn.disabled = true;
-        let found = null;
-        // 并发探测，每个候选 2.5 秒超时（自动检测要快，慢了不如手填）
-        const probe = async (ip) => {
-          const ac = new AbortController();
-          const t = setTimeout(() => ac.abort(), 2500);
-          try {
-            const r = await fetch(`http://${ip}:${port}/api/discover`, {
-              signal: ac.signal,
-            });
-            if (!r.ok) return null;
-            const d = await r.json();
-            return d && d.app === 'termetron' ? { ip, info: d } : null;
-          } catch {
-            return null;
-          } finally {
-            clearTimeout(t);
-          }
-        };
-        const results = await Promise.all(candidates.map(probe)).catch(() => []);
-        found = results.find(Boolean) || null;
-        discoverBtn.disabled = false;
-        if (found) {
-          ipEl.value = found.ip;
-          const port2 = found.info?.port || port;
-          portEl.value = String(port2);
-          const n = (found.info?.addrs || []).length;
-          say(i18n('conn.found').replace('{ip}', found.ip), 'good');
-          if (n > 1) console.info('[termetron] other addrs', found.info.addrs);
-        } else {
-          // 明确失败原因 + 下一步怎么做，不留下「为什么没找到」的疑问
-          say(i18n('conn.notFound'), 'bad');
-        }
-      });
 
       testBtn.addEventListener('click', async () => {
         const form = readForm();

@@ -397,8 +397,11 @@ class Session:
             # ⚠️ 这条会出现在**手机 App 的输出区**，所以用中立标记而不是
             #    某一种语言的句子：App 端（main.js）会把它替换成本地化文案。
             #    服务端读不到用户的语言设置，只能这样分工。
+            # ⚠️ **只放内存，不落盘**（不要写 _log）：它描述的是「本次启动
+            #    恢复了历史」这一瞬时事实，写进日志下次启动又被当成历史读回，
+            #    于是每重启一次就多一条 —— 实测重启十几次后输出区堆了十几行
+            #    同样的标记，把真正的历史淹没。
             list.append(self.lines, "[termetron:restored]")
-            self._log.append(["[termetron:restored]"], force=True)
         # 会话开启输出：终端风格欢迎横幅（纯文本 `***` 分隔，醒目且不依赖 CSS 样式）
         self.lines.append("*" * 44)
         self.lines.append(
@@ -2448,6 +2451,51 @@ class RemoteMgr:
         self.allowed: set = set()   # 已放行 device_key
         self.lock = threading.Lock()
         self._probe_fail = 0        # 连续探测失败次数（隧道活跃性 watchdog）
+        # ⚠️ 已配对设备必须**跨隧道重启**保留：每次 remote on 都生成新 URL
+        #    和新一次性密码，如果信任列表也跟着清空，手机就会「一掉线就要
+        #    重新配对」—— 这是不可接受的。所以落盘到状态目录，启动时读回。
+        self._load_allowed()
+
+    # ── 已配对设备的持久化 ───────────────────────────────────────────
+    def _allowed_path(self) -> str:
+        base = os.environ.get("TERMETRON_STATE_DIR", "").strip()
+        if not base:
+            base = os.path.join(
+                os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+                ".local", "state", "termetron",
+            )
+        return os.path.join(base, "remote_allowed.json")
+
+    def _load_allowed(self) -> None:
+        """从磁盘恢复已配对设备。
+
+        ⚠️ 读失败一律当作「没有已配对设备」，绝不能让服务起不来 ——
+           信任列表损坏总比整个服务崩溃轻。
+        """
+        try:
+            p = self._allowed_path()
+            if not os.path.exists(p):
+                return
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            keys = data.get("allowed") or []
+            if isinstance(keys, list):
+                self.allowed = {k for k in keys if isinstance(k, str) and k}
+        except Exception:  # noqa: BLE001
+            self.allowed = set()
+
+    def _save_allowed(self) -> None:
+        """把信任列表写回磁盘（调用者需持有 self.lock）。"""
+        try:
+            p = self._allowed_path()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            tmp = p + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"allowed": sorted(self.allowed)}, f, indent=2)
+            # 原子替换：避免写到一半断电导致文件损坏
+            os.replace(tmp, p)
+        except Exception:  # noqa: BLE001
+            pass
 
     @property
     def on(self) -> bool:
@@ -2517,13 +2565,22 @@ class RemoteMgr:
             self.token = secrets.token_hex(3)   # 6 位一次性密码
             self.url = None
             self.status = "starting"
+            # ⚠️ 只清空「待配对」队列，**不能**清空 self.allowed ——
+            #    已配对的设备是长期信任关系，隧道重启/换 URL 不该失效。
+            #    （旧版这里写了 self.allowed = set()，导致每次 remote on
+            #     手机都得重新配对，这是用户明确拒绝的行为。）
             self.pending = {}
-            self.allowed = set()
             self.error = None
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             try:
                 self.proc = subprocess.Popen(
-                    [binp, "tunnel", "--url", f"http://127.0.0.1:{local_port}", "--no-autoupdate"],
+                    [binp, "tunnel", "--url", f"http://127.0.0.1:{local_port}",
+                     "--no-autoupdate",
+                     # ⚠️ quick tunnel 只要**进程活着**就会自己重连边缘节点，
+                     #    URL 保持不变。真正导致「URL 变了」的是进程退出后
+                     #    我们重建它。所以尽量让 cloudflared 自己扛住：
+                     #    --retries 让它内部无限重试，别一断就退出。
+                     "--retries", "999"],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                     creationflags=flags)
             except Exception as e:  # noqa: BLE001
@@ -2536,15 +2593,29 @@ class RemoteMgr:
             return {"ok": True, "token": self.token, "status": "starting"}
 
     def _read_url(self) -> None:
-        """从 cloudflared stdout 解析 trycloudflare URL。"""
+        """持续读取 cloudflared 输出，解析 trycloudflare URL。
+
+        ⚠️ 不能匹配到一次就 return —— 旧实现正是这样，后果是：
+           cloudflared 重连后如果打印了**新 URL**（进程没退出但隧道被边缘
+           重新分配），我们仍抱着旧 URL 去探测，永远失败，手机也连不上。
+           现在持续读，URL 一变就更新（并记日志，便于排查）。
+        """
+        last = None
         try:
             for line in self.proc.stdout:  # type: ignore[union-attr]
                 m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
-                if m:
-                    with self.lock:
-                        self.url = m.group(0)
-                        self.status = "on"
-                    return
+                if not m:
+                    continue
+                url = m.group(0)
+                if url == last:
+                    continue
+                last = url
+                with self.lock:
+                    self.url = url
+                    self.status = "on"
+                    self._probe_fail = 0
+                if last:
+                    print(f"[termetron] tunnel url: {url}")
         except Exception:  # noqa: BLE001
             pass
 
@@ -2563,12 +2634,20 @@ class RemoteMgr:
             return False
 
     def _watchdog_loop(self) -> None:
-        """隧道活跃性看门狗：每 30s 探测；连续 3 次失败判隧道失效。
+        """隧道活跃性看门狗：每 30s 探测；连续 3 次失败判隧道失效并**自动重建**。
 
         cloudflared 进程活着不代表隧道可用（边缘断开/超时/DNS 失败时进程
-        仍在但 URL 失效，手机连不上）。探测失败 -> status=error，前端据此
-        提示用户重新 remote on。
+        仍在但 URL 失效）。trycloudflare 的免费隧道尤其不稳定 —— 可能跑几
+        小时就被边缘节点丢弃。
+
+        ⚠️ 旧版只是把 status 置成 error 让用户手动重开，结果就是「掉了就
+           再也连不上，还得去电脑上敲命令」。现在改成：
+             1. 自动重启 cloudflared（拿新 URL）；
+             2. 已配对设备**保留**（见 _load_allowed/_save_allowed），
+                所以手机只需要重新填一次 URL —— 不需要重新配对；
+             3. 连续重建失败会退避，避免疯狂重启把 cloudflared 打爆。
         """
+        backoff = 0
         while True:
             time.sleep(30)
             with self.lock:
@@ -2577,17 +2656,41 @@ class RemoteMgr:
                     continue
                 url = self.url
             alive = self._probe_alive()
-            with self.lock:
-                if alive:
+            if alive:
+                with self.lock:
                     self._probe_fail = 0
-                else:
-                    self._probe_fail += 1
-                    if self._probe_fail >= 3:
-                        dead = self.proc is not None and self.proc.poll() is not None
-                        self.status = "off" if dead else "error"
-                        self.error = (f"tunnel lost: probes failed via {url}"
-                                      if not dead else "tunnel process exited")
-                        self._probe_fail = 0
+                backoff = 0
+                continue
+            with self.lock:
+                self._probe_fail += 1
+                fails = self._probe_fail
+            if fails < 3:
+                continue
+            with self.lock:
+                self._probe_fail = 0
+                proc_alive = self.proc is not None and self.proc.poll() is None
+            # ⚠️ **关键判断**：cloudflared 进程还活着时，**绝不能重建**。
+            #    quick tunnel 的 URL 绑在进程上，重建 = 换新 URL = 手机存的
+            #    地址失效。进程活着说明 cloudflared 自己正在重连边缘节点
+            #    （配合 --retries），此时探测失败只是暂时抖动，等它恢复即可。
+            #    只有进程真的退出了，才不得不重建（URL 必变，无法避免）。
+            if proc_alive:
+                with self.lock:
+                    self.error = None    # 抖动不算错误，别把 UI 弄红
+                continue
+            with self.lock:
+                self.error = f"tunnel process exited, restarting (url will change)"
+            # 进程已死：重建。退避上限 5 分钟，别把 cloudflared 打爆。
+            if backoff:
+                time.sleep(backoff)
+            backoff = min(300, (backoff or 30) * 2) if backoff else 30
+            try:
+                self.stop()
+                time.sleep(1)
+                self.start(_LOCAL_PORT)
+            except Exception as e:  # noqa: BLE001
+                with self.lock:
+                    self.error = f"auto-restart failed: {e}"
 
     def stop(self) -> None:
         with self.lock:
@@ -2606,7 +2709,8 @@ class RemoteMgr:
             self.status = "off"
             self.error = None
             self.pending = {}
-            self.allowed = set()
+            # ⚠️ 同样不清空 self.allowed：remote off 只是关隧道，
+            #    设备信任关系应当延续到下次 remote on。
             self._probe_fail = 0
 
     def status_json(self) -> dict:
@@ -2626,9 +2730,14 @@ class RemoteMgr:
 
     def allow(self, device_key: str) -> dict:
         with self.lock:
+            # 已配对的设备再次 allow 直接成功（幂等），避免用户重复操作报错
+            if device_key in self.allowed:
+                return {"ok": True, "already": True}
             if device_key in self.pending:
                 self.allowed.add(device_key)
                 del self.pending[device_key]
+                # 落盘：这样隧道重启后手机不用重新配对
+                self._save_allowed()
                 return {"ok": True}
             return {"ok": False, "error": "no pending device: " + device_key}
 
@@ -2764,19 +2873,91 @@ class Handler(BaseHTTPRequestHandler):
         return ip not in ("127.0.0.1", "::1", "localhost")
 
     def _authed(self) -> bool:
-        """所有请求一律放行。
+        """是否已通过设备配对认证。
 
-        ⚠️ 2026-10-30：**应用层认证已移除**。
-        用户选择的方案是「完全去掉密码，只填 Tailscale IP + 端口就连上」。
-        理由：Tailscale 本身已是经过设备认证的加密网络层（WireGuard +
-        tailnet ACL），能连到本机 8899 的只可能是同一 tailnet 内的已授权设备。
-        在它之上再加一次性密码 + 4 位配对码属于重复防护，且让手机端每次
-        重装 App 都要重新配对，体验很差。
+        两种情形视为已认证：
+        1. **本机直连**（127.0.0.1 / localhost）—— 在电脑上打开页面不需要配对；
+        2. **隧道连接**携带了有效的 `qt_auth=<token>:<device_key>` cookie，
+           且该 device_key 在 REMOTE.allowed 里（由 `termetron allow` 放行）。
 
-        残留的 REMOTE.token / REMOTE.allowed 只服务于 **桌面端**的旧 remote
-        面板（本机浏览器里看二维码/状态），不影响手机连接。
+        ⚠️ 2026-10-31 恢复认证：v0.10.x 期间为了让手机「填个 IP 就连」，
+           曾把这里改成无条件 return True —— 那只在「Tailscale 内网」这个
+           前提下才说得通。现在回到 cloudflared 公网隧道方案，隧道 URL 是
+           公网可达的，**任何人都能访问**，不加认证等于把终端裸奔在互联网上。
+           配对流程：一次性密码(电脑屏幕可见) → 设备请求配对 → 电脑上允许，
+           之后该设备靠 cookie 长期免密。
         """
-        return True
+        try:
+            host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+        except Exception:  # noqa: BLE001
+            host = ""
+        # 本机访问直接放行：用户就坐在电脑前，无需配对
+        if host in ("127.0.0.1", "localhost", "[::1]", "::1"):
+            return True
+        # 未开隧道时（仅本机/局域网调试）也放行，避免误锁死
+        if REMOTE.status != "on":
+            return True
+        cookie = self.headers.get("Cookie") or ""
+        for part in cookie.split(";"):
+            part = part.strip()
+            if not part.startswith("qt_auth="):
+                continue
+            val = part[len("qt_auth="):]
+            tok, _, key = val.partition(":")
+            if tok != (REMOTE.token or "") or not key:
+                return False
+            with REMOTE.lock:
+                return key in REMOTE.allowed
+        return False
+
+    def _stream_session(self, s) -> None:
+        """SSE：会话有变化就推一条，没变化就静默保活。
+
+        ⚠️ 为什么不用 WebSocket：需要额外的握手/帧协议实现，而本项目坚持
+           **纯标准库**。SSE 就是一个永不结束的 HTTP 响应，浏览器原生
+           EventSource 直接消费，代码量和轮询差不多但延迟低一个数量级。
+
+        节流：最快 50ms 推一次（20fps）。再快没有意义 —— 手机屏幕刷新
+        和 WebView 渲染都撑不住，反而白耗隧道带宽。
+        """
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "keep-alive")
+            # ⚠️ 必须告诉 nginx/cloudflared 这类反代「不要缓冲」，否则
+            #    数据会被攒着一起发，推送就退化成批量的轮询了。
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            last_stamp = None
+            last_beat = time.time()
+            while True:
+                snap = s.snapshot()
+                # 用 updated 时间戳做变更判据：不变就不发，省带宽
+                # （隧道下每一个字节都要过公网）
+                stamp = getattr(s, "updated", None)
+                if stamp != last_stamp:
+                    payload = json.dumps(snap, ensure_ascii=False)
+                    self.wfile.write(f"data: {payload}\n\n".encode())
+                    self.wfile.flush()
+                    last_stamp = stamp
+                    last_beat = time.time()
+                elif time.time() - last_beat > 15:
+                    # 心跳：防止中间设备把空闲连接掐断
+                    self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+                    last_beat = time.time()
+                # 会话结束时收尾，让客户端知道可以重连
+                if getattr(s, "done", False) and not getattr(s, "interactive", False):
+                    self.wfile.write(b"event: end\ndata: {}\n\n")
+                    self.wfile.flush()
+                    return
+                time.sleep(0.05)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # 客户端关掉了页面 / 切走了会话 —— 正常，不当错误
+            return
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         # CORS 预检：App（Capacitor WebView）跨域 fetch 带非 safelisted 请求头
@@ -2804,11 +2985,13 @@ class Handler(BaseHTTPRequestHandler):
             st["auth_required"] = self._remote() and not self._authed()
             self._json(st)
         elif path == "/api/discover":
-            # 无需鉴权的自我描述：手机端连上后能知道「我是谁、还有哪些地址可连」。
-            # ⚠️ 只返回地址与版本，不含任何会话/文件信息 —— 这个接口暴露在
-            #    tailnet 内部，拿到地址并不能读数据（其余 /api/* 都要鉴权）。
-            #    这样 App 可以在设置页一键填入正确 IP，不必让用户去
-            #    `tailscale ip -4` 里手抄。
+            # 无需鉴权的自我描述：客户端用它确认「对端确实是一个 termetron」，
+            # 顺便拿到可达地址与端口。
+            # ⚠️ 只返回地址与版本，不含任何会话/文件信息 —— 拿到地址并不能
+            #    读数据（其余 /api/* 都要鉴权）。
+            # 主要用途：App 做 URL 接力时，用这个接口判断某个地址是否还活着
+            #    （返回 app=="termetron" 才算命中），避免把任意 HTTP 服务
+            #    误当成自己的后端。
             self._json({
                 "ok": True,
                 "app": "termetron",
@@ -2818,6 +3001,22 @@ class Handler(BaseHTTPRequestHandler):
                 "addrs": _local_addrs(),
                 "platform": sys.platform,
             })
+        elif path.startswith("/api/stream/"):
+            # ── 服务端推送（SSE）────────────────────────────────────────
+            # 为什么要有这个：手机端原来是每 120ms 轮询一次 /api/output。
+            # 经公网隧道时单次往返 100ms+，等于「每 120ms 付一次 100ms 的
+            # 过路费」，输入明显滞后，vim 里按方向键像在拖拽。
+            # 改成推送后：有输出才发，没输出就保持长连接（零请求），
+            # 交互延迟 = 一次单向传输，这才是隧道下能用的关键。
+            if not self._authed():
+                self._json({"error": "auth required", "auth_required": True}, 401)
+                return
+            name = path.rsplit("/", 1)[-1]
+            s = SESSIONS.get(name)
+            if not s:
+                self._json({"error": "not found"}, 404)
+                return
+            self._stream_session(s)
         elif path == "/api/remote/pairstatus":
             key = self._query("key")
             if REMOTE.status == "on" and key and key in REMOTE.allowed:

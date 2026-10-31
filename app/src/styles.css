@@ -248,8 +248,11 @@ body {
   margin-left: auto;
 }
 .topbar-icon-btn:active { opacity: 0.55; }
-/* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号 */
-.topbar-icon-btn svg { width: 22px; height: 22px; fill: currentColor; }
+/* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号
+   ⚠️ 这里**不能**写 fill: currentColor：顶栏图标现在全部是
+      fill="none" + stroke="currentColor" 的线性图标，CSS 的 fill 会
+      盖掉 SVG 属性，把它们填成一坨实心块（与导航栏同一类错误）。 */
+.topbar-icon-btn svg { width: 22px; height: 22px; }
 
 /* ── 内容区 ───────────────────────────────────────────────────────────── */
 #content {
@@ -420,8 +423,23 @@ body {
   display: block;
   width: 24px;
   height: 24px;
-  fill: currentColor;
   grid-area: 1 / 1;
+}
+/* ⚠️⚠️ 不要给 `.nav-icon svg` 写 `fill: currentColor`！
+   CSS 声明**永远强于** SVG 元素上的 `fill="none"` 属性，
+   于是 outlined（描边）图标会被强行填成实心块 —— 用户看到的就是
+   「线性图标中间怎么是实心的，这也不线性啊」。
+   正解：填充与描边分别写在**具体类**上，让两者互不干扰：
+     · .nav-icon-outlined → fill:none + stroke:currentColor
+     · .nav-icon-filled   → fill:currentColor + stroke:none
+   这样无论哪个显示，样式都由自己的类决定。 */
+.nav-icon .nav-icon-outlined {
+  fill: none;
+  stroke: currentColor;
+}
+.nav-icon .nav-icon-filled {
+  fill: currentColor;
+  stroke: none;
 }
 /* ⚠️ 必须比 `.nav-icon svg` 更强或写在它后面：
    两条同优先级(0,1,1)靠书写顺序决胜，放前面会被 display:block 盖掉，
