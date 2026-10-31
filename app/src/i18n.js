@@ -94,6 +94,7 @@ const I18N = {
     'conn.testing': 'Testing…',
     'conn.ok': 'Connected · {n} session(s)',
     'conn.fail': 'Cannot reach the server.\n{err}',
+    'conn.timeout': 'Timed out after 8s',
     'conn.invalid': 'Enter a valid IP and a port between 1 and 65535.',
 
     // 字号
@@ -182,6 +183,7 @@ const I18N = {
     'conn.testing': '正在测试…',
     'conn.ok': '已连接 · {n} 个会话',
     'conn.fail': '无法连接到服务器。\n{err}',
+    'conn.timeout': '8 秒内未响应',
     'conn.invalid': '请输入有效的 IP 和 1–65535 之间的端口。',
 
     'font.title': '字号',

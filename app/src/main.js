@@ -255,16 +255,35 @@ function hasConnection() {
   return !!baseUrl();
 }
 
+// ⚠️ 所有请求都必须带超时。Android WebView 连一个**不可达**的 IP 时，
+//    TCP 握手会挂到系统默认超时（实测 75~130 秒），界面就卡在那里不动。
+//    默认 8 秒：局域网 / Tailscale 的正常往返都在毫秒级，8 秒已非常宽裕；
+//    确实需要更久的接口用 `timeout` 单独放宽。
+const API_TIMEOUT_MS = 8000;
+
 async function api(path, opts = {}) {
   const base = baseUrl();
   if (!base) throw new Error('NO_CONNECTION');
-  const res = await fetch(base + path, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const ct = res.headers.get('content-type') || '';
-  return ct.includes('json') ? res.json() : res.text();
+  const { timeout = API_TIMEOUT_MS, ...rest } = opts;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeout);
+  try {
+    const res = await fetch(base + path, {
+      ...rest,
+      headers: { 'Content-Type': 'application/json', ...(rest.headers || {}) },
+      signal: ac.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ct = res.headers.get('content-type') || '';
+    return ct.includes('json') ? res.json() : res.text();
+  } catch (e) {
+    // AbortError 的 message 在部分 WebView 上是空的，统一换成可读文案，
+    // 否则调用方会把空字符串展示给用户。
+    if (e.name === 'AbortError') throw new Error(i18n('conn.timeout'));
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1371,17 +1390,31 @@ function openConnectionForm() {
         const url = /^https?:\/\//i.test(form.ip)
           ? form.ip.replace(/\/+$/, '')
           : `http://${form.ip}:${form.port}`;
+        // ⚠️ fetch 必须带超时。Android WebView 里连一个**不可达**的 IP 时，
+        //    TCP 握手会一直挂到系统默认超时（实测 75~130 秒，视内核参数而定），
+        //    期间界面就停在 "Testing…" 一动不动，用户以为卡死。
+        //    用 AbortController 主动掐断，8 秒足够局域网 / Tailscale 往返；
+        //    超时后给出明确原因（超时），而不是让用户等两分钟再看一句笼统的失败。
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 8000);
         try {
           const res = await fetch(`${url}/api/sessions`, {
             headers: { 'Content-Type': 'application/json' },
+            signal: ac.signal,
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           const n = Object.keys(data || {}).length;
           say(i18n('conn.ok').replace('{n}', String(n)), 'good');
         } catch (e2) {
-          say(i18n('conn.fail').replace('{err}', e2.message), 'bad');
+          // AbortError 的 message 在部分 WebView 上是空的，单独判一下，
+          // 统一换成可读的「超时」提示。
+          const msg = e2.name === 'AbortError'
+            ? i18n('conn.timeout')
+            : (e2.message || String(e2));
+          say(i18n('conn.fail').replace('{err}', msg), 'bad');
         } finally {
+          clearTimeout(timer);
           testBtn.disabled = false;
         }
       });
