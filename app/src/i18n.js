@@ -53,6 +53,9 @@ const I18N = {
     //    不是句子所以不能只大写首字母（写成 "No session" 是错的）。
     'empty.noSessions': 'No Session',
     'empty.noSessionsHint': 'Tap + in the top right to start one.',
+    // 未连接时的空状态（与「已连接但没有会话」区分，因为用户该做的事不同）
+    'empty.offline': 'Not Connected',
+    'empty.offlineHint': 'Tap ↻ in the top left to reconnect.',
     'empty.notConnected': 'Not connected',
     'empty.notConnectedHint':
       "Start the tunnel with `termetron remote on`, then paste the address in Setting.",
@@ -113,9 +116,12 @@ const I18N = {
     // 连接表单
     'conn.title': 'Connection',
     'conn.code': 'Tunnel Code',
+    'conn.codeHint': 'The 6-character code from `termetron new`, e.g. ABC123',
+    'conn.passwordHint': 'The password shown once when the tunnel was created',
     'conn.password': 'Password',
     'conn.address': 'Address',
     'conn.refreshing': 'Refreshing…',
+    'conn.connecting': 'Trying known addresses…',
     'conn.refreshed': 'Reconnected',
     'conn.allLost':
       'None of the known addresses respond.\n\nThe tunnel may have been recreated at a new address. Paste the current address, or run `termetron remote` on the computer again.\n\nEdit address now?',
@@ -178,6 +184,8 @@ const I18N = {
 
     'empty.noSessions': '暂无会话',
     'empty.noSessionsHint': '点右上角的 + 新建一个会话。',
+    'empty.offline': '未连接',
+    'empty.offlineHint': '点左上角的 ↻ 重新连接。',
     'empty.notConnected': '未连接',
     'empty.notConnectedHint': '先用 `termetron remote on` 开启隧道，再把地址填入设置。',
     'empty.unreachable': '无法连接到电脑',
@@ -232,9 +240,12 @@ const I18N = {
 
     'conn.title': '连接',
     'conn.code': '隧道码',
+    'conn.codeHint': '执行 `termetron new` 得到的 6 位代码，例如 ABC123',
+    'conn.passwordHint': '创建隧道时只显示一次的密码',
     'conn.password': '密码',
     'conn.address': '地址',
     'conn.refreshing': '正在刷新…',
+    'conn.connecting': '正在尝试已知地址…',
     'conn.refreshed': '已重新连接',
     'conn.allLost':
       '已知地址均无响应。\n\n隧道可能已在新的地址重建。请粘贴当前地址，或在电脑上重新执行 `termetron remote`。\n\n现在修改地址？',

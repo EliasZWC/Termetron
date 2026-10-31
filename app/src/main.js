@@ -103,7 +103,13 @@ const TMT_CSS = `
    padding 6px、min-width 160px、阴影 0 8px 24px rgba(0,0,0,.22)、
    项 padding 10px 14px / 14px 字号、选中项只加粗到 600 不改色。 */
 .tmt-menu{position:fixed;z-index:10000;min-width:160px;max-height:min(60vh,320px);overflow-y:auto;box-sizing:border-box;padding:6px;background:var(--surface);border:1px solid var(--outline);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22);font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
-.tmt-menu-item{display:block;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:var(--on-surface);font:inherit;font-size:14px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-menu-item{display:flex;align-items:center;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:var(--on-surface);font:inherit;font-size:14px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+/* 图标固定 20px，文字占余下宽度；没有图标时 .tmt-menu-text 自然占满。
+   ⚠️ 统一用 flex，不要为"有无图标"写两套 display —— :has() 在旧 WebView
+      上支持不完整，一旦不生效就退化成 block，图标和文字会错位。 */
+.tmt-menu-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-right:12px;flex:0 0 20px}
+.tmt-menu-icon svg{fill:currentColor;display:block}
+.tmt-menu-text{flex:1 1 auto;min-width:0}
 .tmt-menu-item:active{background:var(--surface-raised)}
 .tmt-menu-item.is-selected{font-weight:600}
 /* ── 字号表单：中间「减 / 数值 / 加」一行 + 下方滑块 ───────────────────
@@ -1218,10 +1224,10 @@ btnTermMenu?.addEventListener('click', async (e) => {
   const action = await pickOption(
     currentSession,
     [
-      { id: 'copy', name: i18n('term.copyOutput') },
-      { id: 'rename', name: i18n('session.rename') },
-      { id: 'delete', name: i18n('session.delete') },
-      { id: 'info', name: i18n('session.info') },
+      { id: 'copy', name: i18n('term.copyOutput'), icon: 'copy' },
+      { id: 'rename', name: i18n('session.rename'), icon: 'edit' },
+      { id: 'delete', name: i18n('session.delete'), icon: 'delete' },
+      { id: 'info', name: i18n('session.info'), icon: 'info' },
     ],
     null,
     anchor,
@@ -1485,6 +1491,16 @@ function renderSettings() {
   renderFontSize();
   document.getElementById('setting-version').textContent =
     'v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
+  // 状态栏诊断值：颜色 / 覆盖模式 / 错误。真机没有控制台，只能这样看。
+  const sbEl = document.getElementById('setting-statusbar-value');
+  if (sbEl) {
+    const st = lastBarState;
+    const bits = [];
+    bits.push(st.color || '?');
+    bits.push(st.overlays ? 'no-overlay' : 'overlay');
+    if (st.err) bits.push('ERR:' + String(st.err).slice(0, 28));
+    sbEl.textContent = bits.join(' · ');
+  }
   // 语言可能刚变过：先把 DOM 上的 data-i18n 文案全部刷新一遍
   setLang(settings.language);
   applyI18n();
@@ -1493,6 +1509,15 @@ function renderSettings() {
   //    有地址时会被打回 "not set"。所以必须在 applyI18n **之后**重写动态值。
   document.getElementById('setting-tsip-value').textContent =
     settings.address || settings.tsIp || i18n('value.notSet');
+  // 隧道码 / 密码：密码不明文显示，只显示「已设置」，避免旁人一眼看到
+  const codeEl = document.getElementById('setting-tunnel-code-value');
+  if (codeEl) codeEl.textContent = settings.tunnelCode || i18n('value.notSet');
+  const passEl = document.getElementById('setting-tunnel-pass-value');
+  if (passEl) {
+    passEl.textContent = settings.tunnelPassword
+      ? '••••••••'
+      : i18n('value.notSet');
+  }
   // 顶栏标题不是 data-i18n（终端页要显示会话名），单独刷
   if (currentPage !== 'terminal') {
     const title = titleEl();
@@ -1519,6 +1544,25 @@ function setFontSize(n) {
 // ⚠️ 与旧实现（底部 sheet 弹窗）的区别：这是**锚定在触发按钮上的浮动菜单**，
 //    不遮罩全屏，点外面任意位置即关闭。Livolog 的 Language / Theme 就是这种。
 // 返回选中的 id；点外部或按 Esc 返回 null。
+// 官方 Material Symbols 图标（viewBox 0 -960 960 960 的原始 path）。
+// ⚠️ 一律用谷歌官方数据，不要手绘 —— 手绘的风格与 Scholarius/Livolog 不一致，
+//    而且以后要换图标时找不到来源。
+const ICONS = {
+  copy: 'M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z',
+  edit: 'M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z',
+  delete: 'M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z',
+  info: 'M480-280q17 0 28.5-11.5T520-320q0-17-11.5-28.5T480-360q-17 0-28.5 11.5T440-320q0 17 11.5 28.5T480-280Zm-40-160h80v-240h-80v240ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0 0v-560 560Z',
+  remove: 'M240-440v-80h480v80H240Z',
+  add: 'M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z',
+};
+
+/** 生成一个官方图标的 <svg>。 */
+function iconSvg(name, size = 20) {
+  const d = ICONS[name];
+  if (!d) return '';
+  return `<svg viewBox="0 -960 960 960" width="${size}" height="${size}" aria-hidden="true" focusable="false"><path d="${d}"/></svg>`;
+}
+
 function pickOption(title, options, currentId, anchorEl) {
   return new Promise((resolve) => {
     ensureModalCss();
@@ -1527,9 +1571,14 @@ function pickOption(title, options, currentId, anchorEl) {
     menu.className = 'tmt-menu';
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', title || '');
+    // 选项可带 icon（ICONS 里的键名）。有图标的项会渲染成「图标 + 文字」，
+    // 没有图标时保持纯文字（Language / Theme 这类不需要图标）。
     menu.innerHTML = options
-      .map((o, i) =>
-        `<button type="button" role="menuitem" class="tmt-menu-item${o.id === currentId ? ' is-selected' : ''}" data-i="${i}">${o.name}</button>`)
+      .map((o, i) => {
+        const cls = `tmt-menu-item${o.id === currentId ? ' is-selected' : ''}`;
+        const ic = o.icon ? `<span class="tmt-menu-icon">${iconSvg(o.icon)}</span>` : '';
+        return `<button type="button" role="menuitem" class="${cls}" data-i="${i}">${ic}<span class="tmt-menu-text">${o.name}</span></button>`;
+      })
       .join('');
     document.body.appendChild(menu);
 
@@ -1611,6 +1660,53 @@ document.getElementById('setting-theme').addEventListener('click', async (e) => 
   if (id) { settings.theme = id; saveSettings(); renderSettings(); }
 });
 
+// 诊断行：点一下强制重新应用状态栏（并刷新显示值）。
+// 如果点完后颜色变了，说明逻辑本身是好的、只是某些时机没触发到；
+// 如果点完也没反应，那是插件层面的问题。
+document.getElementById('setting-statusbar')?.addEventListener('click', async () => {
+  statusBarReady = false;   // 强制重新走一遍 setOverlaysWebView
+  await syncNativeBars();
+  renderSettings();
+  tmtToast(i18n('conn.refreshing'));
+});
+
+// ── 连接身份：隧道码 / 密码 ────────────────────────────────────────────
+// 这两项是**身份**，填一次长期不变。地址会变，但不在这里手改
+// （刷新按钮会自动接管新地址）。
+document.getElementById('setting-tunnel-code')?.addEventListener('click', async () => {
+  const v = await tmtPrompt({
+    title: i18n('conn.code'),
+    message: i18n('conn.codeHint'),
+    input: {
+      placeholder: 'ABC123',
+      value: settings.tunnelCode || '',
+    },
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
+  });
+  if (v === null) return;
+  settings.tunnelCode = String(v).trim().toUpperCase();
+  saveSettings();
+  renderSettings();
+});
+
+document.getElementById('setting-tunnel-pass')?.addEventListener('click', async () => {
+  const v = await tmtPrompt({
+    title: i18n('conn.password'),
+    message: i18n('conn.passwordHint'),
+    input: {
+      placeholder: '••••••••',
+      value: settings.tunnelPassword || '',
+    },
+    okText: i18n('action.save'),
+    cancelText: i18n('action.cancel'),
+  });
+  if (v === null) return;
+  settings.tunnelPassword = String(v);
+  saveSettings();
+  renderSettings();
+});
+
 // ── 字号：设置项只显示当前值，点开在表单里调 ────────────────────────────
 // 表单内容照 Scholarius 阅读视图的 .reader-size-controls：
 // 「减 / 数值输入 / 加」，外加一条滑块（同参考应用的交互习惯）。
@@ -1620,11 +1716,9 @@ document.getElementById('setting-fontsize').addEventListener('click', async () =
   const original = settings.fontSize;
   const body =
     '<div class="tmt-size-row">' +
-    `<button class="size-btn" type="button" data-step="-1" aria-label="${i18n('aria.decreaseFont')}">` +
-    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13H5v-2h14v2z"/></svg></button>' +
+    `<button class="size-btn" type="button" data-step="-1" aria-label="${i18n('aria.decreaseFont')}">${iconSvg('remove', 22)}</button>` +
     `<input class="size-input" type="number" inputmode="numeric" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="${i18n('font.aria')}" value="${original}">` +
-    `<button class="size-btn" type="button" data-step="1" aria-label="${i18n('aria.increaseFont')}">` +
-    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>' +
+    `<button class="size-btn" type="button" data-step="1" aria-label="${i18n('aria.increaseFont')}">${iconSvg('add', 22)}</button>` +
     '</div>' +
     `<input class="tmt-size-range" type="range" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="${i18n('font.aria')}">` +
     `<p class="tmt-size-hint">${i18n('font.range', { min: FONT_MIN, max: FONT_MAX })}</p>`;
@@ -1915,8 +2009,15 @@ async function refreshConnection() {
     openConnectionForm();
     return;
   }
-  tmtToast(i18n('conn.refreshing'));
-  const base = await resolveBase();
+  // 进度弹窗：远程连接可能耗时数秒（要逐个试候选地址），
+  // 不给反馈的话用户会以为按钮没反应，反复去点。
+  const prog = showConnProgress(i18n('conn.refreshing'));
+  let base = '';
+  try {
+    base = await resolveBase();
+  } finally {
+    prog.close();
+  }
   if (!base) {
     // 所有候选都不通：可能隧道重建到全新地址了
     const ok = await tmtConfirm(i18n('conn.allLost'), {
@@ -1929,6 +2030,33 @@ async function refreshConnection() {
   }
   await refreshSessions();
   tmtToast(i18n('conn.refreshed'));
+}
+
+// 连接进度弹窗：与更新弹窗（updater.js 的 .ut-*）保持同一套视觉语言。
+// 因为连接没有可量的百分比，用**不确定进度条**（来回滚动），
+// 这比假装显示一个假百分比诚实，也符合"正在重试多个地址"的实际语义。
+function showConnProgress(title) {
+  ensureModalCss();
+  const overlay = document.createElement('div');
+  overlay.className = 'ut-overlay';
+  overlay.innerHTML =
+    '<div class="ut-modal"><h3></h3>' +
+    '<div class="ut-pbar indet"><div class="ut-pfill"></div></div>' +
+    '<p class="ut-ppct"></p></div>';
+  overlay.querySelector('h3').textContent = title;
+  overlay.querySelector('.ut-ppct').textContent = i18n('conn.connecting');
+  document.body.appendChild(overlay);
+  notifyOverlayChange();
+  return {
+    set(text) {
+      const p = overlay.querySelector('.ut-ppct');
+      if (p && text) p.textContent = text;
+    },
+    close() {
+      overlay.remove();
+      notifyOverlayChange();
+    },
+  };
 }
 
 document.getElementById('setting-contact').addEventListener('click', () => {

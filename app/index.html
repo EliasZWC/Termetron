@@ -102,9 +102,23 @@
       <section class="setting-group">
         <h2 class="setting-group-title" data-i18n="group.connection">Connection</h2>
         <ul class="setting-list">
+          <!-- 隧道码 + 密码是**身份**（长期不变）；地址是**传输**（会变）。
+               顺序也照这个语义排：先身份，后地址。 -->
+          <li class="setting-item">
+            <button class="setting-action" type="button" id="setting-tunnel-code">
+              <span class="setting-label" data-i18n="conn.code">Tunnel Code</span>
+              <span class="setting-value" id="setting-tunnel-code-value">not set</span>
+            </button>
+          </li>
+          <li class="setting-item">
+            <button class="setting-action" type="button" id="setting-tunnel-pass">
+              <span class="setting-label" data-i18n="conn.password">Password</span>
+              <span class="setting-value" id="setting-tunnel-pass-value">not set</span>
+            </button>
+          </li>
           <li class="setting-item">
             <button class="setting-action" type="button" id="setting-tsip">
-              <span class="setting-label" data-i18n="setting.tsIp">Address</span>
+              <span class="setting-label" data-i18n="conn.address">Address</span>
               <span class="setting-value" id="setting-tsip-value">not set</span>
             </button>
           </li>
@@ -117,6 +131,14 @@
           <li class="setting-item">
             <span class="setting-label" data-i18n="setting.version">Version</span>
             <span class="setting-value" id="setting-version">—</span>
+          </li>
+          <!-- 诊断行：真机没有控制台，状态栏问题只能靠这个读出来。
+               有意保留在发布版里 —— 这类平台相关的问题以后还会遇到。 -->
+          <li class="setting-item">
+            <button class="setting-action" type="button" id="setting-statusbar">
+              <span class="setting-label">Status Bar</span>
+              <span class="setting-value" id="setting-statusbar-value">—</span>
+            </button>
           </li>
           <li class="setting-item">
             <button class="setting-action" type="button" id="setting-contact">
