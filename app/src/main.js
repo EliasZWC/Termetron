@@ -414,12 +414,21 @@ function sessionRow(name, info) {
 }
 
 async function refreshSessions() {
-  if (!hasConnection()) {
+  // 统一的空状态渲染：任何分支都走这里，保证「没有列表内容」时
+  // 一定有提示文字，而不是一片空白。
+  // ⚠️ 元素可能在 DOM 里被移除（极端情况下），所以两处都做存在性判断。
+  const showEmpty = (titleKey, hintKey, vars) => {
     sessionList.innerHTML = '';
+    if (!sessionsEmpty) return;
     sessionsEmpty.hidden = false;
-    sessionsEmpty.querySelector('.empty-title').textContent = i18n('empty.notConnected');
-    sessionsEmpty.querySelector('.empty-hint').textContent =
-      i18n('empty.notConnectedHint');
+    const t = sessionsEmpty.querySelector('.empty-title');
+    const h = sessionsEmpty.querySelector('.empty-hint');
+    if (t) t.textContent = i18n(titleKey);
+    if (h) h.textContent = hintKey ? i18n(hintKey, vars) : '';
+  };
+
+  if (!hasConnection()) {
+    showEmpty('empty.notConnected', 'empty.notConnectedHint');
     return;
   }
   try {
@@ -427,20 +436,28 @@ async function refreshSessions() {
     sessionList.innerHTML = '';
     const names = Object.keys(data || {});
     if (!names.length) {
-      sessionsEmpty.hidden = false;
-      sessionsEmpty.querySelector('.empty-title').textContent = i18n('empty.noSessions');
-      sessionsEmpty.querySelector('.empty-hint').textContent =
-        i18n('empty.noSessionsHint');
+      showEmpty('empty.noSessions', 'empty.noSessionsHint');
       return;
     }
     sessionsEmpty.hidden = true;
-    names.forEach((n) => sessionList.appendChild(sessionRow(n, data[n])));
+    // ⚠️ 单行渲染失败不能拖垮整个列表 —— 一个坏数据（比如后端返回了
+    //    非对象值）会导致 forEach 抛错，然后整个列表空白、连空状态都
+    //    不显示。这正是"会话页没有空状态提示"的一种成因。
+    let ok = 0;
+    for (const n of names) {
+      try {
+        sessionList.appendChild(sessionRow(n, data[n]));
+        ok += 1;
+      } catch (err) {
+        console.warn('[termetron] failed to render session', n, err);
+      }
+    }
+    if (!ok) showEmpty('empty.noSessions', 'empty.noSessionsHint');
   } catch (err) {
-    sessionList.innerHTML = '';
-    sessionsEmpty.hidden = false;
-    sessionsEmpty.querySelector('.empty-title').textContent = i18n('empty.unreachable');
-    sessionsEmpty.querySelector('.empty-hint').textContent =
-      i18n('empty.unreachableHint', { ip: settings.tsIp, port: settings.port });
+    console.warn('[termetron] refreshSessions failed', err);
+    // 连不上 → 显示"无法连接"，而不是留白
+    showEmpty('empty.unreachable', 'empty.unreachableHint',
+      { ip: settings.tsIp, port: settings.port });
   }
 }
 

@@ -92,6 +92,13 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  /* ⚠️ `html` 也要上背景色：WebView 首帧在 body 完成布局之前就已经画了，
+     这段时间露出的是 <html> 的默认底色（**白色**）。用户看到的就是
+     "先是安卓的白屏，然后才出我们的启动页"。body 有背景但 html 没有，
+     就是这类白闪的典型成因。
+     用固定的启动页色 #1B1B1B 而不是 var(--bg)：启动那一刻主题变量可能
+     还没落到根节点上（applyTheme 在脚本执行后才跑）。 */
+  background: #1B1B1B;
   /* ⚠️ 必须锁死 text-size-adjust。
      Android WebView（以及 iOS Safari）在 `auto` 下会做 **font boosting**：
      它按「容器可用宽度 ÷ 文本量」猜测一个放大系数，把正文/标题一起放大，

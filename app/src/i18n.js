@@ -17,12 +17,12 @@
 const I18N = {
   en: {
     // 页面标题（全大写由 CSS 的 text-transform 处理）
-    'page.sessions': 'Sessions',
+    'page.sessions': 'Session',
     'page.settings': 'Settings',
     'page.terminal': 'Terminal',
 
     // 底部导航
-    'nav.sessions': 'Sessions',
+    'nav.sessions': 'Session',
     'nav.settings': 'Settings',
 
     // 设置分组
@@ -47,7 +47,9 @@ const I18N = {
     'theme.light': 'Light',
 
     // 空状态
-    'empty.noSessions': 'No sessions',
+    // ⚠️ 名词统一用**单数**（Session 而不是 Sessions）：底部 tab 是分类名，
+    //    标题栏是页面名，两者都取单数；复述"多个"的场景交给列表本身表达。
+    'empty.noSessions': 'No session',
     'empty.noSessionsHint':
       "Add your computer's Tailscale IP in Settings, then tap + to start a session.",
     'empty.notConnected': 'Not connected',

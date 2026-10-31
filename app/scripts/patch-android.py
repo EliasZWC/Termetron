@@ -598,6 +598,16 @@ SPLASH_V31 = """<?xml version="1.0" encoding="utf-8"?>
         <item name="android:windowSplashScreenBackground">#1B1B1B</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <!-- ⚠️ windowBackground 也要给：windowSplashScreenBackground 只覆盖
+             Android 12+ 的**系统启动画面**，一旦系统 splash 退场、Activity
+             的窗口还没被 WebView 画满，露出来的就是 windowBackground。
+             缺这一条时默认值是浅色（Theme.SplashScreen 继承的 DayNight
+             在浅色模式下接近白）→ 用户看到"安卓默认启动页闪一下"。 -->
+        <item name="android:windowBackground">#1B1B1B</item>
+        <!-- 启动期间状态栏/导航栏也压成启动页深色，避免顶部一条亮带 -->
+        <item name="android:statusBarColor">#1B1B1B</item>
+        <item name="android:navigationBarColor">#1B1B1B</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>
 """
@@ -626,7 +636,15 @@ def patch_splash() -> None:
     v31.parent.mkdir(parents=True, exist_ok=True)
     v31.write_text(SPLASH_V31, encoding="utf-8")
     print("  values-v31/styles.xml: Android 12+ splash (dark bg + transparent icon)")
-    # 3) Android <12：launch 背景纯深色（若已有 @drawable/splash 则替换为纯色）
+    # 3) Android <12：launch 主题背景纯深色。
+    # ⚠️ 必须用 **android:windowBackground** 而不是 android:background：
+    #    - `android:background` 是 View 级属性，对**窗口**本身不生效；
+    #    - 启动窗口在 Activity 的 contentView 还没 inflate 时就已绘制，
+    #      那时画的是 windowBackground。
+    #    历史实现只写了 android:background，等于什么都没做 —— 这就是
+    #    "原生启动页（白屏）又出现了"的根因之一。
+    #    两个都写：windowBackground 兜住窗口绘制期，background 兜住
+    #    contentView 挂载后的短暂空窗。
     vals = Path("android/app/src/main/res/values/styles.xml")
     if vals.exists():
         s = vals.read_text(encoding="utf-8")
@@ -636,16 +654,31 @@ def patch_splash() -> None:
             i1 = s.index("</style>", i0)
             block = s[i0:i1]
             import re
-            if "android:background" in block:
-                # Capacitor styles.xml 用子元素形式：<item name="android:background">value</item>
-                s = s[:i0] + re.sub(
-                    r'(<item name="android:background">)[^<]*(</item>)',
-                    r'\g<1>#1B1B1B\g<2>', block, count=1) + s[i1:]
-            else:
-                inject = '\n        <item name="android:background">#1B1B1B</item>'
-                s = s[:i1] + inject + s[i1:]
+
+            def set_item(xml_block: str, name: str, value: str) -> str:
+                """设置/新增一个 <item>，新增时保持 8 空格缩进和独立成行。"""
+                pat = rf'(<item name="{re.escape(name)}">)[^<]*(</item>)'
+                if re.search(pat, xml_block):
+                    return re.sub(pat, rf'\g<1>{value}\g<2>', xml_block, count=1)
+                # 插到最后一个 </item> 之后，而不是拼在块尾（否则会和
+                # 后面的 </style> 挤在同一行，读起来像残行）
+                last = xml_block.rfind("</item>")
+                if last >= 0:
+                    insert_at = last + len("</item>")
+                    return (xml_block[:insert_at]
+                            + f'\n        <item name="{name}">{value}</item>'
+                            + xml_block[insert_at:])
+                return xml_block + f'\n        <item name="{name}">{value}</item>'
+
+            block = set_item(block, "android:windowBackground", "#1B1B1B")
+            block = set_item(block, "android:background", "#1B1B1B")
+            # 启动期间的状态栏也压成同一深色（避免顶部亮带）
+            block = set_item(block, "android:statusBarColor", "#1B1B1B")
+            block = set_item(block, "android:navigationBarColor", "#1B1B1B")
+            block = set_item(block, "android:windowLightStatusBar", "false")
+            s = s[:i0] + block + s[i1:]
             vals.write_text(s, encoding="utf-8")
-            print("  values/styles.xml: launch background -> #1B1B1B (solid)")
+            print("  values/styles.xml: launch windowBackground -> #1B1B1B (solid)")
         else:
             print("  values/styles.xml: AppTheme.NoActionBarLaunch not found, skip", file=sys.stderr)
     else:
