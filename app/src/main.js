@@ -489,7 +489,7 @@ function setSessionsEmpty(show) {
     empty.style.display = 'block';
     const t = empty.querySelector('.empty-title');
     const h = empty.querySelector('.empty-hint');
-    if (t) t.textContent = i18n('empty.noSessions') || 'No session';
+    if (t) t.textContent = i18n('empty.noSessions') || 'No Session';
     if (h) h.textContent = i18n('empty.noSessionsHint') || '';
   } else {
     empty.hidden = true;

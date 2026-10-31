@@ -18,12 +18,12 @@ const I18N = {
   en: {
     // 页面标题（全大写由 CSS 的 text-transform 处理）
     'page.sessions': 'Session',
-    'page.settings': 'Settings',
+    'page.settings': 'Setting',
     'page.terminal': 'Terminal',
 
     // 底部导航
     'nav.sessions': 'Session',
-    'nav.settings': 'Settings',
+    'nav.settings': 'Setting',
 
     // 设置分组
     'group.general': 'General',
@@ -49,11 +49,13 @@ const I18N = {
     // 空状态
     // ⚠️ 名词统一用**单数**（Session 而不是 Sessions）：底部 tab 是分类名，
     //    标题栏是页面名，两者都取单数；复述"多个"的场景交给列表本身表达。
-    'empty.noSessions': 'No session',
+    // ⚠️ 大小写：这是**短语**，按 Title Case —— 实词首字母均大写，
+    //    不是句子所以不能只大写首字母（写成 "No session" 是错的）。
+    'empty.noSessions': 'No Session',
     'empty.noSessionsHint': 'Tap + in the top right to start one.',
     'empty.notConnected': 'Not connected',
     'empty.notConnectedHint':
-      "Set your computer's Tailscale IP in Settings to start.",
+      "Set your computer's Tailscale IP in Setting to start.",
     'empty.unreachable': 'Cannot reach computer',
     'empty.unreachableHint':
       'Check that Termetron is running on {ip}:{port} and Tailscale is connected.',
@@ -80,7 +82,7 @@ const I18N = {
     'session.new': 'New Session',
     'session.nameHint': 'Name for the new terminal session',
     'session.namePlaceholder': 'Session name',
-    'session.errNoConnection': "Set your computer's Tailscale IP in Settings first.",
+    'session.errNoConnection': "Set your computer's Tailscale IP in Setting first.",
     'session.errCreate': 'Could not create session:\n{err}',
     'session.errSend': 'Send failed:\n{err}',
 
