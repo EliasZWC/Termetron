@@ -276,7 +276,8 @@ body {
   margin: 0;
   /* 左内边距 = 卡片外边距(16) + 行内边距(20)，保证分区标题与设置项名称左对齐 */
   padding: 14px 36px 6px;
-  font-size: 12px;
+  /* 小的全大写标签，跟随 --fs 同步缩放（原 12px @ 13px 基准） */
+  font-size: calc(var(--fs) * 0.923);
   font-weight: 600;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -311,7 +312,10 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   text-align: left;
-  font-size: 15px;
+  /* ⚠️ 跟随 --fs（字号设置），不要写死 px。
+     原来的 15px 是 --fs:13px 为基准的「界面字比终端正文大一号」，
+     用 calc 保留这个比例，改字号时整个界面一起缩放。 */
+  font-size: calc(var(--fs) * 1.154);
   font-weight: 700;
   color: var(--on-surface);
 }
@@ -319,7 +323,7 @@ body {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 50%;
-  font-size: 15px;
+  font-size: calc(var(--fs) * 1.154);
   font-weight: 400;
   color: var(--on-surface-variant);
   font-variant-numeric: tabular-nums;
@@ -490,9 +494,9 @@ body {
 
 .session-name {
   display: block;
-  font-size: 15px;
+  font-size: calc(var(--fs) * 1.154);
   font-weight: 400;
-  line-height: 20px;
+  line-height: 1.54;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -503,9 +507,9 @@ body {
 .session-cwd {
   display: block;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.923);
   font-weight: 400;
-  line-height: 16px;
+  line-height: 1.33;
   color: var(--on-surface-variant);
   white-space: nowrap;
   overflow: hidden;
@@ -515,7 +519,7 @@ body {
 .session-state {
   flex: none;
   align-self: center;
-  font-size: 13px;
+  font-size: var(--fs);
   font-weight: 400;
   color: var(--on-surface-variant);
 }
@@ -525,8 +529,8 @@ body {
 
 /* ── 空状态 ───────────────────────────────────────────────────────────── */
 .empty { padding: 64px 32px; text-align: center; }
-.empty-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--on-surface); }
-.empty-hint { margin: 0; font-size: 13px; line-height: 1.6; color: var(--on-surface-variant); }
+.empty-title { margin: 0 0 8px; font-size: calc(var(--fs) * 1.154); font-weight: 700; color: var(--on-surface); }
+.empty-hint { margin: 0; font-size: var(--fs); line-height: 1.6; color: var(--on-surface-variant); }
 
 /* ── 终端页 ───────────────────────────────────────────────────────────── */
 #page-terminal {
