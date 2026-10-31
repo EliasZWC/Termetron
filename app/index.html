@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
   <meta name="theme-color" content="#1E1E1E">
   <title>Termetron</title>
   <link rel="stylesheet" href="./src/styles.css">
@@ -61,18 +61,11 @@
             </button>
           </li>
           <li class="setting-item">
-            <!-- 字号：照 Scholarius 阅读视图的 .reader-size-controls
-                 ─ 减 / input[type=number] / 加；不用选项列表 -->
-            <span class="setting-label">Font Size</span>
-            <span class="size-controls">
-              <button class="icon-button size-btn" type="button" id="fontsize-down" aria-label="Decrease font size">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13H5v-2h14v2z"/></svg>
-              </button>
-              <input class="size-input" type="number" id="fontsize-input" inputmode="numeric" min="11" max="24" step="1" aria-label="Font size">
-              <button class="icon-button size-btn" type="button" id="fontsize-up" aria-label="Increase font size">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-              </button>
-            </span>
+            <!-- 字号：行内只显示当前值，点开后在表单里用大小按钮与输入框调 -->
+            <button class="setting-action" type="button" id="setting-fontsize" aria-haspopup="dialog">
+              <span class="setting-label">Font Size</span>
+              <span class="setting-value" id="setting-fontsize-value">—</span>
+            </button>
           </li>
         </ul>
       </section>
@@ -123,8 +116,9 @@
   <nav class="bottom-nav" role="tablist" aria-label="Main">
     <button class="nav-item is-active" type="button" role="tab" id="tab-sessions" aria-controls="page-sessions" aria-selected="true" data-page="sessions">
       <span class="nav-icon" aria-hidden="true">
-        <svg class="nav-icon-outlined" viewBox="0 0 24 24" focusable="false"><path d="M19 5v14H5V5h14m1.1-2H3.9c-.5 0-.9.4-.9.9v16.2c0 .5.4.9.9.9h16.2c.5 0 .9-.4.9-.9V3.9c0-.5-.4-.9-.9-.9zM11 7h6v2h-6zm0 4h6v2h-6zm0 4h6v2h-6zM7 7h2v2H7zm0 4h2v2H7zm0 4h2v2H7z"/></svg>
-        <svg class="nav-icon-filled" viewBox="0 0 24 24" focusable="false"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+        <!-- Google Material Icons: terminal —— 未选中=line / 选中=filled -->
+        <svg class="nav-icon-outlined" viewBox="0 0 24 24" focusable="false"><path d="M20,4H4C2.89,4,2,4.9,2,6v12c0,1.1,0.89,2,2,2h16c1.1,0,2-0.9,2-2V6C22,4.9,21.11,4,20,4z M20,18H4V8h16V18z M18,17h-6v-2h6V17z M7.5,17l-1.41-1.41L8.67,13l-2.59-2.59L7.5,9l4,4L7.5,17z"/></svg>
+        <svg class="nav-icon-filled" viewBox="0 0 24 24" focusable="false"><path d="M20,4H4C2.89,4,2,4.9,2,6v12c0,1.1,0.89,2,2,2h16c1.1,0,2-0.9,2-2V6C22,4.9,21.11,4,20,4z M18,17h-6v-2h6V17z M7.5,17l-1.41-1.41L8.67,13l-2.59-2.59L7.5,9l4,4L7.5,17z"/></svg>
       </span>
       <span class="nav-label">Sessions</span>
     </button>

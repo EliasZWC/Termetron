@@ -86,6 +86,25 @@ const TMT_CSS = `
 .tmt-menu-item{display:block;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:#ECECEA;font:inherit;font-size:14px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tmt-menu-item:active{background:#303030}
 .tmt-menu-item.is-selected{font-weight:600}
+/* ── 字号表单：中间「减 / 数值 / 加」一行 + 下方滑块 ───────────────────
+   按钮/输入框尺寸照 Scholarius 阅读视图 .reader-size-controls 实测值：
+   按钮 32×32 圆形、输入 60×28 / 14px / 居中 / 1px #333333 / 圆角 8px。 */
+.tmt-body{margin:4px 0 8px}
+.tmt-size-row{display:flex;align-items:center;justify-content:center;gap:4px}
+.tmt-size-row .size-btn{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:#9A9A98;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-size-row .size-btn:active{opacity:.55}
+.tmt-size-row .size-btn:disabled{opacity:.32;pointer-events:none}
+.tmt-size-row .size-btn svg{width:22px;height:22px;fill:currentColor}
+.tmt-size-row .size-input{width:60px;height:28px;box-sizing:border-box;padding:0 6px;border:1px solid #333333;border-radius:8px;background:transparent;color:#ECECEA;font:inherit;font-size:14px;font-variant-numeric:tabular-nums;text-align:center;outline:none;-moz-appearance:textfield;appearance:textfield}
+.tmt-size-row .size-input::-webkit-outer-spin-button,
+.tmt-size-row .size-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.tmt-size-row .size-input:focus{border-color:#9A9A98}
+.tmt-size-range{display:block;width:100%;height:24px;margin:14px 0 0;padding:0;background:transparent;-webkit-appearance:none;appearance:none}
+.tmt-size-range::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#333333}
+.tmt-size-range::-moz-range-track{height:3px;border-radius:2px;background:#333333}
+.tmt-size-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;margin-top:-6.5px;border:0;border-radius:50%;background:#F2F2F0;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tmt-size-range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:#F2F2F0;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tmt-size-hint{margin:8px 0 0;font-size:12px;color:#9A9A98;text-align:center}
 `;
 
 function ensureModalCss() {
@@ -99,11 +118,16 @@ function ensureModalCss() {
 
 /**
  * 通用弹窗。
- * @param {{title?:string, message?:string, input?:{placeholder?:string,value?:string,type?:string},
- *          okText?:string, cancelText?:string|null}} opts
+ * @param {{title?:string, message?:string, body?:string,
+ *          input?:{placeholder?:string,value?:string,type?:string},
+ *          okText?:string, cancelText?:string|null,
+ *          setup?:(bodyEl:HTMLElement)=>void}} opts
  * @returns {Promise<string|boolean|null>} 输入框弹窗返回字符串；其它返回 true/false
+ *
+ * `body` 是一段自定义 HTML，插在消息下面、按钮上面；`setup` 在挂载后调用，
+ * 用于绑事件、拿引用。字号表单（滑块 + 加减 + 输入）就走这条路。
  */
-function tmtPrompt({ title, message, input, okText = 'OK', cancelText = null }) {
+function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = null, setup }) {
   ensureModalCss();
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -113,6 +137,7 @@ function tmtPrompt({ title, message, input, okText = 'OK', cancelText = null }) 
       '<div class="tmt-modal">' +
       (title ? '<h3></h3>' : '') +
       (message || hasInput ? '<p></p>' : '') +
+      (body ? '<div class="tmt-body"></div>' : '') +
       (hasInput ? '<input class="tmt-input">' : '') +
       '<div class="tmt-actions">' +
       (cancelText ? '<button class="tmt-btn cancel"></button>' : '') +
@@ -122,6 +147,8 @@ function tmtPrompt({ title, message, input, okText = 'OK', cancelText = null }) 
     if (h) h.textContent = title;
     const p = overlay.querySelector('p');
     if (p) p.textContent = message || '';
+    const bodyEl = overlay.querySelector('.tmt-body');
+    if (bodyEl && body) bodyEl.innerHTML = body;
     const inp = overlay.querySelector('.tmt-input');
     if (inp) {
       inp.type = input.type || 'text';
@@ -151,6 +178,9 @@ function tmtPrompt({ title, message, input, okText = 'OK', cancelText = null }) 
     document.addEventListener('keydown', kd);
     ok.onclick = accept;
     if (cancel) cancel.onclick = () => finish(hasInput ? null : false);
+
+    // 自定义内容的挂载钩子（字号控件等）
+    if (bodyEl && typeof setup === 'function') setup(bodyEl);
 
     // ⚠️ 点表单外区域 = 取消。用 pointerdown 的**捕获**阶段：
     //    这样在 mousedown → mouseup → click 序列里先一步判定，
@@ -470,30 +500,17 @@ function renderSettings() {
   applyFontSize();
 }
 
-// 字号行：只同步 input 的值与按钮可用性，**不要在输入时重渲染整页**
-// （重渲染会把 focus 弄丢，正在输入的手机键盘会收起）
 function renderFontSize() {
-  const inp = document.getElementById('fontsize-input');
-  const down = document.getElementById('fontsize-down');
-  const up = document.getElementById('fontsize-up');
-  if (!inp) return;
-  if (document.activeElement !== inp) inp.value = String(settings.fontSize);
-  down.disabled = settings.fontSize <= FONT_MIN;
-  up.disabled = settings.fontSize >= FONT_MAX;
+  document.getElementById('setting-fontsize-value').textContent = `${settings.fontSize}px`;
 }
 
-function setFontSize(n, { rerender = true } = {}) {
+function setFontSize(n) {
   const v = Math.round(Number(n));
   if (!Number.isFinite(v)) return;
-  const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, v));
-  settings.fontSize = clamped;
+  settings.fontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, v));
   saveSettings();
   applyFontSize();
   renderFontSize();
-  if (rerender && document.activeElement !== document.getElementById('fontsize-input')) {
-    const inp = document.getElementById('fontsize-input');
-    if (inp) inp.value = String(clamped);
-  }
 }
 
 // 通用「下拉选项」菜单：照 Livolog 的 .menu / .menu-item。
@@ -579,32 +596,67 @@ document.getElementById('setting-theme').addEventListener('click', async (e) => 
   if (id) { settings.theme = id; saveSettings(); renderSettings(); }
 });
 
-// ── 字号：减 / 输入 / 加（Scholarius 阅读视图的交互）────────────────────
-// 输入框用 `input` 事件实时跟手；`change`/`blur` 时归一到合法范围，
-// 用户输入 999 或清空都会被拉回 [FONT_MIN, FONT_MAX]。
-document.getElementById('fontsize-down').addEventListener('click', () => {
-  setFontSize(settings.fontSize - 1);
-});
-document.getElementById('fontsize-up').addEventListener('click', () => {
-  setFontSize(settings.fontSize + 1);
-});
-const fontSizeInput = document.getElementById('fontsize-input');
-fontSizeInput.addEventListener('input', () => {
-  const raw = fontSizeInput.value.trim();
-  if (raw === '') return;              // 允许清空后重新输入，不要跳回旧值
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return;
-  if (n < FONT_MIN || n > FONT_MAX) return;  // 超范围先不动，交给 blur 归一
-  setFontSize(n);
-});
-fontSizeInput.addEventListener('change', () => {
-  const n = Number(fontSizeInput.value.trim());
-  setFontSize(Number.isFinite(n) && n > 0 ? n : settings.fontSize);
-  fontSizeInput.value = String(settings.fontSize);
-});
-fontSizeInput.addEventListener('blur', () => {
-  if (fontSizeInput.value.trim() === '') setFontSize(settings.fontSize);
-  fontSizeInput.value = String(settings.fontSize);
+// ── 字号：设置项只显示当前值，点开在表单里调 ────────────────────────────
+// 表单内容照 Scholarius 阅读视图的 .reader-size-controls：
+// 「减 / 数值输入 / 加」，外加一条滑块（同参考应用的交互习惯）。
+// ⚠️ 调节时**实时**作用于页面（applyFontSize 直接改 --fs），这样用户能边调边看；
+//    点「CANCEL」回滚到打开表单时的值，点「SAVE」保留。
+document.getElementById('setting-fontsize').addEventListener('click', async () => {
+  const original = settings.fontSize;
+  const body =
+    '<div class="tmt-size-row">' +
+    '<button class="size-btn" type="button" data-step="-1" aria-label="Decrease font size">' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13H5v-2h14v2z"/></svg></button>' +
+    `<input class="size-input" type="number" inputmode="numeric" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="Font size" value="${original}">` +
+    '<button class="size-btn" type="button" data-step="1" aria-label="Increase font size">' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>' +
+    '</div>' +
+    `<input class="tmt-size-range" type="range" min="${FONT_MIN}" max="${FONT_MAX}" step="1" aria-label="Font size">` +
+    `<p class="tmt-size-hint">${FONT_MIN} – ${FONT_MAX} px</p>`;
+
+  const result = await tmtPrompt({
+    title: 'Font Size',
+    body,
+    okText: 'SAVE',
+    cancelText: 'CANCEL',
+    setup(bodyEl) {
+      const num = bodyEl.querySelector('.size-input');
+      const range = bodyEl.querySelector('.tmt-size-range');
+      const sync = (val) => {
+        const v = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(val)));
+        num.value = String(v);
+        range.value = String(v);
+        bodyEl.querySelector('[data-step="-1"]').disabled = v <= FONT_MIN;
+        bodyEl.querySelector('[data-step="1"]').disabled = v >= FONT_MAX;
+        setFontSize(v);
+      };
+      sync(settings.fontSize);
+      bodyEl.querySelectorAll('.size-btn').forEach((btn) => {
+        btn.addEventListener('click', () => sync(Number(num.value) + Number(btn.dataset.step)));
+      });
+      // range 用 input 事件实时跟手；number 同理，但允许中间态为空/超范围
+      range.addEventListener('input', () => sync(Number(range.value)));
+      num.addEventListener('input', () => {
+        const raw = num.value.trim();
+        if (raw === '') return;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < FONT_MIN || n > FONT_MAX) return;
+        sync(n);
+      });
+      num.addEventListener('blur', () => {
+        const n = Number(num.value.trim());
+        sync(Number.isFinite(n) && n > 0 ? n : settings.fontSize);
+      });
+    },
+  });
+
+  // 取消 → 回滚到打开时的值（先于任何后续重渲染）
+  if (result === null || result === false) {
+    setFontSize(original);
+  } else {
+    setFontSize(settings.fontSize);
+  }
+  renderSettings();
 });
 
 document.getElementById('setting-tsip').addEventListener('click', async () => {
