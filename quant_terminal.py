@@ -2643,6 +2643,59 @@ class RemoteMgr:
 REMOTE = RemoteMgr()
 _LOCAL_PORT = 8899
 
+# 服务实际绑定的地址，由 main() 写入（供 /api/discover 读取）。
+_BOUND_HOST = "127.0.0.1"
+
+
+def _bound_host() -> str:
+    return _BOUND_HOST
+
+
+def _local_addrs() -> list:
+    """列出本机可用于让手机连过来的地址。
+
+    ⚠️ 顺序有讲究：Tailscale（100.64.0.0/10）排最前 —— 它是点对点直连，
+       延迟最低，是 PTY 终端的首选；其次才是局域网地址。
+    Tailscale 地址从网卡枚举里取，而不是依赖 tailscale CLI：
+    App 只需要一个「能连上的地址」，服务端把自己看到的都报出来即可。
+    """
+    out = []
+    # 1) Tailscale CGNAT 段
+    try:
+        import socket
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            parts = ip.split(".")
+            if len(parts) == 4 and parts[0] == "100":
+                try:
+                    if 64 <= int(parts[1]) <= 127:
+                        out.append({"ip": ip, "kind": "tailscale"})
+                except ValueError:
+                    pass
+    except (OSError, socket.gaierror):
+        pass
+    # 2) 局域网地址（UDP connect 取默认路由出口，不需要真的发包）
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            lan = s.getsockname()[0]
+        finally:
+            s.close()
+        if lan and not lan.startswith("127.") and all(a["ip"] != lan for a in out):
+            out.append({"ip": lan, "kind": "lan"})
+    except OSError:
+        pass
+    # 3) 兜底：服务实际绑定的地址。WSL / 容器里 getaddrinfo 常常拿不到
+    #    tailscale0 的地址（hostname 解析不到 100.x），但服务既然已经绑上
+    #    那个地址，它一定可达 —— 直接补进去，并保留 bound 标记供 App 优先选。
+    bh = _bound_host()
+    if bh and not bh.startswith("127.") and all(a["ip"] != bh for a in out):
+        kind = "tailscale" if bh.startswith("100.") else "bound"
+        out.insert(0, {"ip": bh, "kind": kind})
+    return out
+
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, body: bytes, ctype: str,
@@ -2750,6 +2803,21 @@ class Handler(BaseHTTPRequestHandler):
             st["authenticated"] = self._authed()
             st["auth_required"] = self._remote() and not self._authed()
             self._json(st)
+        elif path == "/api/discover":
+            # 无需鉴权的自我描述：手机端连上后能知道「我是谁、还有哪些地址可连」。
+            # ⚠️ 只返回地址与版本，不含任何会话/文件信息 —— 这个接口暴露在
+            #    tailnet 内部，拿到地址并不能读数据（其余 /api/* 都要鉴权）。
+            #    这样 App 可以在设置页一键填入正确 IP，不必让用户去
+            #    `tailscale ip -4` 里手抄。
+            self._json({
+                "ok": True,
+                "app": "termetron",
+                "version": _QT_ABOUT.get("version") if isinstance(_QT_ABOUT, dict) else None,
+                "host": _bound_host(),
+                "port": _LOCAL_PORT,
+                "addrs": _local_addrs(),
+                "platform": sys.platform,
+            })
         elif path == "/api/remote/pairstatus":
             key = self._query("key")
             if REMOTE.status == "on" and key and key in REMOTE.allowed:
@@ -3050,7 +3118,7 @@ def main() -> None:
     ap.add_argument("--local-only", action="store_true",
                     help="强制只监听 127.0.0.1（即使检测到 Tailscale IP）")
     args = ap.parse_args()
-    global _LOCAL_PORT
+    global _LOCAL_PORT, _BOUND_HOST
     _LOCAL_PORT = args.port
 
     # 监听地址：显式 --host > --local-only > Tailscale IP > 127.0.0.1
@@ -3120,6 +3188,8 @@ def main() -> None:
               + ("..." if len(restored_info) > 8 else ""))
 
     srv = ThreadingHTTPServer((host, args.port), Handler)
+    # 记录真实绑定地址，供 /api/discover 告诉手机端「我该连哪里」。
+    _BOUND_HOST = host
     print(f"Termetron running at http://{host}:{args.port}  ({why})")
     if why == "tailscale":
         print(f"[termetron] On your phone: set Tailscale IP to {host}, port {args.port}")

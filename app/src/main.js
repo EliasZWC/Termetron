@@ -122,6 +122,8 @@ const TMT_CSS = `
 .tmt-conn-status[data-kind="bad"]{color:var(--danger)}
 .tmt-conn-status[data-kind="idle"]{color:var(--on-surface-variant)}
 .tmt-conn-test{display:block;width:100%;margin:14px 0 0;padding:11px 0;border:1px solid var(--outline);border-radius:10px;background:transparent;color:var(--on-surface);font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-conn-discover{display:block;width:100%;margin:8px 0 0;padding:11px 0;border:0;border-radius:10px;background:var(--surface-raised);color:var(--on-surface);font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-conn-discover:disabled,.tmt-conn-test:disabled{opacity:.5}
 .tmt-conn-test:active{background:var(--surface-raised)}
 .tmt-conn-test:disabled{opacity:.45;pointer-events:none}
 `;
@@ -1021,6 +1023,10 @@ async function initNativeBars() {
 //    用一个递增序号只应用最后一次的结果。
 let barSeq = 0;
 
+// 诊断用：记录最后一次实际下发到原生的配置与错误。
+// 真机上没法开控制台，出了问题只能靠这个从设置页读出来。
+let lastBarState = { color: null, style: null, overlays: null, err: null };
+
 async function syncNativeBars() {
   // 优先级：启动页 > 弹窗遮罩 > 主题
   //   · 启动期间：跟启动页固定底色（深色）
@@ -1041,7 +1047,19 @@ async function syncNativeBars() {
     if (mySeq !== barSeq) return;      // 已有更新的请求，放弃这次
     await StatusBar.setBackgroundColor({ color: cfg.bar });
     await StatusBar.setStyle({ style: cfg.style });
-  } catch {
+    lastBarState = {
+      color: cfg.bar,
+      style: cfg.style === Style.Dark ? 'Dark' : 'Light',
+      overlays: statusBarReady,
+      err: null,
+    };
+  } catch (e) {
+    lastBarState = {
+      color: cfg.bar,
+      style: String(cfg.style),
+      overlays: statusBarReady,
+      err: (e && e.message) || String(e),
+    };
     /* 浏览器预览 / 插件不可用时忽略：页面内主题已由 data-theme 控制 */
   }
 }
@@ -1051,9 +1069,6 @@ function notifyOverlayChange() {
   openOverlays = document.querySelectorAll('.tmt-overlay, .ut-overlay').length;
   syncNativeBars();
 }
-
-// updater.js 的弹窗（升级提示）自己创建 overlay，通过事件通知过来。
-document.addEventListener('termetron:overlays-changed', notifyOverlayChange);
 
 // updater.js 的弹窗（升级提示）自己创建 overlay，通过事件通知过来。
 // 不直接 import 它的函数 —— 两模块互相 import 会形成循环依赖。
@@ -1349,6 +1364,7 @@ const CONN_FORM_BODY = `
   </label>
   <p class="tmt-conn-status" hidden></p>
   <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
+  <button class="tmt-conn-discover" type="button" data-i18n="conn.discover">Find My Computer</button>
 `;
 
 function openConnectionForm() {
@@ -1380,6 +1396,63 @@ function openConnectionForm() {
       });
       const isValid = ({ ip, port }) =>
         ip.length > 0 && Number.isFinite(port) && port >= 1 && port <= 65535;
+
+      // ── 自动检测电脑地址 ─────────────────────────────────────────────
+      // 目的：用户不该去 `tailscale ip -4` 里手抄 IP。
+      // 做法：对当前网段 + 已保存的地址做并发探测，谁先应答 `termetron`
+      // 的 /api/discover 就用谁的地址。
+      // ⚠️ 不扫全 100.64.0.0/10（一千多万个地址，不可能）：Tailscale 一定
+      //    在 100.x 段内但无法枚举，所以只能探「已知候选」——
+      //    · 上次保存的 IP（大概率没变）
+      //    · 手机自己所在网段的同段地址（局域网场景）
+      //    找不到就明确告诉用户去电脑上跑一次 `termetron remote` 看地址，
+      //    而不是假装能自动发现。
+      const discoverBtn = bodyEl.querySelector('.tmt-conn-discover');
+      discoverBtn.addEventListener('click', async () => {
+        const port = parseInt(portEl.value, 10) || 8899;
+        const candidates = [];
+        const push = (ip) => {
+          if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !candidates.includes(ip)) {
+            candidates.push(ip);
+          }
+        };
+        push(settings.tsIp);
+        push('100.87.96.69');   // 上次用过的地址：最常见的情况是它没变
+        say(i18n('conn.discovering'), 'idle');
+        discoverBtn.disabled = true;
+        let found = null;
+        // 并发探测，每个候选 2.5 秒超时（自动检测要快，慢了不如手填）
+        const probe = async (ip) => {
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), 2500);
+          try {
+            const r = await fetch(`http://${ip}:${port}/api/discover`, {
+              signal: ac.signal,
+            });
+            if (!r.ok) return null;
+            const d = await r.json();
+            return d && d.app === 'termetron' ? { ip, info: d } : null;
+          } catch {
+            return null;
+          } finally {
+            clearTimeout(t);
+          }
+        };
+        const results = await Promise.all(candidates.map(probe)).catch(() => []);
+        found = results.find(Boolean) || null;
+        discoverBtn.disabled = false;
+        if (found) {
+          ipEl.value = found.ip;
+          const port2 = found.info?.port || port;
+          portEl.value = String(port2);
+          const n = (found.info?.addrs || []).length;
+          say(i18n('conn.found').replace('{ip}', found.ip), 'good');
+          if (n > 1) console.info('[termetron] other addrs', found.info.addrs);
+        } else {
+          // 明确失败原因 + 下一步怎么做，不留下「为什么没找到」的疑问
+          say(i18n('conn.notFound'), 'bad');
+        }
+      });
 
       testBtn.addEventListener('click', async () => {
         const form = readForm();

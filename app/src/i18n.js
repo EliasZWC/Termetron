@@ -95,6 +95,11 @@ const I18N = {
     'conn.ok': 'Connected · {n} session(s)',
     'conn.fail': 'Cannot reach the server.\n{err}',
     'conn.timeout': 'Timed out after 8s',
+    'conn.discover': 'FIND MY COMPUTER',
+    'conn.discovering': 'Looking for your computer…',
+    'conn.found': 'Found Termetron at {ip}.',
+    'conn.notFound':
+      'Not found. Make sure Tailscale is connected on both devices, then run termetron on the computer to see its address.',
     'conn.invalid': 'Enter a valid IP and a port between 1 and 65535.',
 
     // 字号
@@ -184,6 +189,10 @@ const I18N = {
     'conn.ok': '已连接 · {n} 个会话',
     'conn.fail': '无法连接到服务器。\n{err}',
     'conn.timeout': '8 秒内未响应',
+    'conn.discover': '查找我的电脑',
+    'conn.discovering': '正在查找你的电脑…',
+    'conn.found': '已在 {ip} 找到 Termetron。',
+    'conn.notFound': '未找到。请确认两端 Tailscale 都已连接，并在电脑上运行 termetron 查看其地址。',
     'conn.invalid': '请输入有效的 IP 和 1–65535 之间的端口。',
 
     'font.title': '字号',
