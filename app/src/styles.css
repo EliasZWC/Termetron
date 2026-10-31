@@ -480,13 +480,22 @@ body {
   justify-content: center;
   gap: 22px;
   padding-bottom: 6vh;
-  background: var(--bg);
+  /* ⚠️ 启动页底色**必须写死**，不能用 var(--bg)。
+     原因：它要和**原生启动屏**（capSplashScreen 的 backgroundColor / Android
+     windowSplashScreenBackground，都是 #1B1B1B）无缝衔接。若这里跟随
+     --bg，日间主题下 WebView 的启动页是 #EFEFED、原生启动屏仍是 #1B1B1B，
+     切换瞬间会闪一下。启动页是一次性的品牌画面，不属于"页面"，不该跟主题。
+     注意这个值不是 --bg（#1E1E1E），而是图标底板色 #1B1B1B —— 见 SPLASH_BG。 */
+  background: #1B1B1B;
   z-index: 99999;
   pointer-events: none;
   animation: ut-splash 3.4s ease forwards;
 }
 @keyframes ut-splash { 0%, 85.3% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
-.splash svg { width: 108px; height: 108px; color: var(--accent); overflow: visible; }
+/* ⚠️ 图形与品牌字也用固定色（不用 --accent）：
+   日间主题下 --accent 是 #1B1B1B，画在固定的 #1B1B1B 背景上会完全看不见。
+   启动页是一次性品牌画面，整套配色都与原生启动屏一致、不跟主题。 */
+.splash svg { width: 108px; height: 108px; color: #F2F2F0; overflow: visible; }
 @keyframes sp-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 .sp-chev { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sp-draw 0.85s cubic-bezier(.4,0,.2,1) 0.05s forwards; }
 @keyframes sp-pop { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
@@ -494,7 +503,7 @@ body {
 .sp-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sp-draw 0.45s cubic-bezier(.4,0,.2,1) 1.10s forwards; }
 .splash-brand {
   display: flex;
-  color: var(--accent);
+  color: #F2F2F0;
   font-size: 24px;
   font-weight: 700;
   letter-spacing: 7px;
