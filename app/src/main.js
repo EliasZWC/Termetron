@@ -144,6 +144,21 @@ const TMT_CSS = `
 .tmt-conn-test:disabled{opacity:.5}
 .tmt-conn-test:active{background:var(--surface-raised)}
 .tmt-conn-test:disabled{opacity:.45;pointer-events:none}
+/* ── 连接进度弹窗（.ut-*）───────────────────────────────────────────────
+   ⚠️ 这套类名属于 updater.js 的 MODAL_CSS，但那个文件只在自己弹更新框时
+      注入样式。showConnProgress() 直接用 .ut-overlay 却没注入 → 元素没有
+      position:fixed，会按普通流排在页面里（表现就是"缓冲条出现在导航栏
+      下方"）。这里必须自带一份，不能指望 updater 先跑过。
+      数值与 updater.js 的 MODAL_CSS 保持一致，改一边要同步另一边。 */
+.ut-overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:flex-end;justify-content:center;z-index:9999;font-family:'Termetron Mono','Roboto Mono','Droid Sans Mono',monospace}
+.ut-modal{background:var(--surface);border:0;border-radius:20px 20px 0 0;padding:8px 20px calc(20px + env(safe-area-inset-bottom));width:min(560px,100%);color:var(--on-surface);box-shadow:0 -8px 32px rgba(0,0,0,.28);text-align:left}
+.ut-modal h3{color:var(--nav-active);margin:12px 0 8px;font-size:15px;font-weight:700}
+.ut-modal p{margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--on-surface-variant);white-space:pre-line;word-break:break-word}
+.ut-pbar{height:6px;background:var(--surface-raised);border-radius:3px;overflow:hidden;margin:2px 0 10px;position:relative}
+.ut-pfill{height:100%;width:0;background:var(--nav-active);transition:width .2s ease}
+.ut-pbar.indet .ut-pfill{width:36%;animation:ut-indet 1.4s ease-in-out infinite}
+@keyframes ut-indet{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+.ut-ppct{color:var(--on-surface-variant);font-size:12px;text-align:left;margin:0}
 `;
 
 function ensureModalCss() {
@@ -1392,10 +1407,6 @@ async function initNativeBars() {
 //    用一个递增序号只应用最后一次的结果。
 let barSeq = 0;
 
-// 诊断用：记录最后一次实际下发到原生的配置与错误。
-// 真机上没法开控制台，出了问题只能靠这个从设置页读出来。
-let lastBarState = { color: null, style: null, overlays: null, err: null };
-
 async function syncNativeBars() {
   // 优先级：启动页 > 弹窗遮罩 > 主题
   //   · 启动期间：跟启动页固定底色（深色）
@@ -1416,19 +1427,7 @@ async function syncNativeBars() {
     if (mySeq !== barSeq) return;      // 已有更新的请求，放弃这次
     await StatusBar.setBackgroundColor({ color: cfg.bar });
     await StatusBar.setStyle({ style: cfg.style });
-    lastBarState = {
-      color: cfg.bar,
-      style: cfg.style === Style.Dark ? 'Dark' : 'Light',
-      overlays: statusBarReady,
-      err: null,
-    };
-  } catch (e) {
-    lastBarState = {
-      color: cfg.bar,
-      style: String(cfg.style),
-      overlays: statusBarReady,
-      err: (e && e.message) || String(e),
-    };
+  } catch {
     /* 浏览器预览 / 插件不可用时忽略：页面内主题已由 data-theme 控制 */
   }
 }
@@ -1491,16 +1490,6 @@ function renderSettings() {
   renderFontSize();
   document.getElementById('setting-version').textContent =
     'v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
-  // 状态栏诊断值：颜色 / 覆盖模式 / 错误。真机没有控制台，只能这样看。
-  const sbEl = document.getElementById('setting-statusbar-value');
-  if (sbEl) {
-    const st = lastBarState;
-    const bits = [];
-    bits.push(st.color || '?');
-    bits.push(st.overlays ? 'no-overlay' : 'overlay');
-    if (st.err) bits.push('ERR:' + String(st.err).slice(0, 28));
-    sbEl.textContent = bits.join(' · ');
-  }
   // 语言可能刚变过：先把 DOM 上的 data-i18n 文案全部刷新一遍
   setLang(settings.language);
   applyI18n();
@@ -1658,16 +1647,6 @@ document.getElementById('setting-language').addEventListener('click', async (e) 
 document.getElementById('setting-theme').addEventListener('click', async (e) => {
   const id = await pickOption(i18n('setting.theme'), THEMES, settings.theme, e.currentTarget);
   if (id) { settings.theme = id; saveSettings(); renderSettings(); }
-});
-
-// 诊断行：点一下强制重新应用状态栏（并刷新显示值）。
-// 如果点完后颜色变了，说明逻辑本身是好的、只是某些时机没触发到；
-// 如果点完也没反应，那是插件层面的问题。
-document.getElementById('setting-statusbar')?.addEventListener('click', async () => {
-  statusBarReady = false;   // 强制重新走一遍 setOverlaysWebView
-  await syncNativeBars();
-  renderSettings();
-  tmtToast(i18n('conn.refreshing'));
 });
 
 // ── 连接身份：隧道码 / 密码 ────────────────────────────────────────────
