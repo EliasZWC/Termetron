@@ -248,11 +248,8 @@ body {
   margin-left: auto;
 }
 .topbar-icon-btn:active { opacity: 0.55; }
-/* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号
-   ⚠️ 这里**不能**写 fill: currentColor：顶栏图标现在全部是
-      fill="none" + stroke="currentColor" 的线性图标，CSS 的 fill 会
-      盖掉 SVG 属性，把它们填成一坨实心块（与导航栏同一类错误）。 */
-.topbar-icon-btn svg { width: 22px; height: 22px; }
+/* Scholarius 的 svg 是 22px，比返回箭头的 24px 小一号 */
+.topbar-icon-btn svg { width: 22px; height: 22px; fill: currentColor; }
 
 /* ── 内容区 ───────────────────────────────────────────────────────────── */
 #content {
@@ -423,24 +420,15 @@ body {
   display: block;
   width: 24px;
   height: 24px;
+  fill: currentColor;
   grid-area: 1 / 1;
 }
-/* ⚠️⚠️ 不要给 `.nav-icon svg` 写 `fill: currentColor`！
-   CSS 声明**永远强于** SVG 元素上的 `fill="none"` 属性，
-   于是 outlined（描边）图标会被强行填成实心块 —— 用户看到的就是
-   「线性图标中间怎么是实心的，这也不线性啊」。
-   正解：填充与描边分别写在**具体类**上，让两者互不干扰：
-     · .nav-icon-outlined → fill:none + stroke:currentColor
-     · .nav-icon-filled   → fill:currentColor + stroke:none
-   这样无论哪个显示，样式都由自己的类决定。 */
-.nav-icon .nav-icon-outlined {
-  fill: none;
-  stroke: currentColor;
-}
-.nav-icon .nav-icon-filled {
-  fill: currentColor;
-  stroke: none;
-}
+/* ⚠️ 图标一律用 Google Material Symbols 官方 path（viewBox="0 -960 960 960"），
+   不要手绘 SVG。官方图标的「线性 / 实心」差异**在 path 数据本身**
+   （outlined 版路径有外框描边、内部镂空；filled 版是实心面），
+   两者都用 fill: currentColor 渲染，切换靠 display 控制。
+   之前我把 .nav-icon svg 的 fill 删掉、改用 stroke，导致官方图标失去填充、
+   渲染成细碎线条 —— 方向错了，已改回。 */
 /* ⚠️ 必须比 `.nav-icon svg` 更强或写在它后面：
    两条同优先级(0,1,1)靠书写顺序决胜，放前面会被 display:block 盖掉，
    于是两个图标同时显示（Livolog 里实测踩过）。这里用 (0,2,0) 双保险。 */

@@ -22,11 +22,13 @@ const DEFAULTS = {
   language: 'en',
   theme: 'dark',
   fontSize: 13,
+  // 隧道地址（完整 URL）。主字段。
+  address: '',
+  // ⚠️ tsIp / port 是旧字段，保留只为兼容已安装用户的本地存储：
+  //    tsIp 历史上存过「Tailscale IP」也存过完整 URL；port 只在
+  //    用户输入裸主机名时才用来拼地址。新代码一律读写 address。
   tsIp: '',
   port: 8899,
-  // 备用地址列表：隧道 URL 失效时按顺序接力尝试。
-  // ⚠️ 这是「URL 换了但会话不能断」的关键 —— trycloudflare 每次重建
-  //    都会给新 URL，App 必须记住旧的、也接受新的，并且知道该切到哪个。
   altEndpoints: [],
 };
 
@@ -249,11 +251,13 @@ function tmtConfirm(message, { title = 'TERMETRON', okText = 'OK', cancelText = 
 // ═══════════════════════════════════════════════════════════════════════
 
 function baseUrl() {
-  const ip = (settings.tsIp || '').trim();
-  if (!ip) return '';
-  // 允许用户直接粘 http://ip 或 ip:port
-  if (/^https?:\/\//i.test(ip)) return ip.replace(/\/+$/, '');
-  return `http://${ip}:${settings.port}`;
+  // 隧道方案：地址就是一个完整 URL（https://xxx.trycloudflare.com）。
+  // settings.address 是主字段；tsIp 保留兼容旧数据（曾存 IP 或完整 URL）。
+  const raw = (settings.address || settings.tsIp || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/+$/, '');
+  // 裸地址（无协议）：补 http，并按需带端口
+  return `http://${raw}:${settings.port}`;
 }
 
 function hasConnection() {
@@ -464,12 +468,41 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 // 终端页左上角返回键：回到会话列表
 document.getElementById('btn-back')?.addEventListener('click', () => showPage('sessions'));
 
-// Android 返回键：终端页 → 回会话列表；其它 → 退出
-App.addListener('backButton', ({ canGoBack }) => {
+// Android 返回键：**逐层回退**，最后才退出 App。
+// ⚠️ 旧实现只有「终端页 → 会话列表」一层，其它页面按返回**直接退出应用** ——
+//    用户从设置页按返回，整个 App 就没了，非常突然。
+//    正确的层级（由近及远）：
+//      1. 有弹窗/菜单打开 → 关掉它（相当于取消）
+//      2. 终端页         → 回会话列表
+//      3. 设置页         → 回会话列表（tab 的上一级）
+//      4. 已在会话列表   → 退出 App
+//    这样「返回」永远先收一层，符合用户对 Android 的既有预期。
+App.addListener('backButton', () => {
+  // 1) 先关最上层的浮层：菜单 / 弹窗 / 下拉
+  const overlays = document.querySelectorAll('.tmt-overlay, .ut-overlay, .tmt-menu');
+  if (overlays.length) {
+    const top = overlays[overlays.length - 1];
+    // 弹窗通过点「取消」关闭，才能走它自己的清理（resolve、移除监听、通知状态栏）
+    const cancel = top.querySelector('.tmt-btn.cancel');
+    if (cancel) {
+      cancel.click();
+    } else {
+      // 下拉菜单没有取消按钮：派发一次 Esc 让它的 onKey 处理
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    }
+    return;
+  }
+  // 2) 终端页 → 会话列表
   if (currentPage === 'terminal') {
     showPage('sessions');
     return;
   }
+  // 3) 设置页 → 会话列表
+  if (currentPage === 'setting') {
+    showPage('sessions');
+    return;
+  }
+  // 4) 已在顶层页面，才真正退出
   App.exitApp();
 });
 
@@ -1366,9 +1399,6 @@ function renderSettings() {
   document.getElementById('setting-theme-value').textContent =
     i18n('theme.' + settings.theme);
   renderFontSize();
-  document.getElementById('setting-tsip-value').textContent =
-    settings.tsIp || i18n('value.notSet');
-  document.getElementById('setting-port-value').textContent = String(settings.port);
   document.getElementById('setting-version').textContent =
     'v' + (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
   // 语言可能刚变过：先把 DOM 上的 data-i18n 文案全部刷新一遍
@@ -1376,10 +1406,9 @@ function renderSettings() {
   applyI18n();
   // ⚠️ applyI18n 会无脑覆盖 [data-i18n] 元素的 textContent，
   //    而 #setting-tsip-value 同时带 data-i18n="value.notSet" ——
-  //    有 IP 时会被打回 "not set"（实测 tsIp 存了 100.1.2.3 却显示"未设置"）。
-  //    所以必须在 applyI18n **之后**重新写一次动态值。
+  //    有地址时会被打回 "not set"。所以必须在 applyI18n **之后**重写动态值。
   document.getElementById('setting-tsip-value').textContent =
-    settings.tsIp || i18n('value.notSet');
+    settings.address || settings.tsIp || i18n('value.notSet');
   // 顶栏标题不是 data-i18n（终端页要显示会话名），单独刷
   if (currentPage !== 'terminal') {
     const title = titleEl();
@@ -1565,31 +1594,35 @@ document.getElementById('setting-tsip').addEventListener('click', async () => {
   const v = await tmtPrompt({
     title: i18n('setting.tsIp'),
     message: i18n('tsip.prompt'),
-    input: { placeholder: '100.x.y.z', value: settings.tsIp },
+    input: {
+      placeholder: 'https://xxxx.trycloudflare.com',
+      value: baseUrl() || '',
+    },
     okText: i18n('action.save'),
     cancelText: i18n('action.cancel'),
   });
   if (v === null) return;
-  settings.tsIp = v;
+  const raw = String(v).trim();
+  if (!raw) { err(i18n('conn.invalid')); return; }
+  let s = raw;
+  if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+  s = s.replace(/\/+$/, '');
+  try {
+    if (!new URL(s).hostname) { err(i18n('conn.invalid')); return; }
+  } catch {
+    err(i18n('conn.invalid'));
+    return;
+  }
+  settings.address = s;
+  settings.tsIp = s;
+  rememberEndpoint(s);
   saveSettings();
   renderSettings();
 });
 
-document.getElementById('setting-port').addEventListener('click', async () => {
-  const v = await tmtPrompt({
-    title: i18n('setting.port'),
-    message: i18n('port.prompt'),
-    input: { placeholder: '8899', value: String(settings.port), type: 'number' },
-    okText: i18n('action.save'),
-    cancelText: i18n('action.cancel'),
-  });
-  if (v === null) return;
-  const n = parseInt(v, 10);
-  if (!n || n < 1 || n > 65535) { err(i18n('port.invalid')); return; }
-  settings.port = n;
-  saveSettings();
-  renderSettings();
-});
+// ⚠️ 端口项已移除：隧道地址是完整 URL（自带域名，无端口），
+//    单独的端口输入只会让用户困惑。settings.port 仅保留给
+//    「裸 IP / 主机名」这种旧式输入时的兜底拼接。
 
 // ── 连接设置：顶栏左侧的链条图标 → 表单（IP + 端口），可当场测试 ────────
 // 设置页里的 Tailscale IP / Port 两项与这里读写同一份 settings，
@@ -1598,15 +1631,10 @@ document.getElementById('setting-port').addEventListener('click', async () => {
 //    因为连接是高频动作，不该埋在设置里翻两层。
 const CONN_FORM_BODY = `
   <label class="tmt-field">
-    <span class="tmt-field-label" data-i18n="conn.ip">Tailscale IP</span>
-    <input class="tmt-input tmt-conn-ip" type="text" inputmode="decimal"
+    <span class="tmt-field-label" data-i18n="conn.address">Address</span>
+    <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
            autocomplete="off" autocapitalize="off" spellcheck="false"
-           placeholder="100.x.y.z">
-  </label>
-  <label class="tmt-field">
-    <span class="tmt-field-label" data-i18n="conn.port">Port</span>
-    <input class="tmt-input tmt-conn-port" type="number" inputmode="numeric"
-           min="1" max="65535" placeholder="8899">
+           placeholder="https://xxxx.trycloudflare.com">
   </label>
   <p class="tmt-conn-status" hidden></p>
   <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
@@ -1619,12 +1647,10 @@ function openConnectionForm() {
     okText: i18n('action.save'),
     cancelText: i18n('action.cancel'),
     setup(bodyEl) {
-      const ipEl = bodyEl.querySelector('.tmt-conn-ip');
-      const portEl = bodyEl.querySelector('.tmt-conn-port');
+      const addrEl = bodyEl.querySelector('.tmt-conn-addr');
       const stat = bodyEl.querySelector('.tmt-conn-status');
       const testBtn = bodyEl.querySelector('.tmt-conn-test');
-      ipEl.value = settings.tsIp || '';
-      portEl.value = String(settings.port || 8899);
+      addrEl.value = baseUrl() || '';
       // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
       bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
         el.textContent = i18n(el.dataset.i18n);
@@ -1635,22 +1661,30 @@ function openConnectionForm() {
         stat.hidden = !msg;
         stat.dataset.kind = kind || '';
       };
-      const readForm = () => ({
-        ip: ipEl.value.trim(),
-        port: parseInt(portEl.value, 10),
-      });
-      const isValid = ({ ip, port }) =>
-        ip.length > 0 && Number.isFinite(port) && port >= 1 && port <= 65535;
+      // 地址归一化：允许 https://域名、http://ip:port；裸地址自动补 http。
+      const normalize = (raw) => {
+        if (!raw) return '';
+        let s = raw.trim();
+        if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+        return s.replace(/\/+$/, '');
+      };
+      const isValid = (raw) => {
+        const s = normalize(raw);
+        if (!s) return false;
+        try {
+          return !!new URL(s).hostname;
+        } catch {
+          return false;
+        }
+      };
 
       testBtn.addEventListener('click', async () => {
-        const form = readForm();
-        if (!isValid(form)) { say(i18n('conn.invalid'), 'bad'); return; }
+        const raw = addrEl.value;
+        if (!isValid(raw)) { say(i18n('conn.invalid'), 'bad'); return; }
         say(i18n('conn.testing'), 'idle');
         testBtn.disabled = true;
         // 用**表单里的值**去测，不是 settings —— 用户此刻还没点保存
-        const url = /^https?:\/\//i.test(form.ip)
-          ? form.ip.replace(/\/+$/, '')
-          : `http://${form.ip}:${form.port}`;
+        const url = normalize(raw);
         // ⚠️ fetch 必须带超时。Android WebView 里连一个**不可达**的 IP 时，
         //    TCP 握手会一直挂到系统默认超时（实测 75~130 秒，视内核参数而定），
         //    期间界面就停在 "Testing…" 一动不动，用户以为卡死。
@@ -1659,14 +1693,17 @@ function openConnectionForm() {
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), 8000);
         try {
-          const res = await fetch(`${url}/api/sessions`, {
+          // 用 /api/discover 而不是 /api/sessions：前者能确认「对端真是
+          // termetron」（返回 app="termetron"），后者任何正常 HTTP 服务
+          // 都可能是 200，容易误判成连上了。
+          const res = await fetch(`${url}/api/discover`, {
             headers: { 'Content-Type': 'application/json' },
             signal: ac.signal,
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
-          const n = Object.keys(data || {}).length;
-          say(i18n('conn.ok').replace('{n}', String(n)), 'good');
+          const d = await res.json();
+          if (d?.app !== 'termetron') throw new Error(i18n('conn.notTermetron'));
+          say(i18n('conn.ok').replace('{v}', d.version || '?'), 'good');
         } catch (e2) {
           // AbortError 的 message 在部分 WebView 上是空的，单独判一下，
           // 统一换成可读的「超时」提示。
@@ -1681,23 +1718,32 @@ function openConnectionForm() {
       });
     },
     onAccept(bodyEl) {
-      const ipEl = bodyEl?.querySelector('.tmt-conn-ip');
-      const portEl = bodyEl?.querySelector('.tmt-conn-port');
-      if (!ipEl || !portEl) return true;
-      const ip = ipEl.value.trim();
-      const port = parseInt(portEl.value, 10);
-      // 校验失败就不关闭弹窗，让用户改
-      if (!ip || !Number.isFinite(port) || port < 1 || port > 65535) {
+      const addrEl = bodyEl?.querySelector('.tmt-conn-addr');
+      if (!addrEl) return true;
+      const raw = addrEl.value.trim();
+      const bad = (msgKey) => {
         const stat = bodyEl.querySelector('.tmt-conn-status');
         if (stat) {
-          stat.textContent = i18n('conn.invalid');
+          stat.textContent = i18n(msgKey);
           stat.hidden = false;
           stat.dataset.kind = 'bad';
         }
         return false;
+      };
+      if (!raw) return bad('conn.invalid');
+      let s = raw;
+      if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+      s = s.replace(/\/+$/, '');
+      try {
+        if (!new URL(s).hostname) return bad('conn.invalid');
+      } catch {
+        return bad('conn.invalid');
       }
-      settings.tsIp = ip;
-      settings.port = port;
+      // 存**完整地址**。settings.address 是新字段（隧道方案的主键），
+      // tsIp 同步写一份是因为 baseUrl() 与旧的接力逻辑都读它。
+      settings.address = s;
+      settings.tsIp = s;
+      rememberEndpoint(s);
       saveSettings();
       renderSettings();
       return true;

@@ -34,7 +34,7 @@ const I18N = {
     'setting.language': 'Language',
     'setting.theme': 'Theme',
     'setting.fontSize': 'Font Size',
-    'setting.tsIp': 'Tailscale IP',
+    'setting.tsIp': 'Address',
     'setting.port': 'Port',
     'setting.version': 'Version',
     'setting.contact': 'Contact',
@@ -55,10 +55,10 @@ const I18N = {
     'empty.noSessionsHint': 'Tap + in the top right to start one.',
     'empty.notConnected': 'Not connected',
     'empty.notConnectedHint':
-      "Set your computer's Tailscale IP in Setting to start.",
+      "Start the tunnel with `termetron remote on`, then paste the address in Setting.",
     'empty.unreachable': 'Cannot reach computer',
     'empty.unreachableHint':
-      'Check that Termetron is running on {ip}:{port} and Tailscale is connected.',
+      'Check that Termetron is running and the tunnel address is current.',
 
     // 会话状态
     'session.running': 'running',
@@ -83,7 +83,7 @@ const I18N = {
     'session.new': 'New Session',
     'session.nameHint': 'Name for the new terminal session',
     'session.namePlaceholder': 'Session name',
-    'session.errNoConnection': "Set your computer's Tailscale IP in Setting first.",
+    'session.errNoConnection': 'Set the tunnel address in Setting first.',
     'session.errCreate': 'Could not create session:\n{err}',
     'session.errSend': 'Send failed:\n{err}',
     'session.rename': 'Rename',
@@ -107,14 +107,15 @@ const I18N = {
 
     // 连接表单
     'conn.title': 'Connection',
-    'conn.ip': 'Tailscale IP',
-    'conn.port': 'Port',
+    'conn.address': 'Tunnel Address',
     'conn.test': 'TEST CONNECTION',
     'conn.testing': 'Testing…',
-    'conn.ok': 'Connected · {n} session(s)',
+    'conn.ok': 'Connected · termetron {v}',
     'conn.fail': 'Cannot reach the server.\n{err}',
     'conn.timeout': 'Timed out after 8s',
-    'conn.invalid': 'Enter a valid IP and a port between 1 and 65535.',
+    'conn.notTermetron':
+      'That address answered, but it is not Termetron.',
+    'conn.invalid': 'Enter a full address, e.g. https://xxxx.trycloudflare.com',
 
     // 字号
     'font.title': 'Font Size',
@@ -122,9 +123,7 @@ const I18N = {
     'font.aria': 'Font size',
 
     // 端口校验
-    'port.invalid': 'Port must be 1–65535',
-    'tsip.prompt': "Your computer's Tailscale IP, e.g. 100.101.102.103",
-    'port.prompt': 'Port Termetron listens on (default 8899)',
+    'tsip.prompt': 'The tunnel address from `termetron remote on`, e.g. https://xxxx.trycloudflare.com',
 
     // 服务端中立标记
     'server.restored': '↑ Output above is from the previous session (restored)',
@@ -154,7 +153,7 @@ const I18N = {
     'setting.language': '语言',
     'setting.theme': '主题',
     'setting.fontSize': '字号',
-    'setting.tsIp': 'Tailscale IP',
+    'setting.tsIp': '地址',
     'setting.port': '端口',
     'setting.version': '版本',
     'setting.contact': '联系方式',
@@ -167,10 +166,10 @@ const I18N = {
     'empty.noSessions': '暂无会话',
     'empty.noSessionsHint': '点右上角的 + 新建一个会话。',
     'empty.notConnected': '未连接',
-    'empty.notConnectedHint': '在设置里填入电脑的 Tailscale IP 以开始使用。',
+    'empty.notConnectedHint': '先用 `termetron remote on` 开启隧道，再把地址填入设置。',
     'empty.unreachable': '无法连接到电脑',
     'empty.unreachableHint':
-      '请确认 Termetron 正运行在 {ip}:{port}，且 Tailscale 已连接。',
+      '请确认 Termetron 正在运行，且隧道地址是最新的。',
 
     // 会话状态
     'session.running': '运行中',
@@ -192,7 +191,7 @@ const I18N = {
     'session.new': '新建会话',
     'session.nameHint': '新终端会话的名称',
     'session.namePlaceholder': '会话名称',
-    'session.errNoConnection': '请先在设置里填入电脑的 Tailscale IP。',
+    'session.errNoConnection': '请先在设置里填入隧道地址。',
     'session.errCreate': '无法创建会话：\n{err}',
     'session.errSend': '发送失败：\n{err}',
     'session.rename': '重命名',
@@ -215,22 +214,20 @@ const I18N = {
     'aria.sessionMenu': '会话菜单',
 
     'conn.title': '连接',
-    'conn.ip': 'Tailscale IP',
-    'conn.port': '端口',
+    'conn.address': '隧道地址',
     'conn.test': '测试连接',
     'conn.testing': '正在测试…',
-    'conn.ok': '已连接 · {n} 个会话',
+    'conn.ok': '已连接 · termetron {v}',
     'conn.fail': '无法连接到服务器。\n{err}',
     'conn.timeout': '8 秒内未响应',
-    'conn.invalid': '请输入有效的 IP 和 1–65535 之间的端口。',
+    'conn.notTermetron': '该地址有响应，但它不是 Termetron。',
+    'conn.invalid': '请输入完整地址，例如 https://xxxx.trycloudflare.com',
 
     'font.title': '字号',
     'font.range': '{min} – {max} px',
     'font.aria': '字号',
 
-    'port.invalid': '端口必须在 1–65535 之间',
-    'tsip.prompt': '电脑的 Tailscale IP，例如 100.101.102.103',
-    'port.prompt': 'Termetron 监听的端口（默认 8899）',
+    'tsip.prompt': '`termetron remote on` 显示的隧道地址，例如 https://xxxx.trycloudflare.com',
 
     'server.restored': '↑ 以上为上次会话的输出（已恢复）',
 
