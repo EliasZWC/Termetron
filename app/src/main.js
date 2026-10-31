@@ -284,8 +284,15 @@ let currentSession = null;
 //    ReferenceError（不像 var）。而 showPage 在启动时立刻被调用。
 let pollTimer = null;
 
-const titleEl = document.getElementById('topbar-title');
-const addBtn = document.getElementById('btn-add');
+// ⚠️ 同理，**不要**在模块顶层缓存 DOM 引用。
+//    `const titleEl = document.getElementById('topbar-title')` 若在 DOM 就绪前
+//    执行，会得到 null，随后 showPage 里 `titleEl.textContent = ...` 抛
+//    TypeError，**整个 showPage 中断** —— 底部那行
+//    `if (name === 'sessions') refreshSessions()` 永远执行不到，
+//    表现就是"会话列表一片空白、空状态也不出现、控制台没有明显线索"。
+//    这正是 v0.10.7 / v0.10.8 三次都没修好空状态的根因。
+const titleEl = () => document.getElementById('topbar-title');
+const addBtnEl = () => document.getElementById('btn-add');
 
 function showPage(name) {
   currentPage = name;
@@ -303,12 +310,18 @@ function showPage(name) {
     if (node) node.hidden = key !== name;
   }
   // 终端页顶部显示会话名，其它显示固定标题
-  titleEl.textContent =
-    name === 'terminal'
-      ? (currentSession || i18n('page.terminal'))
-      : i18n(def.titleKey);
+  // ⚠️ 全部加空值守卫：任何一个元素缺失都不能让 showPage 中断，
+  //    否则末尾的 refreshSessions() 会被跳过（空状态就不出现了）。
+  const title = titleEl();
+  if (title) {
+    title.textContent =
+      name === 'terminal'
+        ? (currentSession || i18n('page.terminal'))
+        : i18n(def.titleKey);
+  }
   // Scholarius 式：新建按钮是标题栏右侧的图标按钮（而非 Livolog 的悬浮 FAB）
-  addBtn.hidden = !def.showAdd;
+  const addBtn = addBtnEl();
+  if (addBtn) addBtn.hidden = !def.showAdd;
   // 左格：会话页显示「连接」图标，终端页显示「返回」，设置页两者都不显示。
   // 两者占据同一个左侧位置（返回键在 DOM 里紧跟连接键，同一时刻只显示一个），
   // 因此标题的绝对居中不受影响。
@@ -424,39 +437,25 @@ async function refreshSessions() {
   //    列表空着就该有提示。分三种反而在"配置了但后端返回空"时漏掉提示
   //    （v0.10.7 的真机 bug 就出在这）。
   //    连接相关的提示交给「连接」按钮和设置页，不在列表区表达。
-  const showEmpty = () => {
-    const list = sessionListEl();
-    const empty = sessionsEmptyEl();
-    if (list) list.innerHTML = '';
-    if (!empty) {
-      console.warn('[termetron] #sessions-empty not found in DOM');
-      return;
-    }
-    empty.hidden = false;
-    const t = empty.querySelector('.empty-title');
-    const h = empty.querySelector('.empty-hint');
-    if (t) t.textContent = i18n('empty.noSessions');
-    if (h) h.textContent = i18n('empty.noSessionsHint');
-  };
+  const showEmpty = () => setSessionsEmpty(true);
 
-  // 没配置连接：仍然列不出会话 → 同样是"无会话"空状态。
-  if (!hasConnection()) {
-    showEmpty();
-    return;
-  }
+  // ⚠️⚠️ 关键：**先无条件把空状态设为可见**，再去拉数据。
+  //    之前是先拉数据、按结果再决定显隐，走了三次真机都没生效 ——
+  //    无论中间哪一步（hasConnection、fetch、JSON 解析、sessionRow）在
+  //    真机上抛了什么，只要那段没跑完，空状态就永远停在 HTML 初始的
+  //    `hidden` 上，而控制台又看不到（真机不方便开）。
+  //    现在把它提到最前面：哪怕后面全炸了，用户至少看到「暂无会话」，
+  //    这正是「没有会话」这个事实的呈现。有会话时再把它关掉。
+  showEmpty();
+
+  if (!hasConnection()) return;
   try {
     const data = await api('/api/sessions');
     const list = sessionListEl();
-    const empty = sessionsEmptyEl();
-    if (list) list.innerHTML = '';
     const names = Object.keys(data || {});
-    if (!names.length) {
-      showEmpty();
-      return;
-    }
-    if (empty) empty.hidden = true;
+    if (!names.length) return;          // 空状态已在前方设好
     // 单行渲染失败不拖垮整个列表：一行坏掉时其余照常显示，
-    // 全部失败才回落到空状态。
+    // 全部失败就保留空状态。
     let ok = 0;
     for (const n of names) {
       try {
@@ -466,16 +465,40 @@ async function refreshSessions() {
         console.warn('[termetron] failed to render session', n, err);
       }
     }
-    if (!ok) showEmpty();
+    if (ok) setSessionsEmpty(false);
   } catch (err) {
-    // 连不上时列表里本来也没有会话 → 依然是空状态。
+    // 连不上时列表里本来也没有会话 → 保留空状态。
     console.warn('[termetron] refreshSessions failed', err);
-    showEmpty();
+  }
+}
+
+/**
+ * 显示/隐藏会话空状态，并同步清空列表。
+ * 独立成函数是为了在 refreshSessions 内外都能用，且带兜底文案 ——
+ * i18n 若因语言键缺失返回空串，至少还有字显示出来（不是一片空白）。
+ */
+function setSessionsEmpty(show) {
+  const list = sessionListEl();
+  const empty = sessionsEmptyEl();
+  if (!empty) return;
+  if (show) {
+    if (list) list.innerHTML = '';
+    empty.hidden = false;
+    // 内联 display 兜底：万一某条 CSS 把 [hidden] 的 !important 压过去，
+    // 也能保证元素真的可见（反过来设为 'none' 时同理）。
+    empty.style.display = 'block';
+    const t = empty.querySelector('.empty-title');
+    const h = empty.querySelector('.empty-hint');
+    if (t) t.textContent = i18n('empty.noSessions') || 'No session';
+    if (h) h.textContent = i18n('empty.noSessionsHint') || '';
+  } else {
+    empty.hidden = true;
+    empty.style.display = '';
   }
 }
 
 // 新建会话
-addBtn.addEventListener('click', async () => {
+addBtnEl()?.addEventListener('click', async () => {
   if (!hasConnection()) {
     tmtAlert(i18n('session.errNoConnection'));
     return;
@@ -1079,7 +1102,8 @@ function renderSettings() {
     settings.tsIp || i18n('value.notSet');
   // 顶栏标题不是 data-i18n（终端页要显示会话名），单独刷
   if (currentPage !== 'terminal') {
-    titleEl.textContent = i18n(PAGES[currentPage]?.titleKey || 'page.sessions');
+    const title = titleEl();
+    if (title) title.textContent = i18n(PAGES[currentPage]?.titleKey || 'page.sessions');
   }
   applyTheme();
   applyFontSize();
@@ -1432,11 +1456,24 @@ if (splashEl) {
 // 启动：直接进 Sessions（无登录页）
 // ⚠️ setLang + applyI18n 必须在第一次 showPage 之前 —— showPage 会读
 //    i18n(def.titleKey) 写标题，晚一步就会先闪一下默认语言。
-setLang(settings.language);
-applyI18n();
-applyTheme();      // 内部会调 syncNativeBars；此时 splashActive=true → 状态栏=启动页色
-applyFontSize();
-showPage('sessions');
+// ⚠️ 并且必须等 DOM 就绪。`type="module"` 虽然默认 defer，但在部分
+//    Android WebView / file:// 加载路径下，模块执行时 DOM 仍可能没建完，
+//    此时任何 document.getElementById 都返回 null —— 后续第一次
+//    showPage 就会因为 null.textContent 抛错中断，导致整个启动序列
+//    （包括会话列表刷新和空状态）全部静默失效。
+function bootstrap() {
+  setLang(settings.language);
+  applyI18n();
+  applyTheme();    // 内部会调 syncNativeBars；此时 splashActive=true → 状态栏=启动页色
+  applyFontSize();
+  showPage('sessions');
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+} else {
+  bootstrap();
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // 自动更新
