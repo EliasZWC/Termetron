@@ -1,4 +1,4 @@
-"""termetron_exec.py — 把命令投递到 Termetron 会话（后台程序映射到浏览器终端）。
+"""termetron_exec.py - 把命令投递到 Termetron 会话（后台程序映射到浏览器终端）。
 
 让 agent / 终端发起的任何命令都进入 termetron 终端执行，输出实时显示在浏览器
 Termetron 中（含底部 tqdm 进度条）。会话不存在时自动创建。
@@ -83,7 +83,7 @@ def main() -> None:
     print(f"[qt] sent to session '{args.session}': {cmd}")
 
     if args.watch is None:
-        print("[qt] done — watch it in the browser terminal")
+        print("[qt] done - watch it in the browser terminal")
         return
 
     # watch 模式：本地回显 qt 会话新增输出行
@@ -100,7 +100,7 @@ def main() -> None:
         except Exception:  # noqa: BLE001
             pass
         time.sleep(0.5)
-    print(f"[qt] watched {args.watch}s — session still running, check the browser terminal")
+    print(f"[qt] watched {args.watch}s - session still running, check the browser terminal")
 
 
 if __name__ == "__main__":

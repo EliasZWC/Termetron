@@ -2549,18 +2549,28 @@ class RemoteMgr:
         alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
         return "".join(secrets.choice(alphabet) for _ in range(6))
 
-    def create_tunnel(self, label: str = "") -> dict:
-        """新建一条隧道（生成隧道码 + 密码并落盘）。"""
+    def create_tunnel(self, label: str = "", password: str | None = None) -> dict:
+        """新建一条隧道。
+
+        password 为空时自动生成（兼容旧的调用方 / API）。
+        用户自己设的密码**不做长度强制**，只拦明显无效的输入
+        （空白、过短）。真正的强度靠用户自己判断 —— 这是自托管工具，
+        不该替用户决定他的密码策略。
+        """
         tunnels = self.load_tunnels()
         code = self.new_code()
         while code in tunnels:
             code = self.new_code()
-        pw = secrets.token_urlsafe(12)
+        user_pw = (password or "").strip()
+        pw = user_pw or secrets.token_urlsafe(12)
         tunnels[code] = {
             "code": code,
             "password": pw,
             "createdAt": int(time.time()),
             "label": label or "",
+            # 记下密码来源：用户设的密码他自己知道，可以提示"忘了就用 clear 重来"；
+            # 随机生成的丢了就真没了。列表接口不会回传这个字段给外人。
+            "passwordSource": "user" if user_pw else "generated",
         }
         self.save_tunnels(tunnels)
         return tunnels[code]
@@ -3249,19 +3259,24 @@ class Handler(BaseHTTPRequestHandler):
             self._json(REMOTE.start(_LOCAL_PORT, code))
             return
         if self.path == "/api/tunnel/new":
-            # 新建一条隧道（生成隧道码 + 密码），不自动启动
+            # 新建一条隧道（隧道码 + 密码），不自动启动
             if not self._authed():
                 self._json({"error": "auth required", "auth_required": True}, 401)
                 return
             label = ""
+            password = None
             try:
                 n = int(self.headers.get("Content-Length", 0) or 0)
                 if n:
                     body = json.loads(self.rfile.read(n) or b"{}")
                     label = (body.get("label") or "").strip()
+                    # 密码可由调用方指定；缺省/空则自动生成
+                    pw = body.get("password")
+                    if isinstance(pw, str):
+                        password = pw.strip() or None
             except Exception:  # noqa: BLE001
                 pass
-            t = REMOTE.create_tunnel(label)
+            t = REMOTE.create_tunnel(label, password=password)
             self._json({"ok": True, "tunnel": t})
             return
         if self.path == "/api/tunnel/list":
@@ -3535,6 +3550,16 @@ def main() -> None:
                     help="监听地址；默认自动使用 Tailscale IP，检测不到则 127.0.0.1")
     ap.add_argument("--local-only", action="store_true",
                     help="强制只监听 127.0.0.1（即使检测到 Tailscale IP）")
+    # ⚠️ 为什么需要这个开关：cloudflared 必须是**服务端进程的子进程**，
+    #    隧道才能跟着服务端长期存活。在命令行手动 `termetron use` 启动的
+    #    那个 cloudflared 属于那个命令，命令一退出隧道就断（实测踩过）。
+    #    所以"长期挂机"的用法是：服务端带 --remote 启动，隧道由它持有。
+    ap.add_argument("--remote", action="store_true",
+                    help="启动后自动开启公网隧道（长期挂机用；"
+                         "隧道挂在服务进程下，随服务存活）")
+    ap.add_argument("--code", default=None,
+                    help="配合 --remote：指定用哪条隧道身份（隧道码）；"
+                         "省略则用第一条已有隧道，没有则自动新建")
     args = ap.parse_args()
     global _LOCAL_PORT, _BOUND_HOST
     _LOCAL_PORT = args.port
@@ -3614,9 +3639,47 @@ def main() -> None:
     elif why != "explicit --host":
         print("[termetron] No Tailscale IP detected - the phone app cannot connect.")
         print("[termetron] Install and sign in to Tailscale, or pass --host <ip>.")
+
+    # ── 自动开隧道（--remote）──────────────────────────────────────────
+    # ⚠️ 必须在**后台线程**里做：cloudflared 注册要几秒，阻塞在这里会让
+    #    serve_forever 迟迟不开始接受连接，而隧道又需要服务端已经在监听。
+    #    顺序：先监听 → 再开隧道（cloudflared 指向本机端口）。
+    if args.remote:
+        def _auto_remote() -> None:
+            try:
+                codes = list(REMOTE.load_tunnels().keys())
+                code = (args.code or "").strip().upper() or (codes[0] if codes else None)
+                if not code:
+                    t = REMOTE.create_tunnel("auto")
+                    code = t["code"]
+                    print(f"[termetron] no tunnel existed; created {code}")
+                    print(f"[termetron] password: {t['password']}")
+                r = REMOTE.start(args.port, code)
+                if not r.get("ok"):
+                    print(f"[termetron] remote start failed: {r.get('error')}")
+                    return
+                # 等 URL 就绪（cloudflared 注册通常 3-8 秒）
+                for _ in range(60):
+                    st = REMOTE.status_json()
+                    if st.get("url"):
+                        print(f"[termetron] tunnel on  code={st.get('code')}")
+                        print(f"[termetron] URL: {st['url']}")
+                        return
+                    time.sleep(1)
+                print("[termetron] tunnel did not report a URL in time")
+            except Exception as e:  # noqa: BLE001
+                print(f"[termetron] remote start error: {e}")
+
+        threading.Thread(target=_auto_remote, daemon=True,
+                         name="termetron-auto-remote").start()
+
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
+        try:
+            REMOTE.stop()
+        except Exception:  # noqa: BLE001
+            pass
         for s in list(SESSIONS.values()):
             s.stop(rebuild=False)
         print("\nshutdown")

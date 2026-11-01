@@ -37,7 +37,7 @@ def main() -> None:
             daemon=True,
         ).start()
     print(f"[termetron] Termetron -> {url}")
-    print("[termetron] server is long-running — press Ctrl+C to stop it.")
+    print("[termetron] server is long-running - press Ctrl+C to stop it.")
 
     target = os.path.join(ROOT, "quant_terminal.py")
     subprocess.run([sys.executable, target, "--port", str(port)])

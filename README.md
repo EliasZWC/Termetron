@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.10.21
+**Version:** v0.10.22
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -37,13 +37,22 @@ machine permanently; the `trycloudflare` URL behind it changes whenever the
 tunnel is recreated, and the app re-resolves it for you.
 
 ```bash
-./termetron new "My laptop"   # create: prints code + password (once)
+./termetron new "My laptop"   # create: asks you to set a password (blank = random)
 ./termetron list              # list tunnels  (alias: ls)
 ./termetron show ABC123       # details
-./termetron use ABC123        # run that tunnel, prints current URL
+./termetron remote            # open the tunnel via the running server (first tunnel by default)
+./termetron remote ABC123     # ...or a specific one
+./termetron remote --status   # current tunnel state + URL
+./termetron remote --off      # close the tunnel
 ./termetron delete ABC123     # remove        (alias: rm)
 ./termetron clear             # delete ALL tunnels (alias: reset, asks y/N)
 ```
+
+> **`remote` vs `use`:** `use` starts cloudflared *inside the CLI process*, so the
+> tunnel dies the moment the command exits — handy for grabbing a URL once, not
+> for staying online. `remote` asks the **already-running server** to open the
+> tunnel instead, so it keeps running after the command returns. That's the one
+> to use day to day.
 
 The `termetron` wrapper dispatches on the first argument: the subcommands above
 go to `termetron_cli.py`, while no argument (or `--port` / `--local-only`)
@@ -54,9 +63,10 @@ button re-validates by code and adopts whatever URL the tunnel is currently on �
 the address field is read-only in Settings, and tucked under "Advanced" in the
 connect form, because it is transport, not configuration.
 
-> **Why the password is shown only once:** it is the credential that proves
-> "this URL really is my tunnel". Keeping it out of logs, scrollback and
-> screenshots is worth the inconvenience of re-creating a tunnel you lost it for.
+> **About the password:** you choose it yourself when creating a tunnel, so you
+> can always recall it — it never comes back from `list` or `show`, but that is
+> a display policy, not a guarantee that it is unrecoverable. Leave the prompt
+> blank if you prefer a random one (that one really is shown only once).
 
 ### Run as a systemd service (recommended)
 

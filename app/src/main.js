@@ -342,7 +342,7 @@ async function resolveBase() {
   const code = settings.tunnelCode || '';
   const password = settings.tunnelPassword || '';
 
-  for (const base of candidates) {
+  const check = async (base) => {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), FAILOVER_TIMEOUT_MS);
     try {
@@ -356,25 +356,44 @@ async function resolveBase() {
         if (!res.ok) throw new Error('verify failed');
         const d = await res.json();
         if (!d?.ok) throw new Error('not my tunnel');
-      } else {
-        // 没配身份（本机调试等场景）→ 退化为「确认对端是 termetron」
-        const res = await fetch(`${base}/api/discover`, {
-          signal: ac.signal,
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const d = await res.json();
-        if (d?.app !== 'termetron') throw new Error('not termetron');
+        // ⚠️ 校验通过时服务端会顺带回传**它自己当前的 tunnelUrl**。
+        //    这是接力的关键：URL 变了，但隧道码没变，服务端知道新 URL，
+        //    我们照单接管即可 —— 不需要用户手动改地址。
+        if (d.tunnelUrl) return { ok: true, next: d.tunnelUrl };
+        return { ok: true };
       }
-      // 校验通过：把它设为主地址
-      if (base !== primary) adoptEndpoint(base);
-      rememberEndpoint(base);
-      return base;
+      // 没配身份（本机调试等场景）→ 退化为「确认对端是 termetron」
+      const res = await fetch(`${base}/api/discover`, {
+        signal: ac.signal,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (d?.app !== 'termetron') throw new Error('not termetron');
+      if (d.tunnelUrl) return { ok: true, next: d.tunnelUrl };
+      return { ok: true };
     } catch {
-      /* 不可用或不是我的隧道，试下一个 */
+      return { ok: false };
     } finally {
       clearTimeout(timer);
     }
+  };
+
+  for (const base of candidates) {
+    const r = await check(base);
+    if (!r.ok) continue;
+    // 服务端报告它现在挂在别的 URL 上 → 立刻改用它。
+    // 旧地址一旦关闭，下一次握手就会失败，所以这里必须跟着走。
+    if (r.next && r.next !== base) {
+      adoptEndpoint(r.next);
+      rememberEndpoint(r.next);
+      // 新地址也要验一遍，避免接管到一个刚好也返回了 URL 的坏端点
+      const r2 = await check(r.next);
+      if (r2.ok) return r.next;
+    }
+    if (base !== primary) adoptEndpoint(base);
+    rememberEndpoint(base);
+    return base;
   }
   return '';
 }

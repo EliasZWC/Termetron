@@ -63,12 +63,16 @@ cd "$DIR"
 #    quant_terminal.py 才是真正的服务端（默认端口 8899、监听 Tailscale IP）。
 # ── 子命令分流 ─────────────────────────────────────────────────────────
 # 带隧道管理子命令时交给 termetron_cli.py，其余（无参数 / --port /
-# --local-only ...）仍启动服务端。
+# --local-only / --remote ...）仍启动服务端。
 # ⚠️ 必须在这里分流而不是让 quant_terminal.py 加子命令：那个文件同时是
 #    服务端入口，加子命令会把它自己的 argparse 搞复杂，且桌面快捷方式的
 #    "--port" 语义会和服务的 "--port" 撞车。
+#
+# 长期挂机的正确用法（隧道挂在服务进程下，随服务存活）：
+#     ./termetron --remote
+# 单纯的 ./termetron 只开服务、不开隧道 —— 手机连不上。
 case "${1:-}" in
-    new|list|show|use|delete|clear)
+    new|list|show|use|delete|clear|remote)
         exec "$PY" termetron_cli.py "$@"
         ;;
     ls)
