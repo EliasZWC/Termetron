@@ -1,0 +1,21 @@
+# Termetron 服务端依赖
+#
+# ⚠️ 核心只用标准库：quant_terminal.py / termetron_cli.py / termqr.py
+#    在没装任何第三方包时都能正常运行（功能自动降级）。
+#    这里列的是**可选增强**，装上体验更好，不装也不崩。
+#
+# 安装方式（推荐，一次性装好）：
+#     python3 -m pip install -r requirements.txt
+#
+# 或者让安装脚本自动处理：
+#     ./deploy/install-service.sh
+#
+# ⚠️ Ubuntu / Debian 的系统 Python 受 PEP 668 保护，全局 pip install 会被
+#    拒绝。用以下任一方式绕开（不要用 --break-system-packages，会弄坏系统环境）：
+#       sudo apt install python3-qrcode       # 发行版打包版，最省事
+#       python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+#     安装脚本会自动检测并选择可行的方式。
+
+# 终端二维码（termetron remote 打印可扫的配对码）。
+# 缺失时命令照常工作，只是退回显示纯文本地址。
+qrcode>=7.0

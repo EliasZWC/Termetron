@@ -1,6 +1,6 @@
 # Termetron
 
-**Version:** v0.10.24
+**Version:** v0.10.25
 
 A geometric metron terminal — a standalone single-page web terminal for running
 long background jobs with a live progress bar. Pure Python stdlib, zero
@@ -40,7 +40,7 @@ tunnel is recreated, and the app re-resolves it for you.
 ./termetron new "My laptop"   # create: asks you to set a password (blank = random)
 ./termetron list              # list tunnels + which one is RUNNING (alias: ls)
 ./termetron show ABC123       # details
-./termetron remote            # open the tunnel via the running server (first tunnel by default)
+./termetron remote            # open the tunnel and show a QR (first tunnel by default)
 ./termetron remote ABC123     # ...or a specific one
 ./termetron remote --status   # current tunnel state + URL
 ./termetron remote --off      # close the tunnel
@@ -53,6 +53,13 @@ tunnel is recreated, and the app re-resolves it for you.
 > for staying online. `remote` asks the **already-running server** to open the
 > tunnel instead, so it keeps running after the command returns. That's the one
 > to use day to day.
+>
+> `remote` also prints a QR code holding the tunnel code and current URL, so the
+> phone can scan instead of typing. `./deploy/install-service.sh` installs the
+> generator automatically when it can; to do it by hand use
+> `python3 -m pip install --user -r requirements.txt` (without it, the text stays available).
+> **The password is never in the QR** — it is displayed on screen, where anyone
+> could photograph it, so you type it on the phone yourself.
 
 The `termetron` wrapper dispatches on the first argument: the subcommands above
 go to `termetron_cli.py`, while no argument (or `--port` / `--local-only`)
@@ -150,8 +157,9 @@ terminal sessions still see your Windows files.
   tested platform; cloudflared auto-downloads the right binary for all three OSes.
 - **cloudflared** (for `termetron remote on`): auto-downloaded on first use, kept in
   `bin/`.
-- **qrcode** (optional): `pip install qrcode` enables the QR code; without it the
-  URL + password are shown as text instead (still works).
+- **qrcode** (optional): enables the scannable QR in `termetron remote`; without
+  it the address is shown as text (still works). `./deploy/install-service.sh`
+  installs it for you when it can; otherwise run `pip install --user -r requirements.txt`.
 
 ## Files
 

@@ -44,6 +44,42 @@ fi
 chmod +x "$DIR/termetron"
 sed -i 's/\r$//' "$DIR/termetron" 2>/dev/null || true
 
+# ── 安装可选依赖 ────────────────────────────────────────────────────────
+# 为什么放在这里：用户装 termetron 时最不想做的事就是"再一个个 pip install"。
+# 核心功能只用标准库，所以**装不上也继续**（只提示缺什么），绝不因为
+# 一个可选包而让整个安装失败。
+#
+# ⚠️ Ubuntu/Debian 的系统 Python 受 PEP 668 保护，全局 pip 会被拒绝。
+#    按「发行版包 → 用户级 pip」的顺序尝试，都不用 --break-system-packages
+#    （那会弄坏系统环境，绝对不能做）。
+install_optional_deps() {
+    if python3 -c "import qrcode" >/dev/null 2>&1; then
+        echo "[termetron] deps: qrcode already available"
+        return 0
+    fi
+    echo "[termetron] deps: installing qrcode (for the scannable QR)..."
+
+    # 1) 发行版打包版最省事，也不需要 sudo 之外的配合
+    if command -v apt-get >/dev/null 2>&1; then
+        if sudo apt-get install -y python3-qrcode >/dev/null 2>&1; then
+            echo "[termetron] deps: installed via apt (python3-qrcode)"
+            return 0
+        fi
+    fi
+    # 2) 用户级 pip（--user 不需要 PEP 668 豁免）
+    if python3 -m pip install --user -r "$DIR/requirements.txt" >/dev/null 2>&1; then
+        echo "[termetron] deps: installed via pip --user"
+        return 0
+    fi
+
+    echo "[termetron] deps: could not install qrcode automatically." >&2
+    echo "[termetron]   Everything still works; 'termetron remote' will print the" >&2
+    echo "[termetron]   address as text instead of a QR code." >&2
+    echo "[termetron]   To enable the QR:  python3 -m pip install --user qrcode" >&2
+    return 0
+}
+install_optional_deps
+
 echo "[termetron] installing to $UNIT"
 echo "[termetron] working directory: $DIR"
 

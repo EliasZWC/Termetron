@@ -16,13 +16,14 @@
 
   <!-- ══ 顶栏：标题绝对居中，左右两侧各自放图标按钮（不会被对方挤偏）══ -->
   <header class="topbar">
-    <!-- 左格：会话页显示「刷新」，终端页显示「返回」
-         ⚠️ 为什么是「刷新」而不是「连接」：隧道码 + 密码在设置里配好之后
-            就不再变，URL 的变化由 App 自己接力。用户要做的只是「再连一次」，
-            语义就是刷新 —— 不需要每次重新输入地址。 -->
-    <button class="topbar-icon-btn is-leading" type="button" id="btn-conn" data-i18n-aria="aria.refresh" aria-label="Refresh connection">
-      <!-- Material Symbols: refresh -->
-      <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z"/></svg>
+    <!-- 左格：会话页显示「连接」，终端页显示「返回」
+         ⚠️ 语义说明：点它是「配置/更换连接」——弹出表单让用户选扫码或手输。
+            连接本身（重新握手、接力新 URL）由后台自动完成，不需要按钮。
+            所以这里是「连接」图标而不是「刷新」：刷新只表达"再试一次"，
+            无法表达"我要扫码配对"。 -->
+    <button class="topbar-icon-btn is-leading" type="button" id="btn-conn" data-i18n-aria="aria.connect" aria-label="Connect">
+      <!-- Material Symbols: link -->
+      <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M440-280H280q-83 0-141.5-58.5T80-480q0-83 58.5-141.5T280-680h160v80H280q-50 0-85 35t-35 85q0 50 35 85t85 35h160v80ZM320-440v-80h320v80H320Zm200 160v-80h160q50 0 85-35t35-85q0-50-35-85t-85-35H520v-80h160q83 0 141.5 58.5T880-480q0 83-58.5 141.5T680-280H520Z"/></svg>
     </button>
     <button class="topbar-icon-btn is-leading" type="button" id="btn-back" data-i18n-aria="aria.back" aria-label="Back" hidden>
       <!-- Material Symbols: arrow_back -->

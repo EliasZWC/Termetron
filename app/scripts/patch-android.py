@@ -386,6 +386,16 @@ APK_INSTALL_PERMISSION = (
     '\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />'
 )
 
+# 扫码需要的相机权限。
+# ⚠️ uses-feature required="false" 是必须的：不加的话 Google Play 会认为
+#    「设备必须有摄像头」，把没摄像头的平板/电视盒全排除掉。而我们只是
+#    提供一个可选功能（扫不了还能手输），不该有这种硬性要求。
+CAMERA_PERMISSION = (
+    '\n    <uses-permission android:name="android.permission.CAMERA" />'
+    '\n    <uses-feature android:name="android.hardware.camera" '
+    'android:required="false" />'
+)
+
 APK_PROVIDER_BLOCK = """        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -554,6 +564,14 @@ def patch_apk_install() -> None:
             print("  manifest: </manifest> not found", file=sys.stderr)
             sys.exit(1)
         s = s.replace("</manifest>", APK_INSTALL_PERMISSION + "\n</manifest>", 1)
+
+    # 扫码用的相机权限（幂等：已有就跳过）
+    if "android.permission.CAMERA" not in s:
+        if "</manifest>" not in s:
+            print("  manifest: </manifest> not found", file=sys.stderr)
+            sys.exit(1)
+        s = s.replace("</manifest>", CAMERA_PERMISSION + "\n</manifest>", 1)
+        print("  AndroidManifest: CAMERA permission (required=false)")
 
     if "fileprovider" not in s:
         if "</application>" not in s:

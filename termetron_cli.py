@@ -360,6 +360,29 @@ def cmd_remote(args) -> int:
 
     print()
     if url:
+        # 二维码：手机扫这一下就把「隧道码 + 地址」填好，不用手打网址。
+        # ⚠️ 密码不在码里 —— 它显示在屏幕上可能被旁人看到/截图，
+        #    密码必须由用户在手机上自己输入。
+        try:
+            import termqr
+            art = termqr.render(termqr.payload(used or "", url),
+                                invert=getattr(args, "light", False))
+        except Exception:  # noqa: BLE001
+            art = None
+
+        if art:
+            print("  Scan this with the Termetron app (fills in code + address):")
+            print()
+            for line in art.splitlines():
+                print("  " + line)
+            print()
+            print("  It carries the code and address only, NOT the password.")
+            print("  Type your password on the phone.")
+        else:
+            # 没装 qrcode 库时退回可复制的文本，不因为缺库就让命令失败
+            print("  (qrcode module not installed - showing text instead)")
+            print("  Install it with:  python3 -m pip install qrcode")
+            print()
         print(f"    Tunnel Code : {used}")
         print(f"    URL         : {url}")
         print()
@@ -463,6 +486,8 @@ def main() -> int:
                        help="show tunnel status instead of starting it")
     p_rem.add_argument("--off", action="store_true",
                        help="close the tunnel")
+    p_rem.add_argument("--light", action="store_true",
+                       help="invert the QR colors for a light-background terminal")
     p_rem.set_defaults(func=cmd_remote)
 
     args = ap.parse_args()

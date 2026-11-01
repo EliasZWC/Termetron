@@ -159,6 +159,22 @@ const TMT_CSS = `
 .tmt-adv[open] .tmt-adv-summary{margin-bottom:2px}
 .tmt-adv-body{margin:6px 0 0}
 .tmt-field-hint{display:block;margin:6px 0 0;font-size:12px;line-height:1.4;color:var(--on-surface-variant);opacity:.75}
+/* ── 扫码入口 ─────────────────────────────────────────────────────────
+   放在表单最上方，是「配对」的首选路径：电脑端打出的二维码里带着
+   隧道码和当前地址，扫一下就填好，用户完全不用碰网址。
+   样式跟 TEST CONNECTION 一致：细边框、透明底。 */
+.tmt-scan-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin:0 0 6px;padding:14px 0;border:1px solid var(--outline);border-radius:10px;background:transparent;color:var(--on-surface);font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tmt-scan-btn svg{width:20px;height:20px;fill:currentColor;flex:none}
+.tmt-scan-btn:active{background:var(--surface-raised)}
+.tmt-scan-btn:disabled{opacity:.5;pointer-events:none}
+.tmt-scan-status{margin:4px 0 0;font-size:13px;line-height:1.5;white-space:pre-line;word-break:break-word}
+.tmt-scan-status[data-kind="good"]{color:var(--success)}
+.tmt-scan-status[data-kind="bad"]{color:var(--danger)}
+.tmt-scan-status[data-kind="idle"]{color:var(--on-surface-variant)}
+/* 分隔线：把「扫码」和「手输」明确分成两条路 */
+.tmt-or{display:flex;align-items:center;gap:10px;margin:14px 0}
+.tmt-or::before,.tmt-or::after{content:'';flex:1;height:1px;background:var(--outline)}
+.tmt-or span{font-size:11px;letter-spacing:1px;color:var(--on-surface-variant);opacity:.8}
 /* ── 连接进度弹窗（.ut-*）───────────────────────────────────────────────
    ⚠️ 这套类名属于 updater.js 的 MODAL_CSS，但那个文件只在自己弹更新框时
       注入样式。showConnProgress() 直接用 .ut-overlay 却没注入 → 元素没有
@@ -1808,6 +1824,18 @@ document.getElementById('setting-fontsize').addEventListener('click', async () =
 //   · Password      —— 身份凭据，长期不变。
 //   · Address (URL) —— 传输地址，会随隧道重建而变；平时由「刷新」自动更新。
 const CONN_FORM_BODY = `
+  <!-- 扫码入口：放在最上面。
+       电脑端 termetron remote 会打出二维码，里面带「隧道码 + 当前地址」，
+       扫一下就填好这两项 —— 用户完全不用碰网址。
+       密码不在二维码里（它在屏幕上，可能被人看到），扫码后仍需手输密码。 -->
+  <button class="tmt-scan-btn" type="button">
+    <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M80-680v-200h200v80H160v120H80Zm680 0v-120H640v-80h200v200h-80ZM80-80v-200h80v120h120v80H80Zm760 0H640v-80h120v-120h80v200ZM160-280v-400h80v400h-80Zm120 0v-400h80v400h-80Zm120 0v-400h120v400H400Zm160 0v-400h80v400h-80Zm120 0v-400h120v400H680Z"/></svg>
+    <span class="tmt-scan-text"></span>
+  </button>
+  <p class="tmt-scan-status" hidden></p>
+
+  <div class="tmt-or"><span></span></div>
+
   <label class="tmt-field">
     <span class="tmt-field-label" data-i18n="conn.code">Tunnel Code</span>
     <input class="tmt-input tmt-conn-code" type="text"
@@ -1819,10 +1847,9 @@ const CONN_FORM_BODY = `
     <input class="tmt-input tmt-conn-pass" type="password"
            autocomplete="off" spellcheck="false" placeholder="••••••••">
   </label>
-<!-- 地址：**可选**，但它必须看得见。
+  <!-- 地址：**可选**，但它必须看得见。
        自动接管只在「手里还有一个能连的地址」时才生效；地址彻底失效
-       （隧道换过好几次、或换了一台机器）时，这里是唯一的救场入口。
-       藏在「高级」折叠里等于让人无从下手 —— 实测用户会卡在这里。 -->
+       （隧道换过好几次、或换了一台机器）时，这里是唯一的救场入口。 -->
   <label class="tmt-field">
     <span class="tmt-field-label" data-i18n="conn.address">Address</span>
     <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
@@ -1833,6 +1860,38 @@ const CONN_FORM_BODY = `
   <p class="tmt-conn-status" hidden></p>
   <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
 `;
+
+/**
+ * 扫码，返回 {code, url} 或 null。
+ *
+ * @capacitor-mlkit/barcode-scanning 只在原生环境可用；浏览器里直接
+ * 返回 null，由调用方提示"扫码只在 App 内可用"。这样 web 预览不会崩。
+ */
+async function scanPairQr() {
+  const BC = globalThis.Capacitor?.Plugins?.BarcodeScanner;
+  if (!BC) return { error: 'unavailable' };
+  try {
+    const perm = await BC.checkPermissions();
+    if (perm.camera !== 'granted') {
+      const req = await BC.requestPermissions({ permissions: ['camera'] });
+      if (req.camera !== 'granted') return { error: 'denied' };
+    }
+    const { barcodes } = await BC.scan({ formats: ['QR_CODE'] });
+    const raw = barcodes?.[0]?.rawValue || '';
+    if (!raw) return { error: 'empty' };
+    // 协议与 termqr.py 的 payload() 保持一致：
+    //   termetron://pair?code=XXX&url=https%3A%2F%2F...
+    if (!raw.startsWith('termetron://pair')) return { error: 'foreign', raw };
+    const q = raw.split('?')[1] || '';
+    const p = new URLSearchParams(q);
+    const code = (p.get('code') || '').trim().toUpperCase();
+    const url = (p.get('url') || '').trim();
+    if (!code || !/^https?:\/\//i.test(url)) return { error: 'foreign', raw };
+    return { code, url };
+  } catch (e) {
+    return { error: 'failed', detail: String(e && e.message || e) };
+  }
+}
 
 function openConnectionForm() {
   return tmtPrompt({
@@ -1858,6 +1917,33 @@ function openConnectionForm() {
       // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
       bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
         el.textContent = i18n(el.dataset.i18n);
+      });
+
+      // ── 扫码 ──────────────────────────────────────────────────────
+      const scanBtn = bodyEl.querySelector('.tmt-scan-btn');
+      const scanStat = bodyEl.querySelector('.tmt-scan-status');
+      bodyEl.querySelector('.tmt-scan-text').textContent = i18n('conn.scan');
+      bodyEl.querySelector('.tmt-or span').textContent = i18n('conn.or');
+      const sayScan = (msg, kind) => {
+        scanStat.textContent = msg;
+        scanStat.hidden = !msg;
+        scanStat.dataset.kind = kind || '';
+      };
+      scanBtn.addEventListener('click', async () => {
+        sayScan(i18n('conn.scanning'), 'idle');
+        scanBtn.disabled = true;
+        const r = await scanPairQr();
+        scanBtn.disabled = false;
+        if (r.error === 'unavailable') { sayScan(i18n('conn.scanNativeOnly'), 'bad'); return; }
+        if (r.error === 'denied') { sayScan(i18n('conn.scanDenied'), 'bad'); return; }
+        if (r.error === 'foreign') { sayScan(i18n('conn.scanForeign'), 'bad'); return; }
+        if (r.error) { sayScan(i18n('conn.scanFailed', { err: r.detail || r.error }), 'bad'); return; }
+        // 扫码成功：填好隧道码 + 地址，把光标放到密码框
+        // （密码不经过二维码，是手机上唯一要手输的东西）
+        codeEl.value = r.code;
+        addrEl.value = r.url;
+        sayScan(i18n('conn.scanOk'), 'good');
+        passEl.focus();
       });
       // 地址归一化：允许 https://域名、http://ip:port；裸地址自动补 http。
       const normalize = (raw) => {
@@ -1987,33 +2073,14 @@ function openConnectionForm() {
 //   1. 按隧道码 + 密码验证候选地址，挑出确实属于我的那条隧道；
 //   2. 若地址变了，自动更新并记住（用户不需要手动改 URL）；
 //   3. 刷新会话列表。
-// ⚠️ 长按（或点两次）才进配置表单 —— 平时不需要改配置。
-let connPressTimer = null;
-document.getElementById('btn-conn')?.addEventListener('click', async (e) => {
-  // 双击 / 长按 → 打开配置
-  if (e.detail > 1 || connPressTimer === 'long') return;
-  // 用户手动点刷新 = 显式重来一轮，重试配额重置
-  resetAutoRetry();
-  await refreshConnection();
-});
-document.getElementById('btn-conn')?.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
+// 连接按钮 = 打开连接表单（扫码 / 手动输入二选一）。
+//
+// ⚠️ 去掉了原来的「单击刷新 + 长按配置」：那个交互用户根本发现不了 ——
+//    长按没有任何视觉提示，实测用户只会单击，然后永远进不到配置页。
+//    现在单击就是打开表单，语义直白。
+//    重连本身（握手、接力新 URL）仍然全自动，不需要按钮。
+document.getElementById('btn-conn')?.addEventListener('click', () => {
   openConnectionForm();
-});
-document.getElementById('btn-conn')?.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse') return;   // 桌面端不装长按
-  connPressTimer = setTimeout(() => {
-    connPressTimer = 'long';
-    openConnectionForm();
-  }, 650);
-});
-document.getElementById('btn-conn')?.addEventListener('pointerup', () => {
-  if (connPressTimer !== 'long') clearTimeout(connPressTimer);
-  connPressTimer = null;
-});
-document.getElementById('btn-conn')?.addEventListener('pointercancel', () => {
-  clearTimeout(connPressTimer);
-  connPressTimer = null;
 });
 
 /**
