@@ -329,6 +329,15 @@ body {
   position: relative;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* 隐藏滚动条，与全站风格一致（详见 .term-out 的说明） */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 .page { padding: 4px 0 24px; }
 .page[hidden] { display: none; }
@@ -654,6 +663,24 @@ body {
   /* 滚动/重绘优化：告诉浏览器这块内容会频繁变化，避免整页重排 */
   contain: content;
   will-change: scroll-position;
+  /* ⚠️ 隐藏滚动条（与 Scholarius / Livolog 一致）。
+     WebView 默认滚动条是**浅灰直角块**，占 15px 宽，
+     在这套深色主题里非常刺眼，而且吃掉一列字符的宽度
+     （手机上本来就只有 40 列左右）。
+
+     四个属性都要写，各引擎认的不同：
+       scrollbar-width        Firefox / 新 WebView
+       -ms-overflow-style     IE/Edge 遗留
+       ::-webkit-scrollbar    Chrome / 旧 WebView
+     ⚠️ 只隐藏**视觉**，绝不能改 overflow —— 那会真的滚不动。
+     用户手指一拖就知道能滚，且终端内容本身满屏，天然不需要指示器。 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.term-out::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 /* 输出内容容器：与输入行是兄弟关系。
    ⚠️ 独立成一层是为了让刷新输出时**只替换这一层**，
