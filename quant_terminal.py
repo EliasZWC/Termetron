@@ -3001,8 +3001,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
-        # CORS：允许 App（Capacitor WebView，跨域）探测隧道可达性（/api/remote/status）
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # CORS：允许 App（Capacitor WebView，跨域）调用 API。
+        #
+        # ⚠️ 不能盲目用 `*`：App 需要带 cookie（credentials: 'include'）做认证，
+        #    而规范规定「带凭证的跨域请求」响应里 ACAO 必须是**具体来源**，
+        #    不能是 `*`。写成 `*` 浏览器会直接拒绝整个响应 —— 表现就是
+        #    测试连接、会话列表全部失败，且控制台只报一个笼统的 CORS 错。
+        #    所以这里回显请求的 Origin，并显式声明允许凭证。
+        origin = (self.headers.get("Origin") or "").strip()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            # 让同一来源的后续请求复用这次预检结果
+            self.send_header("Vary", "Origin")
+        else:
+            # 无 Origin（curl / 同源请求）→ 不需要 CORS 头
+            self.send_header("Access-Control-Allow-Origin", "*")
         for k, v in (extra_headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -3156,11 +3170,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:  # noqa: N802
         # CORS 预检：App（Capacitor WebView）跨域 fetch 带非 safelisted 请求头
         # （如 cache:'no-store' → Cache-Control）时会先发 OPTIONS；不应答会返回
-        # 501 导致跨域请求被浏览器/WebView 拦截（App 探测隧道失败报 tunnel closed）
+        # 501 导致跨域请求被浏览器/WebView 拦截（App 探测隧道失败报 tunnel closed）。
+        #
+        # ⚠️ 同样必须回显 Origin + 允许凭证，不能用 `*`：
+        #    预检阶段的 ACAO 若与后续真实请求不一致，浏览器会丢弃真实请求。
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
+        origin = (self.headers.get("Origin") or "").strip()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Vary", "Origin")
+        else:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        # 回显请求的头部声明，而不是写死 —— WebView 会带 Content-Type /
+        # Cache-Control 等，写死会漏掉其中任何一个就让预检失败。
+        req_headers = self.headers.get("Access-Control-Request-Headers")
+        self.send_header("Access-Control-Allow-Headers", req_headers or "*")
         self.send_header("Access-Control-Max-Age", "86400")
         self.send_header("Content-Length", "0")
         self.end_headers()

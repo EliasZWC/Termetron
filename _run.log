@@ -5,11 +5,11 @@
 [termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
 [termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
 [termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
-[termetron] restored 7 session(s): persist-test, probe1793497904, probe409, pwtest1793497914529, shell, test, ttt
+[termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
+[termetron] restored 8 session(s): cookie1793498140, persist-test, probe1793497904, probe409, pwtest1793497914529, shell, test, ttt
 Termetron running at http://127.0.0.1:8899  (--local-only)
 [termetron] No Tailscale IP detected - the phone app cannot connect.
 [termetron] Install and sign in to Tailscale, or pass --host <ip>.
-[termetron] tunnel url: https://distributions-philip-covering-witnesses.trycloudflare.com
+[termetron] tunnel url: https://bookmarks-cards-species-lease.trycloudflare.com
 [termetron] tunnel on  code=RT9M7T
-[termetron] URL: https://distributions-philip-covering-witnesses.trycloudflare.com
-[termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
+[termetron] URL: https://bookmarks-cards-species-lease.trycloudflare.com
