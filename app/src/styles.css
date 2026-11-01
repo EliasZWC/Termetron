@@ -141,6 +141,61 @@ body {
       不是左对齐。三格布局：左占位 / 中间标题 / 右侧按钮，两侧等宽
       才能让标题落在真正的中轴上。
    ---------------------------------------------------------------------- */
+/* ══ 批量选择操作栏（对齐 Livolog 的 .selection-bar）══
+   长按会话行进入多选后，这条从上方滑入**盖住标题栏**。
+
+   为什么是盖住而不是把标题栏内容换掉：
+     标题栏只有左/中/右三格，塞不下「关闭 + 计数 + 全选 + 删除」，
+     还会把「连接」「新建」挤乱。Livolog 的做法是独立一条覆盖，
+     视觉上就是"标题栏整个切换成了操作栏"。
+   高度 56px 与 .topbar 一致，滑入后完全重合，不会有错位。 */
+.selection-bar {
+  position: fixed;
+  top: var(--safe-top);
+  left: var(--safe-left, 0);
+  right: var(--safe-right, 0);
+  /* 高于 topbar，低于弹窗（弹窗是动态插入 body 末尾的 .tmt-overlay） */
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 56px;
+  padding: 0 8px;
+  background: var(--bg);
+  transform: translateY(-100%);
+  transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+.selection-bar[hidden] { display: none; }
+.selection-bar.is-open { transform: translateY(0); }
+
+/* 已选数量：居中、加粗，比标题更醒目（多选时它才是当前最重要的信息） */
+.selection-count {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右侧按钮组：全选 + 删除 */
+.selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 删除按钮用主题红 —— 与其它图标按钮区分，提示这是破坏性操作 */
+.topbar-icon-btn.is-danger { color: var(--danger); }
+
+/* 减少动效偏好：关掉滑入过渡 */
+@media (prefers-reduced-motion: reduce) {
+  .selection-bar { transition: none; }
+}
+
 .topbar {
   flex: 0 0 auto;
   display: flex;
@@ -468,8 +523,22 @@ body {
 .session-row {
   list-style: none;
   border-top: 1px solid var(--outline);
+  transition: background-color var(--dur-fast) var(--ease);
 }
 .session-row:first-child { border-top: 0; }
+
+/* ── 批量选择态（长按会话行进入多选） ──────────────────────────────────
+   ⚠️ 与 Livolog 一致：**不做勾选框**，选中就是整行背景变 --surface-raised。
+      加勾选框会让行内容右移、行高变化，列表一下子"重"了很多；
+      整行变色已经足够清楚，且切换零位移（不会"跳一下"）。 */
+.session-row.is-selected { background: var(--surface-raised); }
+/* 多选态下点行是"切换选中"而不是"打开会话" */
+.session-row.is-bulk .session-btn { cursor: pointer; }
+/* 多选时禁止长按选中文字（否则长按会触发系统选词而非我们的多选） */
+.session-row.is-bulk .session-btn {
+  -webkit-user-select: none;
+  user-select: none;
+}
 
 .session-btn {
   display: flex;
@@ -580,7 +649,39 @@ body {
   border-top: 1px solid var(--outline);
   background: var(--surface);
 }
-.term-prompt { flex: none; font-size: var(--fs); color: var(--accent); }
+/* 提示符条：输出区与输入栏之间的独立一行（真终端的“当前行”）。
+   ⚠️ 为什么单独一条而不是塞进输入框左边：
+      路径可以很长（`E:\product\Termetron\src\components\...`），
+      和输入框挤在同一行时，两者互相压缩，最后两边都看不见内容。
+      拆成独立一条后，提示符可以独占整行宽度，永远完整可见。 */
+.term-prompt-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px 16px 2px;
+  background: var(--bg);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.term-prompt-bar::-webkit-scrollbar { display: none; }
+
+/* 提示符 = 当前绝对路径（如 E:\product\Termetron>）。
+   ⚠️ **始终可见，不省略、不截断** —— 它是用户判断“命令在哪个目录执行”
+      的唯一依据。路径长就让这条横向滚动，也不能把它弄没。 */
+.term-prompt {
+  flex: 0 0 auto;
+  display: inline-block;
+  font-size: var(--fs);
+  line-height: 1.45;
+  color: var(--accent);
+  white-space: pre;
+  /* 不设 overflow:hidden / text-overflow / direction —— 它们都会让
+     路径在窄屏上消失，正是用户反复报告的“看不见提示符”。 */
+}
+
 .term-input {
   flex: 1 1 auto;
   min-width: 0;

@@ -589,6 +589,30 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 // 终端页左上角返回键：回到会话列表
 document.getElementById('btn-back')?.addEventListener('click', () => showPage('sessions'));
 
+// ── 批量选择模式的标题栏按钮 ───────────────────────────────────────────
+// 「完成」= 退出多选（等价于 Android 返回键的第一层）
+document.getElementById('btn-bulk-done')?.addEventListener('click', () => setBulkMode(false));
+
+// 「全选 / 取消全选」：已全选时再点就全部取消
+document.getElementById('btn-bulk-all')?.addEventListener('click', (ev) => {
+  const btn = ev.currentTarget;
+  const allSelected = btn?.dataset.all === '1';
+  bulkMode.selected.clear();
+  if (!allSelected) {
+    for (const n of bulkMode.names) bulkMode.selected.add(n);
+  }
+  // 全部取消后没有选中项 → 视为退出多选（与单击取消最后一个行为的语义一致）
+  if (bulkMode.selected.size === 0) {
+    setBulkMode(false);
+    return;
+  }
+  syncBulkChrome();
+  paintBulkRows();
+});
+
+// 「删除」：删掉所有选中会话
+document.getElementById('btn-bulk-delete')?.addEventListener('click', () => bulkDelete());
+
 // Android 返回键：**逐层回退**，最后才退出 App。
 // ⚠️ 旧实现只有「终端页 → 会话列表」一层，其它页面按返回**直接退出应用** ——
 //    用户从设置页按返回，整个 App 就没了，非常突然。
@@ -613,17 +637,24 @@ App.addListener('backButton', () => {
     }
     return;
   }
-  // 2) 终端页 → 会话列表
+  // 2) 多选模式 → 先退出选择（层级比"回列表"更近）
+  // ⚠️ 必须排在页面判断**之前**：多选态下按返回，用户期望的是"取消选择"，
+  //    而不是被直接退出 App（旧逻辑会撞到第 4 条 exitApp，非常突兀）。
+  if (typeof bulkMode !== 'undefined' && bulkMode.active) {
+    setBulkMode(false);
+    return;
+  }
+  // 3) 终端页 → 会话列表
   if (currentPage === 'terminal') {
     showPage('sessions');
     return;
   }
-  // 3) 设置页 → 会话列表
+  // 4) 设置页 → 会话列表
   if (currentPage === 'setting') {
     showPage('sessions');
     return;
   }
-  // 4) 已在顶层页面，才真正退出
+  // 5) 已在顶层页面，才真正退出
   App.exitApp();
 });
 
@@ -639,6 +670,135 @@ App.addListener('backButton', () => {
 const sessionListEl = () => document.getElementById('session-list');
 const sessionsEmptyEl = () => document.getElementById('sessions-empty');
 
+// ── 批量选择模式 ───────────────────────────────────────────────────────
+// 语义参考 Livolog：长按任意一行进入多选，之后单击 = 切换选中，
+// 标题栏变成「已选 N 项」+ 全选/删除，返回键先退出这个模式。
+//
+// ⚠️ 为什么用模块级状态而不是元素属性：
+//    `refreshSessions()` 会把整个列表重建，行元素是**全新的**，
+//    选中集合必须活在行之外，否则一次刷新就全丢。
+const bulkMode = { active: false, selected: new Set(), names: [], runningNames: new Set() };
+
+/** 进入 / 退出多选模式。 */
+function setBulkMode(on, initialName = null) {
+  const next = !!on;
+  if (next === bulkMode.active) return;
+  bulkMode.active = next;
+  bulkMode.selected.clear();
+  if (next && initialName) bulkMode.selected.add(initialName);
+  syncBulkChrome();
+  paintBulkRows();
+}
+
+/** 切换某一行的选中状态。 */
+function toggleBulkSelection(name) {
+  if (!bulkMode.active) return;
+  if (bulkMode.selected.has(name)) bulkMode.selected.delete(name);
+  else bulkMode.selected.add(name);
+  // 一个都不剩就退出 —— 否则会卡在「已选 0 项」，用户必须先找「完成」
+  // 才能正常打开会话，很不顺手。
+  if (bulkMode.selected.size === 0) {
+    setBulkMode(false);
+    return;
+  }
+  syncBulkChrome();
+  paintBulkRows();
+}
+
+/** 只在行上打选中态，不重建列表（重建会丢滚动位置）。
+ *
+ * ⚠️ 与 Livolog 一致：**没有勾选框**，选中就是整行背景变 `--surface-raised`。
+ *    加勾选框会让行内容右移、行高变化，而且列表一下子"重"了很多；
+ *    整行变色已经足够清楚，且切换零位移。
+ */
+function paintBulkRows() {
+  const list = sessionListEl();
+  if (!list) return;
+  for (const li of list.querySelectorAll('.session-row')) {
+    const name = li.dataset.sessionName || '';
+    const on = bulkMode.active && bulkMode.selected.has(name);
+    li.classList.toggle('is-selected', on);
+    li.classList.toggle('is-bulk', bulkMode.active);
+  }
+}
+
+/** 操作栏的显示 / 隐藏 + 计数文字（对齐 Livolog 的 open/closeSelectionBar）。 */
+function syncBulkChrome() {
+  const active = bulkMode.active;
+  const n = bulkMode.selected.size;
+
+  // 操作栏：滑入 / 滑出
+  const bar = document.getElementById('selection-bar');
+  if (bar) {
+    if (active) {
+      bar.hidden = false;
+      // 下一帧再加 is-open，否则同一帧内 hidden→显示 会把 transition 吃掉
+      requestAnimationFrame(() => bar.classList.add('is-open'));
+    } else {
+      bar.classList.remove('is-open');
+      // 等过渡结束再 hidden，否则会"啪"地消失而不是滑回去
+      setTimeout(() => {
+        if (!bulkMode.active) bar.hidden = true;
+      }, 220);
+    }
+  }
+
+  // 计数文字
+  const count = document.getElementById('selection-count');
+  if (count) count.textContent = i18n('bulk.selected', { n });
+
+  // 全选按钮：全选状态时图标语义变成「取消全选」
+  const allBtn = document.getElementById('btn-bulk-all');
+  if (allBtn) {
+    const all = bulkMode.names.length > 0 && n >= bulkMode.names.length;
+    const label = i18n(all ? 'bulk.clearAll' : 'bulk.selectAll');
+    allBtn.setAttribute('aria-label', label);
+    allBtn.title = label;
+    allBtn.dataset.all = all ? '1' : '0';
+  }
+}
+
+/** 批量删除：逐个调 DELETE，统计成功数。运行中的先提醒。 */
+async function bulkDelete() {
+  const names = Array.from(bulkMode.selected);
+  if (!names.length) return;
+
+  // 删掉正在跑的会话会中断用户手上的活儿，先问一句
+  const running = names.filter((n) => bulkMode.runningNames.has(n));
+  if (running.length) {
+    const go = await tmtConfirm(i18n('bulk.someRunning', { n: running.length }), {
+      title: i18n('bulk.deleteTitle'),
+      okText: i18n('action.delete'),
+      cancelText: i18n('action.cancel'),
+    });
+    if (!go) return;
+  }
+
+  const ok = await tmtConfirm(i18n('bulk.deleteConfirm', { n: names.length }), {
+    title: i18n('bulk.deleteTitle'),
+    okText: i18n('action.delete'),
+    cancelText: i18n('action.cancel'),
+  });
+  if (!ok) return;
+
+  let done = 0;
+  let fail = 0;
+  for (const name of names) {
+    try {
+      await api(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      done += 1;
+    } catch (err) {
+      fail += 1;
+      console.warn('[termetron] bulk delete failed', name, err);
+    }
+  }
+
+  setBulkMode(false);
+  await refreshSessions();
+  if (fail) tmtAlert(i18n('bulk.partialFail', { ok: done, fail }));
+  else tmtToast(i18n('bulk.deleted', { n: done }));
+}
+
 // 会话行：名称在上、绝对路径在下（同一列），状态固定在右侧
 //   <li class="session-row">
 //     <button class="session-btn">
@@ -650,6 +810,8 @@ function sessionRow(name, info) {
   const inf = info || {};
   const li = document.createElement('li');
   li.className = 'session-row';
+  li.dataset.sessionName = name;
+
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'session-btn';
@@ -678,7 +840,63 @@ function sessionRow(name, info) {
   if (inf.busy) value.classList.add('is-running');
 
   btn.append(text, value);
-  btn.addEventListener('click', () => openSession(name));
+
+  // 点击行为取决于模式：多选时是"切换勾选"，否则是"打开会话"
+  let longPressed = false;
+  btn.addEventListener('click', (ev) => {
+    // 长按已经触发过多选，这次 click 必须吞掉 ——
+    // 否则长按进入多选后立刻又打开了终端页。
+    if (longPressed) {
+      longPressed = false;
+      ev.preventDefault();
+      return;
+    }
+    if (bulkMode.active) {
+      toggleBulkSelection(name);
+      return;
+    }
+    openSession(name);
+  });
+
+  // 长按检测：自己实现而不是用 CSS 计时，因为要稳定的 500ms 判定，
+  // 并在手指移动时取消（滚动列表不能误触）。
+  // ⚠️ 用 pointer 事件而不是 touch：同时覆盖手指和鼠标，浏览器调试也能用。
+  let timer = null;
+  let startX = 0;
+  let startY = 0;
+  const LONG_PRESS_MS = 500;
+  const MOVE_TOLERANCE = 10;   // 移动超过 10px 视为滚动，取消长按
+
+  const cancelLongPress = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
+
+  btn.addEventListener('pointerdown', (ev) => {
+    if (bulkMode.active || ev.button > 0) return;
+    startX = ev.clientX;
+    startY = ev.clientY;
+    cancelLongPress();
+    timer = setTimeout(() => {
+      timer = null;
+      longPressed = true;
+      // 轻微震动确认"长按生效了"（支持才震）
+      try { navigator.vibrate?.(15); } catch { /* 忽略 */ }
+      setBulkMode(true, name);
+    }, LONG_PRESS_MS);
+  });
+  btn.addEventListener('pointerup', cancelLongPress);
+  btn.addEventListener('pointercancel', cancelLongPress);
+  btn.addEventListener('pointerleave', cancelLongPress);
+  btn.addEventListener('pointermove', (ev) => {
+    if (!timer) return;
+    if (Math.abs(ev.clientX - startX) > MOVE_TOLERANCE ||
+        Math.abs(ev.clientY - startY) > MOVE_TOLERANCE) {
+      cancelLongPress();
+    }
+  });
+  // 安卓长按会弹系统上下文菜单，必须拦掉，否则长按被系统抢走
+  btn.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
   li.appendChild(btn);
   return li;
 }
@@ -705,8 +923,23 @@ async function refreshSessions() {
     const list = sessionListEl();
     const names = Object.keys(data || {});
     if (!names.length) {
+      // 列表空了 → 多选模式没有对象可选，必须退出，
+      // 否则标题栏会停在「已选 0 项」且没有行可以点。
+      if (bulkMode.active) setBulkMode(false);
+      bulkMode.names = [];
+      bulkMode.runningNames.clear();
       showEmpty('noSessions');   // 连上了，只是还没有会话
       return;
+    }
+    // 记住这一轮的行集合：全选要用它，删除时也要判断哪些在跑
+    bulkMode.names = names.slice();
+    bulkMode.runningNames.clear();
+    for (const n of names) {
+      if (data[n]?.busy) bulkMode.runningNames.add(n);
+    }
+    // 会话可能在别处被删了 → 把已经不存在的从选中集合里摘掉
+    for (const n of Array.from(bulkMode.selected)) {
+      if (!names.includes(n)) bulkMode.selected.delete(n);
     }
     let ok = 0;
     for (const n of names) {
@@ -718,6 +951,10 @@ async function refreshSessions() {
       }
     }
     if (ok) setSessionsEmpty(false);
+    // 列表重建后行是全新的，选中框要按内存里的集合重新画；
+    // 选中集合空了就顺带退出多选。
+    if (bulkMode.active && bulkMode.selected.size === 0) setBulkMode(false);
+    else { syncBulkChrome(); paintBulkRows(); }
   } catch (err) {
     // 连不上时列表里本来也没有会话 → 保留空状态。
     console.warn('[termetron] refreshSessions failed', err);
@@ -1242,6 +1479,27 @@ function renderSnapshot(data) {
   // 节奏：有程序在跑就加快，空闲放慢。
   // ⚠️ 不要在这里动中断按钮的显隐 —— 它是常驻的（见 showPage 里的说明）。
   pollDelay = data?.busy ? POLL_BUSY_MS : POLL_IDLE_MS;
+
+  // ══ 提示符条 ══════════════════════════════════════════════════════
+  // 显示「当前绝对路径 >」（如 `E:\product\Termetron>`），与真终端一致。
+  // 它独占一行、**始终可见、不省略** —— 用户要靠它判断命令在哪个目录执行。
+  //
+  // ⚠️ 取不到 cwd 时显示 `会话名 >` 而不是把它清空：
+  //    空白提示符等于"没有提示符"，用户会以为界面坏了。
+  //    管道模式（Linux 下的 /bin/sh）不输出提示符，这里也必须有个可见的东西。
+  const promptEl = document.getElementById('term-prompt');
+  if (promptEl) {
+    const cwd = (data?.cwd || '').trim();
+    const name = currentSession || '';
+    const text = cwd ? `${cwd}>` : `${name} >`;
+    if (promptEl.textContent !== text) promptEl.textContent = text;
+    promptEl.title = cwd || name;
+    // 路径太长时让这条自己横向滚动到最右（末尾才是当前目录）
+    const bar = document.getElementById('term-prompt-bar');
+    if (bar && bar.scrollWidth > bar.clientWidth) {
+      bar.scrollLeft = bar.scrollWidth;
+    }
+  }
 }
 
 async function pullOutput() {

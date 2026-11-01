@@ -14,13 +14,31 @@
     <div class="splash-brand"><span style="animation-delay:1.60s">T</span><span style="animation-delay:1.65s">E</span><span style="animation-delay:1.70s">R</span><span style="animation-delay:1.75s">M</span><span style="animation-delay:1.80s">E</span><span style="animation-delay:1.85s">T</span><span style="animation-delay:1.90s">R</span><span style="animation-delay:1.95s">O</span><span style="animation-delay:2.00s">N</span></div>
   </div>
 
-  <!-- ══ 顶栏：标题绝对居中，左右两侧各自放图标按钮（不会被对方挤偏）══ -->
+  <!-- ══ 批量选择操作栏（对齐 Livolog 的 .selection-bar）══
+       长按任意会话行进入多选后，这条从上方滑入**盖住标题栏**。
+       ⚠️ 必须是 <header> 的**同级兄弟**，不能放进 header 里面 ——
+          放进去会把 topbar 和后面的 main 都变成它的子元素，flex 布局
+          整体塌掉（实测：content 高度只剩 84px、y=-14，列表跑到屏幕外）。
+       三段布局：左=关闭，中=已选数量，右=全选 + 删除（红）。 -->
+  <div class="selection-bar" id="selection-bar" hidden>
+    <button class="topbar-icon-btn" type="button" id="btn-bulk-done" data-i18n-aria="aria.bulkExit" aria-label="Exit selection mode">
+      <!-- Material Symbols: close -->
+      <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M256-200 200-256l224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg>
+    </button>
+    <span class="selection-count" id="selection-count"></span>
+    <div class="selection-actions">
+      <button class="topbar-icon-btn" type="button" id="btn-bulk-all" data-i18n-aria="bulk.selectAll" aria-label="Select all">
+        <!-- Material Symbols: select_all -->
+        <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M280-280v-400h400v400H280Zm80-80h240v-240H360v240ZM120-120v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm160 640v-80h80v80h-80Zm160 0v-80h80v80h-80Zm160 0v-80h80v80h-80Zm160 0v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80ZM120-760v-80h400v80H120Zm160 160v-80h80v80h-80Zm160 0v-80h80v80h-80Zm160 0v-80h80v80h-80Z"/></svg>
+      </button>
+      <button class="topbar-icon-btn is-danger" type="button" id="btn-bulk-delete" data-i18n-aria="bulk.delete" aria-label="Delete">
+        <!-- Material Symbols: delete -->
+        <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360Z"/></svg>
+      </button>
+    </div>
+  </div>
+
   <header class="topbar">
-    <!-- 左格：会话页显示「连接」，终端页显示「返回」
-         ⚠️ 语义说明：点它是「配置/更换连接」——弹出表单让用户选扫码或手输。
-            连接本身（重新握手、接力新 URL）由后台自动完成，不需要按钮。
-            所以这里是「连接」图标而不是「刷新」：刷新只表达"再试一次"，
-            无法表达"我要扫码配对"。 -->
     <button class="topbar-icon-btn is-leading" type="button" id="btn-conn" data-i18n-aria="aria.connect" aria-label="Connect">
       <!-- Material Symbols: link -->
       <svg viewBox="0 -960 960 960" aria-hidden="true" focusable="false"><path d="M440-280H280q-83 0-141.5-58.5T80-480q0-83 58.5-141.5T280-680h160v80H280q-50 0-85 35t-35 85q0 50 35 85t85 35h160v80ZM320-440v-80h320v80H320Zm200 160v-80h160q50 0 85-35t35-85q0-50-35-85t-85-35H520v-80h160q83 0 141.5 58.5T880-480q0 83-58.5 141.5T680-280H520Z"/></svg>
@@ -67,9 +85,16 @@
     </section>
 
     <section class="page" id="page-terminal" data-page="terminal" hidden>
+      <!-- 输出区。
+           ⚠️ 提示符必须放在**输出区末尾**（真终端就是这样：最后一行是
+              `E:\product\Termetron>`）。放在下面的输入栏里会被输入框挤掉、
+              路径一长就看不见了 —— 用户明确要求“输入栏只管输入，不能隐藏提示符”。 -->
       <div class="term-out" id="term-out"></div>
-      <form class="term-input-row" id="term-form">
+      <!-- 提示符条：始终可见，显示当前会话的绝对路径 -->
+      <div class="term-prompt-bar" id="term-prompt-bar">
         <span class="term-prompt" id="term-prompt">$</span>
+      </div>
+      <form class="term-input-row" id="term-form">
         <input class="term-input" id="term-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-i18n-ph="terminal.placeholder" placeholder="Run a command">
       </form>
     </section>

@@ -22,6 +22,7 @@ import os
 import platform
 import re
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -77,6 +78,16 @@ except Exception:  # noqa: BLE001
 
 
 _TQDM_RE = re.compile(r"^(.*?)[:]?\s*(\d+)%\|.*?\|\s*(\d+)/(\d+)")
+
+# 管道模式下探测 cwd 用的标记。
+# ⚠️ 用一段固定、罕见但**纯 ASCII** 的串，而不是控制字符：
+#    · 控制字符要经过 shell 的 printf 转义，各实现不一致（dash 会漏字）；
+#    · 纯文本可以直接 `echo`，所有 POSIX shell 行为一致；
+#    · 解析时把它连同后面到行尾的内容一起取走并丢弃，用户看不到。
+CWD_MARK = "__TMT_CWD__"
+# 实际发送的是 `echo "__TMT_CWD__" "$PWD"` → 输出 `__TMT_CWD__ /some/path`。
+# 标记和路径之间有一个空格，用 `\s*` 兼容个别 shell 的 echo 行为差异。
+_CWD_MARKER_RE = re.compile(re.escape(CWD_MARK) + r"\s*(.*?)\s*$", re.MULTILINE)
 
 # ANSI 转义序列（光标移动/清行等）：剥离，避免污染 lines 与 tqdm 解析
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -188,6 +199,23 @@ _CMD_ECHO_RE = re.compile(r"^[A-Za-z]:\\.*>\s*(.*)$")
 # 提示符会**粘在输出尾部**，用整行匹配 `^...>$` 是匹配不到的。
 _PROMPT_TAIL_RE = re.compile(r"[A-Za-z]:\\[^>]*>\s*$")
 
+# ── POSIX 提示符 ────────────────────────────────────────────────────
+# `/usr/local$`、`root@host:/srv#`、`zhang@pc:~/my proj#` ……
+# 只在**行尾**匹配，避免命令输出里出现的路径被误认成提示符。
+# 路径里允许空格（`/home/a/my proj$` 是合法目录名），所以用
+# `[^$\s#]` 之外还要额外放行空格 —— 判据收紧到"行尾必须是 `$` 或 `#`"。
+_UNIX_PROMPT_TAIL_RE = re.compile(
+    r"(?:^|\s)((?:/[^$#]*)|(?:~[^$#]*)|(?:[A-Za-z0-9_.-]+@[^:\n]*:[^$#]*))"
+    r"\s?[$#]\s*$"
+)
+
+
+def _idle_prompt(line: str) -> bool:
+    """这一行是否已经回到"等待输入"状态（Windows cmd 或 POSIX shell）。"""
+    if not line:
+        return False
+    return bool(_PROMPT_TAIL_RE.search(line) or _UNIX_PROMPT_TAIL_RE.search(line))
+
 
 def _cwd_from_prompt(line: str) -> str | None:
     r"""从 cmd 提示符行取当前工作目录。
@@ -280,6 +308,11 @@ def _smart_decode(buf: bytes) -> tuple[str, bytes]:
 def _shell_cmd() -> list[str]:
     if os.name == "nt":
         return ["cmd.exe"]
+    # ⚠️ 不要用 `-i`：POSIX shell 在 **stdout 不是 TTY** 时，即便加了 `-i`
+    #    也**不会打印提示符**（实测确认，job control 还会往 stderr 刷警告）。
+    #    所以管道模式下 cwd 不靠提示符，而是靠 `_probe_cwd_pipe()` 主动问 `$PWD`。
+    #    非交互模式还有个好处：`cd` 之类会真正改变 shell 状态（有 PS1 时反而
+    #    多出无关输出）。
     return ["/bin/sh"]
 
 
@@ -435,6 +468,17 @@ class Session:
         env = dict(os.environ)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
+        if os.name != "nt":
+            # ⚠️ POSIX 下提示符就是 cwd 的**唯一来源**（不额外跑 pwd）。
+            #    格式固定为 `<PWD>$ `，配合 _UNIX_PROMPT_TAIL_RE 解析。
+            #    · 用 `$PWD` 而非 `\w`：`\w` 会把 HOME 缩成 `~`，我们要绝对路径。
+            #    · 不带 user@host：手机上宽度宝贵，前缀全是噪声。
+            #    · 强制覆盖（不是 setdefault）：用户 shell 配置里的 PS1
+            #      往往带颜色和 git 分支，会让解析变脆。
+            env["PS1"] = "$PWD$ "
+            # 关掉 shell 的启动文件，避免它们的 PS1 覆盖上面这一行。
+            # `/bin/sh -i` 会读 $ENV，清掉它保证提示符格式可控。
+            env.pop("ENV", None)
 
         self.pty = None
         self.proc = None
@@ -467,10 +511,17 @@ class Session:
                 print(f"[termetron] ConPTY unavailable, falling back to pipe: {exc}")
                 self.pty = None
 
+        # ⚠️ 管道模式下 Ctrl+C 要靠信号（见 _interrupt_pipe），
+        #    必须让 shell 单独成组，否则 `killpg` 会把**服务端自己**一起杀掉。
+        #    Windows 另用 CREATE_NEW_PROCESS_GROUP，语义相近。
+        if os.name == "nt":
+            popen_kw = {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+        else:
+            popen_kw = {"start_new_session": True}
         self.proc = subprocess.Popen(
             _shell_cmd(),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            bufsize=0, env=env,
+            bufsize=0, env=env, **popen_kw,
         )
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -527,13 +578,16 @@ class Session:
         #    例如 `ping -n 4 ...` 的最后一行是
         #    `... 平均 = 0msE:\product\Termetron>`，用 `^...>$` 匹配不到。
         #    所以这里用"行尾匹配"而不是"整行匹配"。
-        tail = (self.interactive_tail or "").strip()
-        if tail and _PROMPT_TAIL_RE.search(tail):
+        # ⚠️ `interactive_tail` / `lines` 都**保留 ANSI**（前端要上色），
+        #    这里判定"是否回到提示符"必须先剥掉，否则彩色提示符匹配不上，
+        #    busy 永远清不掉 —— 表现就是中断按钮一直亮、输入框一直禁用。
+        tail = _strip_ansi(self.interactive_tail or "").strip()
+        if tail and _idle_prompt(tail):
             self.busy = False
             return
         if self.lines:
-            last = (self.lines[-1] or "").strip()
-            if last and _PROMPT_TAIL_RE.search(last):
+            last = _strip_ansi(self.lines[-1] or "").strip()
+            if last and _idle_prompt(last):
                 self.busy = False
         # Python REPL 的 `>>> ` 也算"回到等待输入" —— 此时 ctrl+C 仍可用
         # （中断一个正在求值的表达式），但普通命令已经结束了。
@@ -603,11 +657,20 @@ class Session:
                 # encode commands accordingly so Chinese text typed in the box works.
                 enc = "cp936" if os.name == "nt" else "utf-8"
                 assert self.proc is not None and self.proc.stdin is not None
-                self.proc.stdin.write((text + "\r\n").encode(enc, "replace"))
+                # ⚠️ POSIX 管道模式没有提示符可用，cwd 要靠主动探测。
+                #    探测必须**和用户命令合并成一条**下发 —— 分成两次写
+                #    会让命令执行两遍（实测：`echo hi` 出现两次输出），
+                #    而且 `ok` 还会因为第二次写失败而报错。
+                payload = self._wrap_cwd_probe(text)
+                self.proc.stdin.write((payload + "\r\n").encode(enc, "replace"))
                 self.proc.stdin.flush()
             self.busy = True  # 命令开始运行，直到下一个提示符
             return True
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            # ⚠️ 必须打印异常。之前这里静默 `return False`，导致
+            #    API 只回 `{"ok": false}`，前端和日志都看不到原因 ——
+            #    我为此连续误判了三轮（以为是正则、是缓存、是旧代码）。
+            print(f"[termetron] send failed: {exc!r}")
             return False
 
     def send_raw(self, text: str, *, submit: bool = False) -> bool:
@@ -622,16 +685,104 @@ class Session:
         try:
             payload = text + ("\r\n" if submit else "")
             if getattr(self, "pty", None) is not None:
+                # PTY：0x03 由终端驱动转成 CTRL_C_EVENT，这是**真正的中断**。
                 self.pty.write(payload.encode("utf-8", "replace"))
             else:
+                # ⚠️ 管道模式没有终端驱动，0x03 只是**普通字节**。
+                #    实测：写进去后 shell 会把它当成命令文本，
+                #    报 `/bin/sh: 2: \x03cd: not found`，而且
+                #    **连后面那条命令也被吞进同一行**。
+                #    所以管道模式下必须走进程信号，而不是写 stdin。
+                if text == "\x03":
+                    return self._interrupt_pipe()
                 enc = "cp936" if os.name == "nt" else "utf-8"
                 assert self.proc is not None and self.proc.stdin is not None
                 self.proc.stdin.write(payload.encode(enc, "replace"))
                 self.proc.stdin.flush()
-            self.busy = True
+            # ⚠️ Ctrl+C（0x03）**不能**把 busy 置真，而且要立刻清掉。
+            #    busy 的语义是"有程序在跑，先别接新命令"；Ctrl+C 恰恰是
+            #    **结束**程序的动作，把它置真等于自己跟自己打架 ——
+            #    实测表现：按一次中止后前端一直以为在忙（120ms 高频轮询、
+            #    输入被禁用），整个终端"像瘫了一样"。
+            #    shell 回到提示符后，_track_busy_pty 也会再次确认，双保险。
+            if text == "\x03":
+                self.busy = False
+            else:
+                self.busy = True
             return True
         except Exception:  # noqa: BLE001
             return False
+
+    def _interrupt_pipe(self) -> bool:
+        """管道模式下的「Ctrl+C」：向 shell 进程组发 SIGINT。
+
+        为什么不能用 stdin 写 0x03：管道没有 line discipline，
+        0x03 只是三个字节里的一个，shell 会把它当命令内容。
+        这里按平台走两条路：
+          · POSIX：`os.killpg(pgid, SIGINT)` —— 整组都收到（前台程序+shell）。
+          · Windows：没有 SIGINT 组播，退回 `proc.terminate()`
+            （cmd.exe 会被结束，随后由 _ensure() 重建，用户看到的是干净提示符）。
+        两种情况都**立刻清 busy**：语义上"中断"就是回到可输入状态。
+        """
+        proc = self.proc
+        if proc is None:
+            return False
+        try:
+            if os.name == "nt":
+                proc.terminate()
+            else:
+                sig = getattr(signal, "SIGINT", None)
+                if sig is not None:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), sig)
+                    except (ProcessLookupError, PermissionError):
+                        proc.send_signal(sig)
+                else:  # pragma: no cover - signal 模块缺失属于异常环境
+                    proc.terminate()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[termetron] interrupt failed: {exc!r}")
+            return False
+        finally:
+            self.busy = False
+        return True
+
+    def _wrap_cwd_probe(self, cmd: str) -> str:
+        r"""把用户命令包装成「顺便问一次当前目录」的一条语句。
+
+        为什么需要：POSIX 的 `/bin/sh` 在 **stdout 不是 TTY** 时
+        **根本不打印提示符**（加 `-i` 也不行，实测确认）—— 没有提示符
+        就没有 cwd 的来源。Windows 的 cmd.exe 无论如何都会打印
+        `X:\...>`，所以只有 POSIX 需要这个补充手段。
+
+        做法：`<用户命令>; echo "<标记>" "$PWD"`
+
+        ⚠️ 必须**合并成一条**下发。曾拆成两次 `stdin.write`，
+            结果命令被执行两遍（`echo hi` 出现两次输出），
+            而且第二次写失败会让 `send()` 返回 False。
+        ⚠️ 用 `;` 而不是 `&&`：`cd` 之类失败时也要把 echo 执行掉，
+            否则拿不到目录（此时拿到的是当前真实目录，正是想要的）。
+        ⚠️ 用 `echo` 而不是 `printf`：各 POSIX shell 对 printf 的
+            `\001` 转义支持不一致（dash 会漏字，留下 `: not found` 噪声）。
+        ⚠️ 必须写 **`$PWD`**。曾误写成 `$<标记名>`（未定义变量 → 空串），
+            cwd 永远解不出来。
+        """
+        if not cmd or os.name == "nt":
+            return cmd
+        # ⚠️ 用模块级常量 CWD_MARK（不是 self.CWD_MARK —— 那是 AttributeError，
+        #    实测报 `'Session' object has no attribute 'CWD_MARK'`）。
+        return f'{cmd}; echo "{CWD_MARK}" "$PWD"'
+
+    def _probe_cwd_pipe(self, cmd: str) -> None:
+        """兼容旧调用点：单独下发一次探测（仅当命令已由别处写过时用）。"""
+        if not cmd or os.name == "nt":
+            return
+        try:
+            assert self.proc is not None and self.proc.stdin is not None
+            self.proc.stdin.write(
+                (f'echo "{CWD_MARK}" "$PWD"' + "\n").encode("utf-8", "replace"))
+            self.proc.stdin.flush()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _feed(self, text: str) -> None:
         """Consume decoded text, splitting on \r (tqdm update) / \n (line)."""
@@ -653,6 +804,16 @@ class Session:
                     continue
                 else:
                     line = self.pending or ""
+                    # ⚠️ cwd 探测标记必须在**其它判定之前**处理：
+                    #    它是我们自己注入的 `\x01/path\x02` 行，要先把它
+                    #    取出来更新 cwd，然后整行丢弃（用户不该看到）。
+                    m = _CWD_MARKER_RE.search(line)
+                    if m:
+                        got = (m.group(1) or "").strip()
+                        if got:
+                            self.cwd = got.rstrip("/") or "/"
+                        self.pending = None
+                        continue
                     # 丢弃启动后短暂窗口内的初始输出（cmd banner / 初始提示符），保证新会话干净；
                     # 不依赖提示符判定（命令运行期间无提示符），用时间窗口避免一直丢弃
                     if self._startup:
@@ -669,6 +830,12 @@ class Session:
                             self.cwd = cwd
                         self.pending = None
                         continue  # 孤立设备提示符（E:\...>）不显示，termetron 用自己的提示符
+                    # ⚠️ POSIX 提示符**不在这里**处理：
+                    #    管道模式下 sh 根本不输出提示符（无 TTY），
+                    #    cwd 靠 _probe_cwd_pipe 的标记行获取；
+                    #    而 `_idle_prompt` 的宽松正则容易把正常输出行
+                    #    （如 `/usr/bin/ls$` 这类）误判成提示符并吞掉，
+                    #    所以这里刻意不做匹配。
                     m = _CMD_ECHO_RE.match(line)
                     if m:
                         # 命令回显 `E:\code\quant>cmd` → termetron 风格 `$ cmd`（历史里统一显示 termetron 提示符）
@@ -754,21 +921,39 @@ class Session:
         self.updated = time.time()
 
     def _update_cwd_from(self, text: str) -> None:
-        """从新到达的输出里找 cmd 提示符，更新 cwd。
+        r"""从新到达的输出里找 shell 提示符，更新 cwd。
 
         PTY 模式的输出不按行切分，且提示符被 ANSI 光标序列包着，
         所以要先用 `_visible_line` 还原成"看起来的那一行"再匹配。
         `\r` 在这里当作行分隔（ConPTY 用 \r 归位提示符）。
+
+        两种 shell 都要认：
+          · Windows cmd：`E:\product\Termetron>`
+          · POSIX sh/bash：`/usr/local$`、`root@host:/srv#`
         """
-        plain = _visible_line(text)
+        plain = _strip_ansi(_visible_line(text))
         for line in plain.replace("\r", "\n").split("\n"):
-            m = _PROMPT_CWD_RE.match(line.strip())
+            s = line.strip()
+            if not s:
+                continue
+            m = _PROMPT_CWD_RE.match(s)
             if m:
                 path = m.group(1)
                 if len(path) > 3:
                     path = path.rstrip("\\")
                 if path:
                     self.cwd = path
+                    return
+            m = _UNIX_PROMPT_TAIL_RE.search(s)
+            if m:
+                path = (m.group(1) or "").strip()
+                # `user@host:~/x` 只取冒号后的路径部分
+                if ":" in path and "@" in path.split(":", 1)[0]:
+                    path = path.split(":", 1)[1]
+                if path and path not in ("$", "#"):
+                    # `~` 不展开：服务端不知道手机端熟悉哪种写法，
+                    # 原样显示 `~/src` 反而更符合用户直觉。
+                    self.cwd = path.rstrip("/") or "/"
                     return
 
     def _append_raw(self, text: str) -> None:
@@ -3639,6 +3824,18 @@ class Handler(BaseHTTPRequestHandler):
             s = SESSIONS.pop(name, None)
             if s:
                 s.stop(rebuild=False)
+                # ⚠️ 必须**同时删掉磁盘日志**，否则下次启动 _spawn 时
+                #    `_log.load()` 会把历史读回来，会话「复活」——
+                #    用户上一版就报过"删掉的会话还在"，根因就是这里：
+                #    `_remove_session_file` 导入了却一直是死代码。
+                try:
+                    s._log.truncate()          # 先清内容，防止句柄残留
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    _remove_session_file(name)  # 再删文件
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[termetron] remove log failed for {name}: {exc!r}")
                 self._json({"ok": True})
             else:
                 self._json({"error": "not found"}, 404)
