@@ -441,7 +441,23 @@ async function api(path, opts = {}) {
         e.status = 401;
         throw e;
       }
-      throw new Error(`HTTP ${res.status}`);
+      // ⚠️ 优先用服务端返回的 error 文案，而不是只抛 "HTTP 409"。
+      //    服务端对每种失败都有具体说明（session exists / name required ...），
+      //    只显示状态码的话用户完全不知道自己哪里做错了 —— 实测有人为此困惑。
+      let detail = '';
+      try {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('json')) {
+          const j = await res.json();
+          detail = (j && (j.error || j.message)) || '';
+        }
+      } catch {
+        /* 读不出正文就退回状态码 */
+      }
+      const e = new Error(detail || `HTTP ${res.status}`);
+      e.status = res.status;
+      e.detail = detail;
+      throw e;
     }
     const ct = res.headers.get('content-type') || '';
     return ct.includes('json') ? res.json() : res.text();
@@ -764,6 +780,11 @@ addBtnEl()?.addEventListener('click', async () => {
     });
     await refreshSessions();
   } catch (err) {
+    // 409 = 同名会话已存在。这不是故障，是用户取名撞了，提示要直接说清楚。
+    if (err.status === 409) {
+      tmtAlert(i18n('session.nameTaken', { name: name }));
+      return;
+    }
     tmtAlert(i18n('session.errCreate', { err: err.message }));
   }
 });

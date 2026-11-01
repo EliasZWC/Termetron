@@ -37,16 +37,44 @@ done
 DIR=$(cd "$(dirname "$SELF")" && pwd)
 
 # 自检：脚本必须和 quant_terminal.py 在同一个目录。
-# 不满足就说明这是一份**孤立的拷贝**（比如从项目里 cp 出来的），
-# 它不会跟着项目更新 —— 表现为「代码明明改了却看不到变化」。
-# 宁可明确报错，也不要让人去猜为什么改动没生效。
+#
+# 为什么要有这一步：只靠"所在目录"定位代码，一旦文件被 cp 出去就会失效
+# （表现为「代码明明改了却看不到变化」）。但让用户自己去 ln -s 也不合理 ——
+# 命令装在哪应该是透明的事。
+#
+# 所以这里两级处理：
+#   1. 旁边有代码 → 直接用（软链接、正常调用都走这条）
+#   2. 旁边没代码 → **自动去常见位置找**项目目录，找到就用
+#   3. 都找不到   → 才报错，并告知怎么装
 if [ ! -f "$DIR/quant_terminal.py" ]; then
-    echo "[termetron] error: quant_terminal.py not found next to this launcher." >&2
-    echo "[termetron]   This looks like a copied file, not a symlink:  $SELF" >&2
-    echo "[termetron]   A copy never picks up project updates." >&2
-    echo "[termetron]   Replace it with a symlink instead:" >&2
-    echo "[termetron]     ln -sf /path/to/Termetron/termetron $SELF" >&2
-    exit 1
+    FOUND=""
+    for cand in \
+        "${TERMETRON_HOME:-}" \
+        "$HOME/Termetron" \
+        "$HOME/termetron" \
+        "$HOME/src/Termetron" \
+        "$HOME/code/Termetron" \
+        "$HOME/projects/Termetron" \
+        "/opt/termetron" \
+        "/mnt/e/product/Termetron" \
+        "/mnt/c/Termetron"
+    do
+        [ -n "$cand" ] || continue
+        if [ -f "$cand/quant_terminal.py" ]; then
+            FOUND="$cand"
+            break
+        fi
+    done
+    if [ -n "$FOUND" ]; then
+        DIR="$FOUND"
+    else
+        echo "[termetron] error: cannot find the Termetron sources." >&2
+        echo "[termetron]   Looked next to this launcher ($SELF) and in the usual places." >&2
+        echo "[termetron]   Point at the install directory explicitly:" >&2
+        echo "[termetron]     export TERMETRON_HOME=/path/to/Termetron" >&2
+        echo "[termetron]   or run the launcher that ships with the sources." >&2
+        exit 1
+    fi
 fi
 
 # 选 Python：优先 python3（Linux/WSL），回退 python（部分发行版/Windows Git Bash）
