@@ -165,13 +165,26 @@ body {
   background: var(--bg);
   transform: translateY(-100%);
   transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+  /* 计数用 position:absolute 居中，需要这个定位上下文 */
+  isolation: isolate;
+}
+/* 两侧按钮组永远在上层，不被居中的计数文字盖住 */
+.selection-bar > .topbar-icon-btn,
+.selection-bar > .selection-actions {
+  position: relative;
+  z-index: 1;
 }
 .selection-bar[hidden] { display: none; }
 .selection-bar.is-open { transform: translateY(0); }
 
-/* 已选数量：居中、加粗，比标题更醒目（多选时它才是当前最重要的信息） */
+/* 已选数量：**绝对居中**，不受左右按钮组宽度影响。
+   ⚠️ 不能用 justify-content: space-between + flex:1 —— 左侧只有 1 个按钮
+      （1×40px），右侧有 2 个（2×40px+gap），文字中心会被推左约 20px。
+      用 1:1 的左右占位（flex-basis 相同）才能真正居中。 */
 .selection-count {
-  flex: 1 1 auto;
+  position: absolute;
+  left: 0;
+  right: 0;
   text-align: center;
   font-size: 17px;
   font-weight: 700;
@@ -179,6 +192,9 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 文字不挡住两侧按钮的点击（按钮 z-index 更高） */
+  pointer-events: none;
+  padding: 0 96px;
 }
 
 /* 右侧按钮组：全选 + 删除 */
@@ -639,49 +655,49 @@ body {
   contain: content;
   will-change: scroll-position;
 }
-.term-input-row {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* 底部安全区由 body 处理，这里只留自身的 10px */
-  padding: 10px 16px;
-  border-top: 1px solid var(--outline);
-  background: var(--surface);
+/* 输出内容容器：与输入行是兄弟关系。
+   ⚠️ 独立成一层是为了让刷新输出时**只替换这一层**，
+      不会波及下面的提示符 + 输入框（详见 main.js renderSnapshot）。
+   排版（white-space: pre 等）继承自 .term-out，这里不需要重复。 */
+.term-lines {
+  display: block;
 }
-/* 提示符条：输出区与输入栏之间的独立一行（真终端的“当前行”）。
-   ⚠️ 为什么单独一条而不是塞进输入框左边：
-      路径可以很长（`E:\product\Termetron\src\components\...`），
-      和输入框挤在同一行时，两者互相压缩，最后两边都看不见内容。
-      拆成独立一条后，提示符可以独占整行宽度，永远完整可见。 */
-.term-prompt-bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 6px 16px 2px;
-  background: var(--bg);
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  scrollbar-width: none;
-}
-.term-prompt-bar::-webkit-scrollbar { display: none; }
 
+/* ── 提示符 + 输入行（真终端形态） ──────────────────────────────────────
+   这一行是 .term-out 的**子元素**，排在所有历史输出之后，跟着内容一起滚动。
+   缩进 -16px 抵消 .term-out 的 padding，让提示符和上面的输出左沿对齐
+   （真终端里它们就在同一列）。
+
+   ⚠️ 整个页面**只有这一个输入控件**。之前底部还另有一条输入栏，
+      用户明确要求去掉：两栏会把"输出"和"输入"割开，
+      看不到命令是在哪个提示符下敲的。 */
+.term-input-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: -16px;
+  padding-left: 16px;
+}
+.term-form {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  margin: 0;
+}
 /* 提示符 = 当前绝对路径（如 E:\product\Termetron>）。
-   ⚠️ **始终可见，不省略、不截断** —— 它是用户判断“命令在哪个目录执行”
-      的唯一依据。路径长就让这条横向滚动，也不能把它弄没。 */
+   ⚠️ **始终可见、不省略、不截断** —— 它是用户判断"命令在哪个目录执行"
+      的唯一依据，也是判断"终端是否可用"的视觉锚点。
+   ⚠️ 绝对不要设 overflow:hidden / text-overflow / direction：
+      它们都会让路径在窄屏上消失，正是用户反复报告的"看不见提示符"。
+   ⚠️ 也不要设 flex: 1 或 max-width：提示符必须按自身内容宽度展开，
+      把剩余空间全让给输入框（输入框才是可伸缩的那个）。 */
 .term-prompt {
   flex: 0 0 auto;
-  display: inline-block;
   font-size: var(--fs);
   line-height: 1.45;
   color: var(--accent);
   white-space: pre;
-  /* 不设 overflow:hidden / text-overflow / direction —— 它们都会让
-     路径在窄屏上消失，正是用户反复报告的“看不见提示符”。 */
 }
-
 .term-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -691,7 +707,10 @@ body {
   color: var(--on-surface);
   font: inherit;
   font-size: var(--fs);
+  line-height: inherit;
   outline: none;
+  /* 命令不折行，横向溢出（真终端就是这样） */
+  white-space: pre;
 }
 .term-input::placeholder { color: var(--on-surface-variant); opacity: 0.55; }
 

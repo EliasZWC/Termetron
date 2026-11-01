@@ -85,18 +85,21 @@
     </section>
 
     <section class="page" id="page-terminal" data-page="terminal" hidden>
-      <!-- 输出区。
-           ⚠️ 提示符必须放在**输出区末尾**（真终端就是这样：最后一行是
-              `E:\product\Termetron>`）。放在下面的输入栏里会被输入框挤掉、
-              路径一长就看不见了 —— 用户明确要求“输入栏只管输入，不能隐藏提示符”。 -->
-      <div class="term-out" id="term-out"></div>
-      <!-- 提示符条：始终可见，显示当前会话的绝对路径 -->
-      <div class="term-prompt-bar" id="term-prompt-bar">
-        <span class="term-prompt" id="term-prompt">$</span>
+      <!-- 真终端形态：**一个可滚动的区域**，里面依次是
+             历史输出 → 提示符 + 输入框
+           输入框就在提示符后面，跟终端里敲命令完全一样。
+           ⚠️ 没有独立的底部输入栏 —— 用户明确要求去掉：
+              两栏会把"输出"和"输入"割开，看不到命令是在哪个提示符下敲的。
+              ⚠️ 输入框是 .term-out 的**子元素**，跟着内容一起滚动，
+                 所以最后一行永远是"提示符 + 光标"，不会飘在屏幕底部。 -->
+      <div class="term-out" id="term-out">
+        <div class="term-input-line" id="term-input-line">
+          <span class="term-prompt" id="term-prompt">$</span>
+          <form class="term-form" id="term-form">
+            <input class="term-input" id="term-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-i18n-ph="terminal.placeholder" placeholder="Run a command">
+          </form>
+        </div>
       </div>
-      <form class="term-input-row" id="term-form">
-        <input class="term-input" id="term-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-i18n-ph="terminal.placeholder" placeholder="Run a command">
-      </form>
     </section>
 
     <section class="page" id="page-setting" data-page="setting" hidden>

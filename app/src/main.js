@@ -96,6 +96,9 @@ const TMT_CSS = `
 .tmt-btn{padding:14px 4px;border:0;border-radius:0;background:none;font:inherit;font-size:15px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;color:var(--success);-webkit-tap-highlight-color:transparent;transition:opacity .12s ease}
 .tmt-btn:active{opacity:.55}
 .tmt-btn.cancel{color:var(--on-surface-variant)}
+/* 破坏性操作的确认按钮（删除）：主题红，与"确定/保存"的绿色区分开。
+   ⚠️ 删除要是绿的，用户按下去会有"这是安全操作"的错觉。 */
+.tmt-btn.ok.is-danger{color:var(--danger)}
 .tmt-input{width:100%;box-sizing:border-box;padding:2px 0;border:0;border-radius:0;background:transparent;color:var(--on-surface);font:inherit;font-size:15px;outline:none}
 .tmt-input::placeholder{color:var(--on-surface-variant);opacity:.55}
 /* ── 下拉菜单：逐项照 Livolog 的 .menu / .menu-item 实测值 ────────────
@@ -216,6 +219,7 @@ function ensureModalCss() {
  * `onAccept` 在点 OK 时调用，**返回 false 则不关闭**（表单校验失败时用）。
  */
 function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = null,
+                     danger = false,
                      setup, onAccept }) {
   ensureModalCss();
   return new Promise((resolve) => {
@@ -253,6 +257,9 @@ function tmtPrompt({ title, message, body, input, okText = 'OK', cancelText = nu
     const ok = overlay.querySelector('.tmt-btn.ok');
     const cancel = overlay.querySelector('.tmt-btn.cancel');
     ok.textContent = okText;
+    // 破坏性操作（删除）用主题红，而不是默认的绿色 —— 绿色会让用户
+    // 以为这是"安全/推荐"的操作。
+    if (danger) ok.classList.add('is-danger');
     if (cancel) cancel.textContent = cancelText;
 
     document.body.appendChild(overlay);
@@ -301,8 +308,9 @@ function tmtAlert(message, title = 'TERMETRON') {
   return tmtPrompt({ title, message, okText: 'OK', cancelText: null });
 }
 
-function tmtConfirm(message, { title = 'TERMETRON', okText = 'OK', cancelText = 'CANCEL' } = {}) {
-  return tmtPrompt({ title, message, okText, cancelText });
+function tmtConfirm(message, { title = 'TERMETRON', okText = 'OK', cancelText = 'CANCEL',
+                               danger = false } = {}) {
+  return tmtPrompt({ title, message, okText, cancelText, danger });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -770,6 +778,7 @@ async function bulkDelete() {
       title: i18n('bulk.deleteTitle'),
       okText: i18n('action.delete'),
       cancelText: i18n('action.cancel'),
+      danger: true,
     });
     if (!go) return;
   }
@@ -778,6 +787,7 @@ async function bulkDelete() {
     title: i18n('bulk.deleteTitle'),
     okText: i18n('action.delete'),
     cancelText: i18n('action.cancel'),
+    danger: true,
   });
   if (!ok) return;
 
@@ -1181,7 +1191,22 @@ function startStream(name) {
 async function openSession(name) {
   currentSession = name;
   showPage('terminal');
-  termOut.textContent = '';
+
+  // ⚠️⚠️ 只清**文本/输出节点**，绝不能 `termOut.textContent = ''` ——
+  //    那会把「提示符 + 输入框」这一行也从 DOM 里删掉，之后再也没法输入
+  //    （实测：进会话后整个终端只剩输出，没有任何输入控件）。
+  //    输入行是 .term-out 的**常驻子元素**，只该被挪动，不该被销毁。
+  for (const node of Array.from(termOut.childNodes)) {
+    if (node.nodeType === Node.ELEMENT_NODE &&
+        node.classList && node.classList.contains('term-input-line')) {
+      continue;   // 保留输入行
+    }
+    node.remove();
+  }
+  // 确保输入行还在，且永远是最后一个子元素（= 最后一行）
+  const keepLine = document.getElementById('term-input-line');
+  if (keepLine) termOut.appendChild(keepLine);
+
   termOut._last = '';
   lastOutputText = '';
   pollDelay = POLL_BUSY_MS;   // 刚进会话，先按"忙"的节奏抢一次
@@ -1191,6 +1216,11 @@ async function openSession(name) {
   await pullOutput();
   // 首帧用轮询拿一次（保证立即有内容），之后交给推送。
   startStream(name);
+  // 进入会话即聚焦输入框：真终端里光标本来就在提示符后面等人敲字。
+  // preventScroll 防止 WebView 因为这行把整页滚一下（标题栏会跳走）。
+  setTimeout(() => {
+    try { termInput.focus({ preventScroll: true }); } catch { termInput.focus(); }
+  }, 60);
 }
 
 // ── ANSI → HTML ────────────────────────────────────────────────────────
@@ -1469,36 +1499,78 @@ function renderSnapshot(data) {
   // 复制用的文本每次都更新，不能只在"画面变了"时更新 ——
   // 否则用户在内容滚出首屏后点复制，拿到的还是旧的一屏。
   lastOutputText = stripAnsiForCopy(all);
+
+  // ⚠️⚠️ 输入行（提示符 + 输入框）是 .term-out 的子元素，而下面要整块
+  //      替换输出 HTML。`innerHTML = html` 会把它一起抹掉（实测：进会话
+  //      后第一次刷新，输入框就消失，整个终端没法再输入）。
+  //
+  //      解法：输出写进一个**独立的子容器** `#term-lines`，输入行是它的
+  //      同级兄弟。这样刷新只需改 `#term-lines` 的 innerHTML，输入行
+  //      完全不受影响 —— 比"摘下来再挂回去"稳（那样一旦中途抛异常就丢了）。
+  let linesEl = document.getElementById('term-lines');
+  if (!linesEl) {
+    linesEl = document.createElement('div');
+    linesEl.id = 'term-lines';
+    linesEl.className = 'term-lines';
+    termOut.insertBefore(linesEl, termOut.firstChild);
+  }
+
   if (termOut._last !== html) {
+    // 判断"是否在底部"必须在替换**之前**做（替换后高度已变）
     const atBottom =
       termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
-    termOut.innerHTML = html;
+    linesEl.innerHTML = html;
     termOut._last = html;
     if (atBottom) termOut.scrollTop = termOut.scrollHeight;
   }
+
+  // 输入行永远排在输出之后（= 最后一行）
+  const inputLine = document.getElementById('term-input-line');
+  if (inputLine && termOut.lastElementChild !== inputLine) {
+    termOut.appendChild(inputLine);
+  }
+  if (inputLine) {
+    scrollInputIntoView();
+  }
+
   // 节奏：有程序在跑就加快，空闲放慢。
   // ⚠️ 不要在这里动中断按钮的显隐 —— 它是常驻的（见 showPage 里的说明）。
   pollDelay = data?.busy ? POLL_BUSY_MS : POLL_IDLE_MS;
 
-  // ══ 提示符条 ══════════════════════════════════════════════════════
-  // 显示「当前绝对路径 >」（如 `E:\product\Termetron>`），与真终端一致。
-  // 它独占一行、**始终可见、不省略** —— 用户要靠它判断命令在哪个目录执行。
+  // ══ 提示符 ════════════════════════════════════════════════════════
+  // 与真终端完全一致：显示「当前绝对路径 > 」（Windows 用 `\`，POSIX 用 `/`）。
   //
-  // ⚠️ 取不到 cwd 时显示 `会话名 >` 而不是把它清空：
-  //    空白提示符等于"没有提示符"，用户会以为界面坏了。
-  //    管道模式（Linux 下的 /bin/sh）不输出提示符，这里也必须有个可见的东西。
+  // ⚠️ 绝不能显示会话名。用户明确反馈：显示会话名时"看不出这是在哪个目录，
+  //    也看不出提示符在哪，只看到一片输出"。会话名在标题栏已经有了，
+  //    这里重复显示等于把"当前目录"这条信息换成了零信息。
+  // ⚠️ 取不到 cwd 时显示 `…` 而不是会话名 —— 它诚实地表示"还不知道"，
+  //    不会误导用户以为自己在某个目录里。
   const promptEl = document.getElementById('term-prompt');
   if (promptEl) {
     const cwd = (data?.cwd || '').trim();
-    const name = currentSession || '';
-    const text = cwd ? `${cwd}>` : `${name} >`;
+    // Windows 路径以盘符开头（`E:\`），POSIX 以 `/` 开头
+    const isWin = /^[A-Za-z]:[\\/]/.test(cwd);
+    const text = cwd ? (isWin ? `${cwd}>` : `${cwd}$`) : '…$';
     if (promptEl.textContent !== text) promptEl.textContent = text;
-    promptEl.title = cwd || name;
-    // 路径太长时让这条自己横向滚动到最右（末尾才是当前目录）
-    const bar = document.getElementById('term-prompt-bar');
-    if (bar && bar.scrollWidth > bar.clientWidth) {
-      bar.scrollLeft = bar.scrollWidth;
-    }
+    promptEl.title = cwd || (currentSession || '');
+  }
+}
+
+/**
+ * 把「提示符 + 输入框」那一行滚进视野。
+ *
+ * 真终端里光标永远在最后一行；输出刷新后如果不同步滚动，
+ * 输入框会被挤到可视区之外 —— 用户看到的是"输出在动，但我的命令不见了"。
+ */
+function scrollInputIntoView() {
+  const line = document.getElementById('term-input-line');
+  if (!line || !termOut) return;
+  const lineBottom = line.offsetTop + line.offsetHeight;
+  const visibleBottom = termOut.scrollTop + termOut.clientHeight;
+  // 已经在视野内（留 8px 余量）就不要动，否则每次轮询都强制滚动，
+  // 用户往上翻历史时会一直被拽回底部。
+  if (lineBottom > visibleBottom - 8) {
+    termOut.scrollTop = termOut.scrollHeight;
   }
 }
 
@@ -1627,6 +1699,7 @@ async function deleteSession() {
     title: i18n('session.delete'),
     okText: i18n('action.delete'),
     cancelText: i18n('action.cancel'),
+    danger: true,
   });
   if (!ok) return;
   try {

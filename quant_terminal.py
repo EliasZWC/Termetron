@@ -366,6 +366,15 @@ class _PersistentLines(list):
 
 
 class Session:
+    # busy 的静默超时（秒）。
+    # ⚠️ 这是「命令已经结束」的兜底判据，只在**提示符看不到**时才起作用
+    #    （POSIX 管道模式下的 sh 不打印提示符）。所以它必须比任何
+    #    "用户能感知到的卡顿"都长，又不能长到列表状态误导人。
+    #    1.2s 的依据：PTY 里提示符一般在命令结束后几十毫秒内出现；
+    #    管道模式下 `ls` / `cd` / `echo` 都是毫秒级。留 1.2s 足够吸收
+    #    网络抖动和渲染延迟，同时保证用户"回头看一眼列表"时状态是对的。
+    BUSY_SILENCE_SEC = 1.2
+
     def __init__(self, name: str, cmd: str | None = None, *, restore: bool = True):
         self.name = name
         self.cmd = cmd or "(interactive shell)"
@@ -665,6 +674,13 @@ class Session:
                 self.proc.stdin.write((payload + "\r\n").encode(enc, "replace"))
                 self.proc.stdin.flush()
             self.busy = True  # 命令开始运行，直到下一个提示符
+            # ⚠️ 必须记下"最后一次输出时间"，否则 busy 会永久为真：
+            #    POSIX 管道模式下 sh 不打印提示符，`_track_busy_pty` /
+            #    `_feed` 的提示符判定**永远等不到**，`ls`、`cd`、`echo`
+            #    这类秒回的命令会一直显示 running —— 而用户看到的是
+            #    "明明什么都没在跑，为什么标着运行中"。
+            #    见 `_busy_reaper`：静默超过阈值就自动松开。
+            self._last_activity = time.time()
             return True
         except Exception as exc:  # noqa: BLE001
             # ⚠️ 必须打印异常。之前这里静默 `return False`，导致
@@ -697,7 +713,13 @@ class Session:
                     return self._interrupt_pipe()
                 enc = "cp936" if os.name == "nt" else "utf-8"
                 assert self.proc is not None and self.proc.stdin is not None
-                self.proc.stdin.write(payload.encode(enc, "replace"))
+                # ⚠️ App 提交命令走的是 **raw + submit**（不是 send），
+                #    所以 cwd 探测也必须在这里做一次，否则管道模式下
+                #    提示符永远是 `…`（看不到当前目录）。
+                #    只对 submit=true 的"整条命令"做；逐字符输入
+                #    （REPL / vim 里敲字）绝不能包，否则每个键都会被拼成命令。
+                payload = self._wrap_cwd_probe(text) if submit else text
+                self.proc.stdin.write((payload + ("\r\n" if submit else "")).encode(enc, "replace"))
                 self.proc.stdin.flush()
             # ⚠️ Ctrl+C（0x03）**不能**把 busy 置真，而且要立刻清掉。
             #    busy 的语义是"有程序在跑，先别接新命令"；Ctrl+C 恰恰是
@@ -1076,6 +1098,28 @@ class Session:
         #    这一步是幂等的，频繁调用也不会改变已清洗的内容。
         if self.interactive:
             self._sanitize_history()
+
+        # ══ busy 的静默超时 ═══════════════════════════════════════════
+        # busy 的语义是「前台有命令在跑」。但它的置真只能靠"发过命令"这个
+        # 事件推断 —— 而"命令已经结束"必须靠提示符回来看出来。
+        #
+        # ⚠️ POSIX 管道模式下 sh **不打印提示符**（stdout 不是 TTY），
+        #    提示符判定永远等不到 → `ls` / `cd` / `echo` 这类秒回的命令
+        #    会一直标着 running。用户看到的就是"我根本没跑东西，
+        #    为什么会话显示运行中"。
+        #
+        # 判据：**超过 BUSY_SILENCE 秒没有任何输出** ⇒ 前台不可能还在跑
+        #      （真在跑的命令，要么持续输出，要么至少会占着终端不返回；
+        #        完全静默说明已经回到等待输入）。
+        # ⚠️ **只对管道模式生效**。PTY 模式下提示符会先一步把 busy 清掉，
+        #    而 `sleep 60` 这种"长时间静默但确实在跑"的命令，提示符
+        #    不会出现 → busy 必须保持为真。两边都用静默超时的话，
+        #    sleep 到 1.2s 就被误判成空闲了。
+        #    管道模式没有提示符可用，只能退而求其次用静默兜底。
+        if self.busy and not self.done and getattr(self, "pty", None) is None:
+            silent_for = time.time() - self.updated
+            if silent_for >= self.BUSY_SILENCE_SEC:
+                self.busy = False
 
         out = {
             "lines": self.lines[-600:],
