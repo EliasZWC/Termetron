@@ -123,26 +123,72 @@ def cmd_new(args) -> int:
     return 0
 
 
+def _live_status(port: int = 8899) -> dict | None:
+    """向**运行中的服务端**要实时隧道状态。
+
+    ⚠️ 不能靠本地新建一个 RemoteMgr 来判断"哪条在跑"：
+       那个实例的 .code 永远是 None（它没有启动过隧道），
+       所以 ACTIVE 列会一直全空 —— 之前就是这样，用户看不出隧道有没有运行。
+       真实状态只存在于跑着隧道的那个进程里，只能通过 API 问它。
+
+    返回 None 表示服务端没在运行（此时所有隧道都不可能在跑）。
+    """
+    base = _service_base(port)
+    if not base:
+        return None
+    try:
+        with urllib.request.urlopen(base + "/api/remote/status", timeout=5) as r:
+            return json.loads(r.read() or b"{}")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def cmd_list(args) -> int:
     m = _mgr()
     tunnels = m.load_tunnels()
     if not tunnels:
         print("  No tunnels yet. Create one with:  termetron new [label]")
         return 0
+
+    st = _live_status(getattr(args, "port", 8899))
+    running = bool(st and st.get("status") == "on")
+    live_code = (st.get("code") or "").upper() if running else ""
+    url = st.get("url") if running else None
+
     items = sorted(tunnels.values(), key=lambda t: t.get("createdAt") or 0,
                    reverse=True)
-    active = (m.code or "").upper()
     print()
-    print(f"  {'CODE':<8} {'LABEL':<20} {'CREATED':<18} ACTIVE")
-    print(f"  {'-'*8} {'-'*20} {'-'*18} {'-'*6}")
+    print(f"  {'CODE':<8} {'LABEL':<18} {'CREATED':<18} {'STATE':<10} URL")
+    print(f"  {'-'*8} {'-'*18} {'-'*18} {'-'*10} {'-'*40}")
     for t in items:
         code = str(t.get("code") or "")
-        mark = "*" if code.upper() == active else ""
-        print(f"  {code:<8} {(t.get('label') or '-'):<20} "
-              f"{_fmt_ts(t.get('createdAt')):<18} {mark}")
+        if live_code and code.upper() == live_code:
+            state = "RUNNING"
+            cell = url or "(starting)"
+        else:
+            state = "idle"
+            cell = "-"
+        print(f"  {code:<8} {(t.get('label') or '-'):<18} "
+              f"{_fmt_ts(t.get('createdAt')):<18} {state:<10} {cell}")
+
     print()
-    print("  (* = currently running in this process)")
-    print("  Passwords are never listed. Re-create a tunnel if you lost one.")
+    if st is None:
+        print("  server: NOT RUNNING - no tunnel can be active.")
+        print("  start it with:  termetron --remote")
+    elif running:
+        print(f"  server: running, tunnel {live_code} is UP")
+        print()
+        # 独立一行，方便直接复制粘贴进 App 的 Address 字段。
+        # 正常情况下 App 会自动跟随这个地址，只有它彻底失效时才需要手填。
+        print(f"  address for the app:  {url}")
+    elif st.get("status") == "starting":
+        print("  server: running, tunnel is STARTING (no URL yet)")
+    elif st.get("status") == "error":
+        print(f"  server: running, tunnel ERROR: {st.get('error')}")
+    else:
+        print("  server: running, but no tunnel is open")
+        print("  open one with:  termetron remote")
+    print("  Passwords are never listed.")
     print()
     return 0
 
@@ -154,11 +200,23 @@ def cmd_show(args) -> int:
     if not t:
         print(f"  No such tunnel: {code}", file=sys.stderr)
         return 1
+    st = _live_status(getattr(args, "port", 8899))
+    running = bool(st and st.get("status") == "on"
+                   and (st.get("code") or "").upper() == code)
     print()
     print(f"    Tunnel Code : {t.get('code')}")
     print(f"    Label       : {t.get('label') or '-'}")
     print(f"    Created     : {_fmt_ts(t.get('createdAt'))}")
     print(f"    Password    : (not shown - stored; re-create if lost)")
+    if running:
+        print(f"    State       : RUNNING")
+        print(f"    URL         : {st.get('url') or '(starting)'}")
+    elif st is None:
+        print(f"    State       : not running (server is down)")
+    elif st.get("status") == "starting":
+        print(f"    State       : starting")
+    else:
+        print(f"    State       : not running")
     print()
     return 0
 
@@ -370,7 +428,9 @@ def main() -> int:
                             "omit to be prompted, pass '' to auto-generate")
     p_new.set_defaults(func=cmd_new)
 
-    p_list = sub.add_parser("list", help="list tunnels")
+    p_list = sub.add_parser("list", help="list tunnels and which one is running")
+    p_list.add_argument("--port", type=int, default=8899,
+                        help="server port to query for live status (default 8899)")
     p_list.set_defaults(func=cmd_list)
 
     p_show = sub.add_parser("show", help="show one tunnel")

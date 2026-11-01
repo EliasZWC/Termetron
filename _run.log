@@ -1,0 +1,7 @@
+[termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
+[termetron] conpty import failed (module 'ctypes' has no attribute 'WinDLL'); interactive programs will not work
+[termetron] restored 2 session(s): persist-test, shell
+Termetron running at http://0.0.0.0:8899  (explicit --host)
+[termetron] tunnel url: https://processors-locked-lan-executed.trycloudflare.com
+[termetron] tunnel on  code=RT9M7T
+[termetron] URL: https://processors-locked-lan-executed.trycloudflare.com

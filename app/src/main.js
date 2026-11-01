@@ -1819,18 +1819,17 @@ const CONN_FORM_BODY = `
     <input class="tmt-input tmt-conn-pass" type="password"
            autocomplete="off" spellcheck="false" placeholder="••••••••">
   </label>
-  <!-- 地址默认折叠：它由「刷新」按隧道码自动发现并改写，不是用户该操心的事。
-       只有自动发现彻底失败时才需要人工指定，所以收进「高级」。 -->
-  <details class="tmt-adv">
-        <summary class="tmt-adv-summary" data-i18n="conn.advanced">Advanced</summary>
-    <label class="tmt-field tmt-adv-body">
-      <span class="tmt-field-label" data-i18n="conn.address">Address</span>
-      <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
-             autocomplete="off" autocapitalize="off" spellcheck="false"
-             placeholder="https://xxxx.trycloudflare.com">
-      <span class="tmt-field-hint" data-i18n="conn.addressHint">Usually filled in automatically.</span>
-    </label>
-  </details>
+<!-- 地址：**可选**，但它必须看得见。
+       自动接管只在「手里还有一个能连的地址」时才生效；地址彻底失效
+       （隧道换过好几次、或换了一台机器）时，这里是唯一的救场入口。
+       藏在「高级」折叠里等于让人无从下手 —— 实测用户会卡在这里。 -->
+  <label class="tmt-field">
+    <span class="tmt-field-label" data-i18n="conn.address">Address</span>
+    <input class="tmt-input tmt-conn-addr" type="url" inputmode="url"
+           autocomplete="off" autocapitalize="off" spellcheck="false"
+           placeholder="https://xxxx.trycloudflare.com">
+    <span class="tmt-field-hint" data-i18n="conn.addressHint">Filled in automatically when you reconnect.</span>
+  </label>
   <p class="tmt-conn-status" hidden></p>
   <button class="tmt-conn-test" type="button" data-i18n="conn.test">TEST CONNECTION</button>
 `;
@@ -1850,22 +1849,16 @@ function openConnectionForm() {
       codeEl.value = settings.tunnelCode || '';
       passEl.value = settings.tunnelPassword || '';
       addrEl.value = baseUrl() || '';
-      // 没有可用地址时（首次配置 / 自动发现全挂），把「高级」展开 ——
-      // 此刻地址是唯一能救场的东西，收着就不合理了。
-      if (!addrEl.value) {
-        const adv = bodyEl.querySelector('.tmt-adv');
-        if (adv) adv.open = true;
-      }
-      // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
-      bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
-        el.textContent = i18n(el.dataset.i18n);
-      });
 
       const say = (msg, kind) => {
         stat.textContent = msg;
         stat.hidden = !msg;
         stat.dataset.kind = kind || '';
       };
+      // 表单内文案也要跟随语言（body 是模板字符串，写死的是英文）
+      bodyEl.querySelectorAll('[data-i18n]').forEach((el) => {
+        el.textContent = i18n(el.dataset.i18n);
+      });
       // 地址归一化：允许 https://域名、http://ip:port；裸地址自动补 http。
       const normalize = (raw) => {
         if (!raw) return '';
@@ -2051,7 +2044,10 @@ async function refreshConnection(silent = false) {
       okText: i18n('action.editAddress'),
       cancelText: i18n('action.cancel'),
     });
-    if (ok) openConnectionForm();
+    if (ok) {
+      // 直接打开表单：地址现在就在主表单上，一眼可见
+      openConnectionForm();
+    }
     return false;
   }
   await refreshSessions();
