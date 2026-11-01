@@ -15,6 +15,8 @@ Open http://127.0.0.1:8899 in a browser.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import platform
@@ -27,6 +29,14 @@ import threading
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# 隧道会话 cookie：/api/tunnel/verify 成功后下发，供后续受保护接口认证。
+# ⚠️ 与老的「一次性密码 + 设备配对」用的 qt_auth cookie 是两套，互不干扰：
+#    · qt_auth      = token:device_key → 需要电脑上人工 allow
+#    · tmt_session  = HMAC(密码, 隧道码) → 知道密码即可，无需人工介入
+#    后者才是「扫个码填个密码就能用」的那条路。
+TUNNEL_COOKIE = "tmt_session"
+TUNNEL_COOKIE_TTL = 30 * 24 * 3600   # 30 天
 
 # 会话输出持久化（见 tools/session_log.py）。
 # ⚠️ 用 try/except 而不是硬导入：发布包里可能没有 tools/（namespace package
@@ -2591,6 +2601,41 @@ class RemoteMgr:
         # 定长比较，避免把密码长度/前缀泄露给爆破者
         return secrets.compare_digest(str(t.get("password") or ""), str(password or ""))
 
+    def tunnel_session_token(self, code: str) -> str:
+        """给「已验证过的隧道码」签一个会话 token，用于后续接口认证。
+
+        ⚠️ 为什么需要这个：/api/tunnel/verify 只是"证明我知道密码"，
+           但 App 后续要调 /api/sessions 等受保护接口。原来这些接口只认
+           「一次性密码 + 设备配对」的 cookie，而 App 从来不走那套流程 ——
+           结果是"测试连接成功，但什么都干不了"。
+
+        做法：token = HMAC(密码, 隧道码)。这样
+          · 服务端不用存任何额外状态，重启也不失效（只要隧道还在）；
+          · 知道密码的人才能算出同一个 token，别人伪造不了；
+          · 换密码 = 旧 token 立刻失效（因为密钥变了），符合直觉。
+        """
+        t = self.find_tunnel(code)
+        if not t:
+            return ""
+        pw = str(t.get("password") or "")
+        if not pw:
+            return ""
+        msg = f"session:{(code or '').strip().upper()}".encode()
+        return hmac.new(pw.encode(), msg, hashlib.sha256).hexdigest()
+
+    def check_session_token(self, token: str) -> bool:
+        """校验 token 是否属于**当前正在运行的那条隧道**。
+
+        ⚠️ 不能遍历所有隧道：那样只要知道任意一条隧道的密码，就能访问
+           另一条隧道的数据 —— 越权的经典形态。只认 self.code。
+        """
+        if not token or not self.code:
+            return False
+        expect = self.tunnel_session_token(self.code)
+        if not expect:
+            return False
+        return secrets.compare_digest(expect, token)
+
     def delete_tunnel(self, code: str) -> bool:
         tunnels = self.load_tunnels()
         key = (code or "").strip().upper()
@@ -2963,8 +3008,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, obj: dict, code: int = 200) -> None:
-        self._send(code, json.dumps(obj).encode(), "application/json")
+    def _json(self, obj: dict, code: int = 200,
+              extra_headers: dict | None = None) -> None:
+        self._send(code, json.dumps(obj).encode(), "application/json",
+                   extra_headers=extra_headers)
 
     # 字体：与 Scholarius / Livolog 同一份 Sarasa Mono SC 子集（放在 app/public/fonts/，
     # 构建后也会被 vite 拷到 www/fonts/）。这里直接读源文件，保证桌面端/手机端是同一份字体。
@@ -3034,16 +3081,27 @@ class Handler(BaseHTTPRequestHandler):
         if REMOTE.status != "on":
             return True
         cookie = self.headers.get("Cookie") or ""
+        parts = {}
         for part in cookie.split(";"):
             part = part.strip()
-            if not part.startswith("qt_auth="):
-                continue
-            val = part[len("qt_auth="):]
+            if "=" in part:
+                k, _, v = part.partition("=")
+                parts[k.strip()] = v.strip()
+
+        # ① 隧道会话 cookie（扫码/输密码即得，无需人工配对）
+        #    这是手机端的主路径：/api/tunnel/verify 成功后由服务端下发。
+        sess = parts.get(TUNNEL_COOKIE)
+        if sess and REMOTE.check_session_token(sess):
+            return True
+
+        # ② 老的设备配对 cookie：token:device_key，且 device_key 在 allowed 里
+        val = parts.get("qt_auth")
+        if val:
             tok, _, key = val.partition(":")
-            if tok != (REMOTE.token or "") or not key:
-                return False
-            with REMOTE.lock:
-                return key in REMOTE.allowed
+            if tok == (REMOTE.token or "") and key:
+                with REMOTE.lock:
+                    return key in REMOTE.allowed
+            return False
         return False
 
     def _stream_session(self, s) -> None:
@@ -3159,12 +3217,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "tunnels": items})
         elif path == "/api/tunnel/verify":
             # 用「隧道码 + 密码」确认身份。这是 URL 变化后接力时的信任锚。
+            #
+            # ⚠️ 成功时**必须下发认证 cookie**，否则手机只能"验证成功"却
+            #    访问不了任何接口：/api/sessions 等都需要 _authed()，而 App
+            #    从来没有走过一次性密码 + 设备配对那套老流程。
+            #    表现就是"测试连接成功，但新建会话/刷新列表全失败"。
+            #    cookie 里放的是隧道码的派生签名，不是密码本身。
             code = self._query("code")
             if REMOTE.verify(code, self._query("password")):
+                key = (code or "").strip().upper()
+                tok = REMOTE.tunnel_session_token(key)
                 self._json({
                     "ok": True,
-                    "tunnelCode": (code or "").strip().upper(),
+                    "tunnelCode": key,
                     "tunnelUrl": REMOTE.url,
+                }, extra_headers={
+                    # HttpOnly：JS 读不到，降低 XSS 窃取风险
+                    # Secure + SameSite=None：隧道是跨站请求（App 在 localhost，
+                    #   服务在 *.trycloudflare.com），不带 None 浏览器会拒收。
+                    "Set-Cookie": (
+                        f"{TUNNEL_COOKIE}={tok}; Path=/; "
+                        f"Max-Age={TUNNEL_COOKIE_TTL}; Secure; HttpOnly; SameSite=None"
+                    ),
                 })
             else:
                 # 不区分「码不存在」和「密码错」——避免被用来枚举有效隧道码

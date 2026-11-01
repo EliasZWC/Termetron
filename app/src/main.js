@@ -367,6 +367,9 @@ async function resolveBase() {
         const q = `code=${encodeURIComponent(code)}&password=${encodeURIComponent(password)}`;
         const res = await fetch(`${base}/api/tunnel/verify?${q}`, {
           signal: ac.signal,
+          // 这一步同时负责「获取认证 cookie」—— 服务端在校验通过时下发
+          // tmt_session，后续所有请求靠它过关。不 include 就白验一遍。
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
         });
         if (!res.ok) throw new Error('verify failed');
@@ -431,6 +434,12 @@ async function api(path, opts = {}) {
   try {
     const res = await fetch(base + path, {
       ...rest,
+      // ⚠️ credentials: 'include' 必须有。
+      //    服务端在 /api/tunnel/verify 成功后下发 tmt_session cookie，
+      //    后续接口靠它认证。App 的页面在 https://localhost，API 在
+      //    *.trycloudflare.com —— 跨站请求，不显式声明就不会带 cookie，
+      //    表现就是"测试连接成功，但列表为空、新建会话失败"。
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...(rest.headers || {}) },
       signal: ac.signal,
     });
@@ -2006,6 +2015,7 @@ function openConnectionForm() {
           if (code && pass) {
             const q = `code=${encodeURIComponent(code)}&password=${encodeURIComponent(pass)}`;
             const res = await fetch(`${url}/api/tunnel/verify?${q}`, {
+              credentials: 'include',   // 顺带把认证 cookie 拿到手
               headers: { 'Content-Type': 'application/json' },
               signal: ac.signal,
             });
