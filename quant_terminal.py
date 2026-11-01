@@ -792,7 +792,25 @@ class Session:
             return cmd
         # ⚠️ 用模块级常量 CWD_MARK（不是 self.CWD_MARK —— 那是 AttributeError，
         #    实测报 `'Session' object has no attribute 'CWD_MARK'`）。
-        return f'{cmd}; echo "{CWD_MARK}" "$PWD"'
+        #
+        # ⚠️ 先在输出里**回显"提示符 + 命令"**，再执行命令：
+        #    真终端敲完回车后，屏幕上会留下 `E:\path>命令` 那一行，
+        #    用户凭它知道自己刚输入过什么。管道模式下如果没有这一步，
+        #    历史里只剩命令的**输出**，看不出输入过什么 —— 用户明确反馈
+        #    "历史输入也应该能看见"。
+        #    格式与 App 的提示符一致（`<cwd> 命令`），拼起来就是一行完整的
+        #    终端交互记录。
+        #    ⚠️ 用单引号包住命令，避免 `$` / 反引号被 shell 二次展开
+        #       （命令本身紧接着会被真实执行一次，这里只是回显）。
+        # ⚠️ 回显格式 `<$PWD$ 命令>`（中间是 `$` 加空格），和 App 的
+        #    提示符（`/path$ `）拼在一起正好是一行完整的终端记录：
+        #    `/path$ echo hi`。少了这个 `$` 就变成
+        #    `/path echo hi`，看不出哪里是提示符、哪里是命令。
+        safe = cmd.replace("'", "'\\''")
+        return (
+            f'printf "%s$ %s\\n" "$PWD" \'{safe}\'; '
+            f'{cmd}; echo "{CWD_MARK}" "$PWD"'
+        )
 
     def _probe_cwd_pipe(self, cmd: str) -> None:
         """兼容旧调用点：单独下发一次探测（仅当命令已由别处写过时用）。"""
@@ -860,12 +878,16 @@ class Session:
                     #    所以这里刻意不做匹配。
                     m = _CMD_ECHO_RE.match(line)
                     if m:
-                        # 命令回显 `E:\code\quant>cmd` → termetron 风格 `$ cmd`（历史里统一显示 termetron 提示符）
+                        # 命令回显 `E:\code\quant>cmd` → `E:\code\quant> cmd`
+                        # ⚠️ 保留**真实路径**而不是换成会话名：用户要靠这行
+                        #    看出"我是在哪个目录敲的这条命令"。会话名在标题栏
+                        #    已经有了，这里再写一遍等于丢掉了唯一的路径信息。
                         cmd = m.group(1).strip()
                         if not cmd:
                             self.pending = None
                             continue
-                        line = f"{self.name} $ {cmd}"
+                        # m 里已经含路径部分，直接从原行截出"提示符 + 命令"
+                        line = line.strip()
                         self.busy = True  # 回显出现 = 有命令在跑
                     self.lines.append(line)
                 self.pending = None

@@ -1214,6 +1214,8 @@ async function openSession(name) {
   //    顺序反了第一次渲染就没有折行宽度。
   await syncTerminalSize();
   await pullOutput();
+  // 进入会话默认停在最新一行（用户想看的是当前状态，不是最早的历史）
+  if (termOut) termOut.scrollTop = termOut.scrollHeight;
   // 首帧用轮询拿一次（保证立即有内容），之后交给推送。
   startStream(name);
   // 进入会话即聚焦输入框：真终端里光标本来就在提示符后面等人敲字。
@@ -1515,13 +1517,14 @@ function renderSnapshot(data) {
     termOut.insertBefore(linesEl, termOut.firstChild);
   }
 
+  // ⚠️ 关键：**刷新前**就要记录"当前是不是在底部"。
+  //    因为下面的 innerHTML 替换会改变 scrollHeight，替换后再判断
+  //    拿到的永远是"不在底部"（内容变高了）。这是滚动跟随最容易写错的地方。
+  const follow = shouldFollowBottom();
+
   if (termOut._last !== html) {
-    // 判断"是否在底部"必须在替换**之前**做（替换后高度已变）
-    const atBottom =
-      termOut.scrollTop + termOut.clientHeight >= termOut.scrollHeight - 24;
     linesEl.innerHTML = html;
     termOut._last = html;
-    if (atBottom) termOut.scrollTop = termOut.scrollHeight;
   }
 
   // 输入行永远排在输出之后（= 最后一行）
@@ -1529,9 +1532,10 @@ function renderSnapshot(data) {
   if (inputLine && termOut.lastElementChild !== inputLine) {
     termOut.appendChild(inputLine);
   }
-  if (inputLine) {
-    scrollInputIntoView();
-  }
+
+  // 只在"原本就在底部"时跟随。用户上翻看历史时这里什么也不做 ——
+  // 否则每次轮询都会把他拽回底部（实测就是这个 bug）。
+  syncScroll(follow);
 
   // 节奏：有程序在跑就加快，空闲放慢。
   // ⚠️ 不要在这里动中断按钮的显隐 —— 它是常驻的（见 showPage 里的说明）。
@@ -1557,22 +1561,64 @@ function renderSnapshot(data) {
 }
 
 /**
- * 把「提示符 + 输入框」那一行滚进视野。
+ * 是否需要"自动跟随到底部"。
  *
- * 真终端里光标永远在最后一行；输出刷新后如果不同步滚动，
- * 输入框会被挤到可视区之外 —— 用户看到的是"输出在动，但我的命令不见了"。
+ * 真终端的语义：只要用户停在底部，新输出就跟随滚动；一旦用户主动往上翻，
+ * 就**停止跟随**，让他安心看历史（真终端 / 手机终端 App 都是这个行为）。
+ *
+ * ⚠️ 之前这里用「输入行是否在视野内」来推断，逻辑正好反了：
+ *    用户往上翻时输入行当然不在视野内 → 判定为"需要滚动" → 强制拽回底部。
+ *    表现就是"一滚动上去就立马跳到最下方"，完全没法看历史。
+ *
+ * 判据应该看**滚动位置**而不是输入行位置：
+ *    距底部 <= FOLLOW_THRESHOLD 就算"在底部"，继续跟随。
  */
-function scrollInputIntoView() {
-  const line = document.getElementById('term-input-line');
-  if (!line || !termOut) return;
-  const lineBottom = line.offsetTop + line.offsetHeight;
-  const visibleBottom = termOut.scrollTop + termOut.clientHeight;
-  // 已经在视野内（留 8px 余量）就不要动，否则每次轮询都强制滚动，
-  // 用户往上翻历史时会一直被拽回底部。
-  if (lineBottom > visibleBottom - 8) {
-    termOut.scrollTop = termOut.scrollHeight;
-  }
+const FOLLOW_THRESHOLD = 48;   // px，容忍一点点抖动和动量滚动
+
+/** 用户是否正在手动滚动（手指按住 / 动量未停）。 */
+let userScrolling = false;
+let scrollIdleTimer = null;
+
+/**
+ * 标记"用户正在滚"，滚停 600ms 后才清除。
+ *
+ * ⚠️ 为什么要单独跟踪而不是只看滚动位置：
+ *    手指按住往上拖的过程中，滚动还没停下，`scrollTop` 是中间值；
+ *    这时如果正好来一次输出刷新，按位置判断可能仍"接近底部"而被拽下去，
+ *    手感就是"滚到一半被抢走"。按住期间一律不跟随。
+ */
+function markUserScrolling() {
+  userScrolling = true;
+  clearTimeout(scrollIdleTimer);
+  scrollIdleTimer = setTimeout(() => { userScrolling = false; }, 600);
 }
+
+function shouldFollowBottom() {
+  if (!termOut) return false;
+  // 用户正在滚 → 一律不跟随（手指优先）
+  if (userScrolling) return false;
+  return termOut.scrollHeight - termOut.scrollTop - termOut.clientHeight
+         <= FOLLOW_THRESHOLD;
+}
+
+/**
+ * 输出刷新后同步滚动。
+ * @param {boolean} follow 刷新前是否处于"跟随"状态
+ *
+ * ⚠️ 只做"跟随"，**不做"拉回"** —— 用户上翻时这里必须是空操作。
+ */
+function syncScroll(follow) {
+  if (!termOut || !follow) return;
+  termOut.scrollTop = termOut.scrollHeight;
+}
+
+// 记录用户的滚动意图：只要 term-out 被滚过，就暂停自动跟随。
+// ⚠️ passive: true —— 这是个"只观察不干预"的监听，不能让浏览器等 JS，
+//    否则移动端滚动会明显发涩。
+termOut?.addEventListener('scroll', markUserScrolling, { passive: true });
+// 手指按下/拖动也立即标记（touchstart 比 scroll 早，能提前抢到判断）
+termOut?.addEventListener('touchstart', markUserScrolling, { passive: true });
+termOut?.addEventListener('wheel', markUserScrolling, { passive: true });
 
 async function pullOutput() {
   if (!currentSession || currentPage !== 'terminal') return;
@@ -1590,6 +1636,9 @@ termForm.addEventListener('submit', async (e) => {
   const text = termInput.value;
   if (!currentSession) return;
   termInput.value = '';
+  // 发命令 = 明确的"继续交互"意图 → 无条件回到底部。
+  // 用户可能正翻着历史，但一旦敲了命令，他想看的就是这条命令的结果。
+  if (termOut) termOut.scrollTop = termOut.scrollHeight;
   try {
     await api(`/api/sessions/${encodeURIComponent(currentSession)}/input`, {
       method: 'POST',
