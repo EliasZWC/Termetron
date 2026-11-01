@@ -680,6 +680,8 @@ async function refreshSessions() {
   } catch (err) {
     // 连不上时列表里本来也没有会话 → 保留空状态。
     console.warn('[termetron] refreshSessions failed', err);
+    // 断线：安排一次有上限的自动重连（内部会判断是否已用完次数）
+    noteConnectionLost();
   }
 }
 
@@ -1367,6 +1369,9 @@ document.addEventListener('visibilitychange', () => {
     // 切到后台时浏览器会关掉 SSE；回前台重连，重连前先用轮询兜着。
     startStream(currentSession);
   }
+  // 回到前台 = 新的一轮：重试次数归零。
+  // 用户可能刚路由好网络 / 电脑刚开机完成，不该因为上次用完 5 次就永远不试了。
+  if (!document.hidden) resetAutoRetry();
 });
 
 // 离开终端页时停止轮询
@@ -1994,6 +1999,8 @@ let connPressTimer = null;
 document.getElementById('btn-conn')?.addEventListener('click', async (e) => {
   // 双击 / 长按 → 打开配置
   if (e.detail > 1 || connPressTimer === 'long') return;
+  // 用户手动点刷新 = 显式重来一轮，重试配额重置
+  resetAutoRetry();
   await refreshConnection();
 });
 document.getElementById('btn-conn')?.addEventListener('contextmenu', (e) => {
@@ -2019,33 +2026,79 @@ document.getElementById('btn-conn')?.addEventListener('pointercancel', () => {
 /**
  * 刷新连接：用隧道码校验并接管新地址，然后重新拉会话。
  * 出错时给出**可操作**的说明，而不是一句"连接失败"。
+ *
+ * `silent`：后台自动重试用，失败不弹窗（否则每次重试都弹一个框）。
  */
-async function refreshConnection() {
+async function refreshConnection(silent = false) {
   if (!hasConnection() && !settings.tunnelCode) {
     openConnectionForm();
-    return;
+    return false;
   }
   // 进度弹窗：远程连接可能耗时数秒（要逐个试候选地址），
   // 不给反馈的话用户会以为按钮没反应，反复去点。
-  const prog = showConnProgress(i18n('conn.refreshing'));
+  const prog = silent ? null : showConnProgress(i18n('conn.refreshing'));
   let base = '';
   try {
     base = await resolveBase();
   } finally {
-    prog.close();
+    prog?.close();
   }
   if (!base) {
     // 所有候选都不通：可能隧道重建到全新地址了
+    if (silent) return false;
     const ok = await tmtConfirm(i18n('conn.allLost'), {
       title: i18n('conn.title'),
       okText: i18n('action.editAddress'),
       cancelText: i18n('action.cancel'),
     });
     if (ok) openConnectionForm();
-    return;
+    return false;
   }
   await refreshSessions();
-  tmtToast(i18n('conn.refreshed'));
+  if (!silent) tmtToast(i18n('conn.refreshed'));
+  return true;
+}
+
+// ── 断线自动重试（有上限，绝不死循环）─────────────────────────────────
+// 用户明确要求：自动重试，但必须限次数 —— 万一服务端真的没了，
+// 无上限重试只会让 App 一直空转、耗电、发热，还掩盖了"确实连不上"的事实。
+//
+// 策略：指数退避，总次数封顶。用完之后停在"未连接"，等用户手动点刷新
+// 或重新进入 App 才会再来一轮（见 resetAutoRetry 的调用点）。
+const AUTO_RETRY_MAX = 5;
+const AUTO_RETRY_BASE_MS = 2000;   // 2s, 4s, 8s, 16s, 32s
+let autoRetryCount = 0;
+let autoRetryTimer = null;
+
+function stopAutoRetry() {
+  if (autoRetryTimer) {
+    clearTimeout(autoRetryTimer);
+    autoRetryTimer = null;
+  }
+}
+
+/** 每轮重试的起点：进入 App、切回前台、用户手动刷新时调用。 */
+function resetAutoRetry() {
+  stopAutoRetry();
+  autoRetryCount = 0;
+}
+
+function scheduleAutoRetry() {
+  // 已经连上 / 还在重试队列里 / 用完次数 → 不再排
+  if (autoRetryTimer || autoRetryCount >= AUTO_RETRY_MAX) return;
+  const delay = AUTO_RETRY_BASE_MS * Math.pow(2, autoRetryCount);
+  autoRetryCount += 1;
+  autoRetryTimer = setTimeout(async () => {
+    autoRetryTimer = null;
+    const ok = await refreshConnection(true);
+    if (!ok) scheduleAutoRetry();
+  }, delay);
+}
+
+/** App 内任意请求失败时调用：安排一次（有上限的）自动重连。 */
+function noteConnectionLost() {
+  if (autoRetryCount >= AUTO_RETRY_MAX) return;
+  scheduleAutoRetry();
 }
 
 // 连接进度弹窗：与更新弹窗（updater.js 的 .ut-*）保持同一套视觉语言。
@@ -2122,6 +2175,7 @@ if (splashEl) {
 //    showPage 就会因为 null.textContent 抛错中断，导致整个启动序列
 //    （包括会话列表刷新和空状态）全部静默失效。
 function bootstrap() {
+  resetAutoRetry();   // 每次启动都是一轮新的重试配额
   setLang(settings.language);
   applyI18n();
   applyTheme();    // 内部会调 syncNativeBars；此时 splashActive=true → 状态栏=启动页色

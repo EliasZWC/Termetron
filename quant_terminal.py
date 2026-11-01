@@ -2724,10 +2724,16 @@ class RemoteMgr:
            cloudflared 重连后如果打印了**新 URL**（进程没退出但隧道被边缘
            重新分配），我们仍抱着旧 URL 去探测，永远失败，手机也连不上。
            现在持续读，URL 一变就更新（并记日志，便于排查）。
+
+        ⚠️ **必须校验进程归属**：URL 轮换时新旧两个 cloudflared 会短暂并存，
+           两个读线程同时在跑。旧进程的线程如果继续写 self.url，会把地址
+           改回即将关闭的旧 URL —— 手机被指过去，然后旧隧道一关就断线。
+           所以只有**当前** self.proc 的输出才允许改 self.url。
         """
+        proc = self.proc
         last = None
         try:
-            for line in self.proc.stdout:  # type: ignore[union-attr]
+            for line in proc.stdout:  # type: ignore[union-attr]
                 m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
                 if not m:
                     continue
@@ -2736,11 +2742,13 @@ class RemoteMgr:
                     continue
                 last = url
                 with self.lock:
+                    # 已不是当前进程 → 这是交接期被淘汰的旧隧道，忽略
+                    if self.proc is not proc:
+                        continue
                     self.url = url
                     self.status = "on"
                     self._probe_fail = 0
-                if last:
-                    print(f"[termetron] tunnel url: {url}")
+                print(f"[termetron] tunnel url: {url}")
         except Exception:  # noqa: BLE001
             pass
 
