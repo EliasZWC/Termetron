@@ -7,10 +7,16 @@
 #   ./termetron --local-only    # 只监听 127.0.0.1
 #   ./termetron --host 0.0.0.0
 #
-# 安装成全局命令（任选其一）：
+# 安装成全局命令（**只推荐软链接**）：
 #   sudo ln -s "$PWD/termetron" /usr/local/bin/termetron
-#   # 或者
-#   sudo cp termetron /usr/local/bin/ && sudo chmod +x /usr/local/bin/termetron
+#
+# 也可以装到家目录（不需要 sudo）：
+#   ln -s "$PWD/termetron" ~/termetron
+#
+# ⚠️ 不要用 cp 复制！复制出来的是一份**静态快照**：
+#    项目里改了代码，全局命令还是旧的，表现为「明明改好了却没生效」
+#    （实测踩过：二维码功能加了，执行 termetron remote 仍是旧输出）。
+#    软链接始终指向项目里的那一份，永远不会过期。
 #
 # ⚠️ 为什么用 sh 包装而不是直接跑 python：
 #    · 手机端要填的 IP 需要打印出来，包装脚本能顺手做这件事
@@ -29,6 +35,19 @@ while [ -L "$SELF" ]; do
     esac
 done
 DIR=$(cd "$(dirname "$SELF")" && pwd)
+
+# 自检：脚本必须和 quant_terminal.py 在同一个目录。
+# 不满足就说明这是一份**孤立的拷贝**（比如从项目里 cp 出来的），
+# 它不会跟着项目更新 —— 表现为「代码明明改了却看不到变化」。
+# 宁可明确报错，也不要让人去猜为什么改动没生效。
+if [ ! -f "$DIR/quant_terminal.py" ]; then
+    echo "[termetron] error: quant_terminal.py not found next to this launcher." >&2
+    echo "[termetron]   This looks like a copied file, not a symlink:  $SELF" >&2
+    echo "[termetron]   A copy never picks up project updates." >&2
+    echo "[termetron]   Replace it with a symlink instead:" >&2
+    echo "[termetron]     ln -sf /path/to/Termetron/termetron $SELF" >&2
+    exit 1
+fi
 
 # 选 Python：优先 python3（Linux/WSL），回退 python（部分发行版/Windows Git Bash）
 PY=""
