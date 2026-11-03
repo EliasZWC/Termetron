@@ -951,6 +951,15 @@ async function refreshSessions() {
     for (const n of Array.from(bulkMode.selected)) {
       if (!names.includes(n)) bulkMode.selected.delete(n);
     }
+    // ⚠️⚠️ 必须先清空再重建。
+    //    之前这里只 appendChild、从不 clear —— 后果有两个，都很严重：
+    //      1. 同一个会话在列表里出现**多份**（每次刷新都再追加一遍）；
+    //      2. 在别处删掉的会话，它的 DOM 行**永远留在列表里**
+    //         （用户看到"看不见了却还提示已存在"的另一半原因：
+    //          行还占着位置，点进去 404，新建时又撞名）。
+    //    clear() 是唯一能保证「列表 == 服务端状态」的做法。
+    if (list) list.innerHTML = '';
+
     let ok = 0;
     for (const n of names) {
       try {

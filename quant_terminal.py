@@ -28,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -3556,9 +3557,17 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001
                 self._json({"ok": False, "error": "qrcode not installed"}, 400)
                 return
-            # 安全：二维码只含 URL，不含一次性密码（密码单独在屏幕上显示、面对面输入）
-            # ——否则扫码即得密码，一次性密码保护形同虚设（二维码可能被截图转发）
-            payload = REMOTE.url
+            # ⚠️ 二维码内容必须是 **termetron://pair?code=&url=** 协议串，
+            #    不能是裸 URL。App 的 scanPairQr() 用
+            #    `raw.startsWith('termetron://pair')` 判断是否本应用指令，
+            #    裸 URL 会被判成 foreign（"这不是 Termetron 的码"），
+            #    于是扫码看似成功、表单却没填上，接着测试连接自然失败。
+            #    格式与 termqr.py 的 payload() / CLI 的 `termetron remote`
+            #    完全一致 —— 三条入口共用一种格式，改一处即可。
+            payload = (
+                "termetron://pair?code=" + urllib.parse.quote(REMOTE.code or "")
+                + "&url=" + urllib.parse.quote(REMOTE.url, safe="")
+            )
             qr = qrcode.QRCode(border=1, box_size=1)
             qr.add_data(payload)
             qr.make(fit=True)
